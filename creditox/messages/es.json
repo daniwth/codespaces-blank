@@ -1,0 +1,18 @@
+{
+  "Navigation": {
+    "home": "Inicio",
+    "dashboard": "Panel",
+    "login": "Iniciar Sesión",
+    "register": "Registrarse"
+  },
+  "LandingPage": {
+    "heroTitle": "CréditoX: La Banca del Futuro, Hoy.",
+    "heroSubtitle": "Gestiona tus créditos (CRD) y dólares (USD) en una plataforma segura, moderna y fácil de usar."
+  },
+  "LoginPage": {
+    "title": "Inicia sesión en tu cuenta",
+    "emailLabel": "Correo electrónico",
+    "passwordLabel": "Contraseña",
+    "buttonText": "Iniciar Sesión"
+  }
+}

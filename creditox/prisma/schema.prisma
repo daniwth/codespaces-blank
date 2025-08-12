@@ -1,0 +1,475 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ENUMS
+
+enum UserRole {
+  CUSTOMER
+  ADMIN
+}
+
+enum KycStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum TransactionType {
+  CREDIT
+  DEBIT
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum TransferStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum CardStatus {
+  ACTIVE
+  FROZEN
+  TERMINATED
+}
+
+enum LoanStatus {
+  PENDING
+  ACTIVE
+  PAID_OFF
+  DEFAULTED
+}
+
+enum LoanScheduleType {
+  FRENCH
+  AMERICAN
+}
+
+enum RepaymentStatus {
+  PENDING
+  PAID
+  OVERDUE
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  CLOSED
+}
+
+enum AuditLogAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  TRANSFER_INTERNAL
+  TRANSFER_EXTERNAL
+  API_KEY_CREATE
+  FEATURE_FLAG_TOGGLE
+}
+
+// AUTH MODELS (NextAuth.js)
+
+model Account {
+    id                String  @id @default(cuid())
+    userId            String
+    type              String
+    provider          String
+    providerAccountId String
+    refresh_token     String? @db.Text
+    access_token      String? @db.Text
+    expires_at        Int?
+    token_type        String?
+    scope             String?
+    id_token          String? @db.Text
+    session_state     String?
+
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    @@unique([provider, providerAccountId])
+    @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Custom fields
+  device       String?
+  ipAddress    String?
+  @@map("sessions")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+
+  // Custom fields for CreditoX
+  passwordHash  String? // Null for OAuth users
+  twoFactorSecret String?
+  role          UserRole     @default(CUSTOMER)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  // Relations
+  accounts      Account[]
+  sessions      Session[]
+  kycProfile    KycProfile?
+  bankAccounts  BankAccount[]
+  loans         Loan[]
+  vaults        SavingsVault[]
+  supportTickets Ticket[]
+  auditLogs     AuditLog[]
+  apiKey        ApiKey?
+
+  @@map("users")
+}
+
+model VerificationToken {
+    identifier String
+    token      String   @unique
+    expires    DateTime
+
+    @@unique([identifier, token])
+    @@map("verification_tokens")
+}
+
+// APP MODELS
+
+model ApiKey {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  hashedKey   String   @unique
+  prefix      String   @unique
+  createdAt   DateTime @default(now())
+  lastUsedAt  DateTime?
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  webhooks    Webhook[]
+}
+
+model Webhook {
+  id          String    @id @default(cuid())
+  apiKeyId    String
+  url         String
+  secret      String
+  events      String[] // e.g., ["transfer.completed", "loan.repayment.due"]
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  apiKey      ApiKey    @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+  deliveries  WebhookDelivery[]
+
+  @@index([apiKeyId])
+}
+
+model WebhookDelivery {
+  id            String    @id @default(cuid())
+  webhookId     String
+  event         String
+  payload       Json
+  statusCode    Int
+  responseBody  String?
+  deliveredAt   DateTime  @default(now())
+
+  webhook       Webhook   @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([webhookId])
+}
+
+model KycProfile {
+  id           String    @id @default(cuid())
+  userId       String    @unique
+  status       KycStatus @default(PENDING)
+  firstName    String
+  lastName     String
+  dateOfBirth  DateTime
+  addressLine1 String
+  addressLine2 String?
+  city         String
+  state        String
+  postalCode   String
+  country      String
+  documentType String // e.g., PASSPORT, DRIVERS_LICENSE
+  documentId   String
+  documentFrontImageUrl String?
+  documentBackImageUrl  String?
+  submittedAt  DateTime  @default(now())
+  reviewedAt   DateTime?
+  reviewedBy   String? // Admin user ID
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model BankAccount {
+  id             String        @id @default(cuid())
+  userId         String
+  accountNumber  String        @unique @default(cuid()) // Simplified account number
+  currency       String        @default("CRD")
+  balance_cCRD   BigInt        @default(0) // Storing as centiCRD (integer)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+  cards        Card[]
+  statements   Statement[]
+  sentTransfers Transfer[] @relation("FromAccount")
+  receivedTransfers Transfer[] @relation("ToAccount")
+
+  @@index([userId])
+}
+
+model Transaction {
+  id           String          @id @default(cuid())
+  accountId    String
+  type         TransactionType
+  amount_cCRD  BigInt
+  amount_usd_cents_derived BigInt
+  fxRateAtTime Decimal
+  category     String
+  description  String
+  status       TransactionStatus @default(PENDING)
+  reference    String?         @unique // For linking to transfers, loan repayments, etc.
+  createdAt    DateTime        @default(now())
+  completedAt  DateTime?
+
+  account BankAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+}
+
+model Transfer {
+  id              String         @id @default(cuid())
+  fromAccountId   String
+  toAccountId     String?        // Null for external transfers
+  externalRef     String?        // e.g., IBAN for external transfers
+  amount_cCRD     BigInt
+  fee_cCRD        BigInt         @default(0)
+  scheduledAt     DateTime?
+  recurringRule   String?        // e.g., an iCal RRULE string
+  status          TransferStatus @default(PENDING)
+  createdAt       DateTime       @default(now())
+  completedAt     DateTime?
+
+  fromAccount BankAccount @relation("FromAccount", fields: [fromAccountId], references: [id], onDelete: Cascade)
+  toAccount   BankAccount? @relation("ToAccount", fields: [toAccountId], references: [id], onDelete: NoAction)
+
+  @@index([fromAccountId])
+  @@index([toAccountId])
+}
+
+model Card {
+  id             String     @id @default(cuid())
+  accountId      String
+  maskedPan      String     // e.g., "************1234"
+  token          String     @unique // Simulated token, not the real PAN
+  cvvDynamicSeed String     // Seed to generate dynamic CVVs
+  expiryMonth    Int
+  expiryYear     Int
+  status         CardStatus @default(ACTIVE)
+  isDisposable   Boolean    @default(false)
+  createdAt      DateTime   @default(now())
+
+  account BankAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  limits  CardLimit[]
+
+  @@index([accountId])
+}
+
+model CardLimit {
+  id          String   @id @default(cuid())
+  cardId      String
+  mcc         String?  // Merchant Category Code, null for general limit
+  amount_cCRD BigInt
+  period      String   // e.g., "DAILY", "MONTHLY", "TRANSACTION"
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([cardId])
+}
+
+model Loan {
+  id               String           @id @default(cuid())
+  userId           String
+  principal_cCRD   BigInt
+  rateAPR          Decimal          // Annual Percentage Rate, e.g., 0.05 for 5%
+  termMonths       Int
+  scheduleType     LoanScheduleType @default(FRENCH)
+  status           LoanStatus       @default(PENDING)
+  nextDueDate      DateTime?
+  originatedAt     DateTime?
+  createdAt        DateTime         @default(now())
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  repayments Repayment[]
+
+  @@index([userId])
+}
+
+model Repayment {
+  id           String          @id @default(cuid())
+  loanId       String
+  dueDate      DateTime
+  amount_cCRD  BigInt          // Expected payment amount
+  paid_cCRD    BigInt          @default(0)
+  status       RepaymentStatus @default(PENDING)
+  paidAt       DateTime?
+
+  loan Loan @relation(fields: [loanId], references: [id], onDelete: Cascade)
+
+  @@index([loanId])
+}
+
+model SavingsVault {
+  id           String   @id @default(cuid())
+  userId       String
+  name         String
+  apy          Decimal  // Annual Percentage Yield, e.g., 0.02 for 2%
+  balance_cCRD BigInt   @default(0)
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Statement {
+  id          String   @id @default(cuid())
+  accountId   String
+  periodStart DateTime
+  periodEnd   DateTime
+  pdfUrl      String
+  generatedAt DateTime @default(now())
+
+  account BankAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+}
+
+model Ticket {
+  id          String       @id @default(cuid())
+  userId      String
+  subject     String
+  status      TicketStatus @default(OPEN)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages TicketMessage[]
+
+  @@index([userId])
+}
+
+model TicketMessage {
+  id        String   @id @default(cuid())
+  ticketId  String
+  fromAdmin Boolean  @default(false) // true if message is from an admin
+  content   String
+  createdAt DateTime @default(now())
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+}
+
+// ADMIN & SYSTEM MODELS
+
+model CmsContent {
+  id        String   @id @default(cuid())
+  slug      String   @unique // e.g., "landing-hero", "faq-page", "blog-post-1"
+  title     String
+  content   Json     // Store as JSON for structured content
+  locale    String   @default("es-ES")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([slug, locale])
+}
+
+model RiskRule {
+  id          String    @id @default(cuid())
+  name        String
+  description String
+  condition   String    // e.g., "transaction.amount_cCRD > 100000"
+  action      String    // e.g., "FLAG", "BLOCK"
+  isEnabled   Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model ReviewCase {
+  id          String   @id @default(cuid())
+  reason      String   // e.g., "RISK_RULE_TRIGGERED"
+  entityType  String   // e.g., "TRANSACTION", "USER"
+  entityId    String
+  status      String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  assignedTo  String?  // Admin user ID
+  decision    String?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model GlobalLimit {
+  id          String @id @default(cuid())
+  product     String @unique // e.g., "TRANSFER_EXTERNAL_DAILY", "LOAN_MAX_PRINCIPAL"
+  amount_cCRD BigInt
+  updatedAt   DateTime @updatedAt
+}
+
+model Fee {
+  id          String  @id @default(cuid())
+  product     String  @unique // e.g., "TRANSFER_EXTERNAL_SWIFT"
+  amount_cCRD BigInt
+  rate        Decimal? // For percentage-based fees
+  updatedAt   DateTime @updatedAt
+}
+
+model FeatureFlag {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String
+  isEnabled   Boolean  @default(false)
+  updatedAt   DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String         @id @default(cuid())
+  action    AuditLogAction
+  actorId   String         // User ID of the actor
+  entityType String?       // e.g., "Transaction", "User"
+  entityId  String?
+  before    Json?
+  after     Json?
+  ipAddress String?
+  createdAt DateTime       @default(now())
+
+  actor     User @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([actorId])
+  @@index([entityType, entityId])
+}

@@ -1,0 +1,18 @@
+{
+  "Navigation": {
+    "home": "Home",
+    "dashboard": "Dashboard",
+    "login": "Login",
+    "register": "Register"
+  },
+  "LandingPage": {
+    "heroTitle": "CréditoX: The Bank of the Future, Today.",
+    "heroSubtitle": "Manage your credits (CRD) and dollars (USD) on a secure, modern, and easy-to-use platform."
+  },
+  "LoginPage": {
+    "title": "Login to your account",
+    "emailLabel": "Email",
+    "passwordLabel": "Password",
+    "buttonText": "Login"
+  }
+}

@@ -1,0 +1,14 @@
+# Ignore artifacts:
+build
+.next
+.turbo
+node_modules
+coverage
+
+# Ignore files:
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# Ignore auto-generated files:
+playwright-report
