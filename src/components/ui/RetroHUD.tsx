@@ -1,0 +1,187 @@
+import { Coins, Cpu, Gem, Pickaxe, ScrollText, Thermometer, Volume2, VolumeX, Zap } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { NETWORK_EVENTS, POOLS, earningsForLevel, levelFromEarnings } from '../../config/gameBalance';
+import { ROOM_BY_ID } from '../../config/roomsCatalog';
+import { useGameShallow, useGameStore } from '../../store/useGameStore';
+import { bnToNumber } from '../../utils/bignum';
+import { fxBus } from '../../utils/eventBus';
+import { formatCash, formatHashrate, formatNumber, formatPower, formatPrice, formatTemp, tempColor } from '../../utils/formatters';
+import { Meter } from './Meter';
+import { PixelButton } from './PixelButton';
+
+function Stat({ icon, label, value, sub, color, glow }: { icon: ReactNode; label: string; value: string; sub?: ReactNode; color: string; glow?: boolean }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <div className="grid size-8 shrink-0 place-items-center" style={{ background: `${color}22`, color, boxShadow: `inset 0 0 0 2px ${color}55` }}>
+        {icon}
+      </div>
+      <div className="min-w-0 leading-none">
+        <div className="font-silk text-[10px] uppercase text-dim">{label}</div>
+        <div className={`truncate font-pixel text-[11px] ${glow ? 'text-glow' : ''}`} style={{ color }}>
+          {value}
+        </div>
+        {sub && <div className="mt-0.5 truncate text-[15px] leading-none text-dim">{sub}</div>}
+      </div>
+    </div>
+  );
+}
+
+/** Top status bar: wallets, hashrate, power & thermals of the active room, events. */
+export function RetroHUD() {
+  const s = useGameShallow((st) => ({
+    cash: st.cash,
+    cc: st.cc,
+    meme: st.meme,
+    gems: st.gems,
+    sc: st.sc,
+    price: st.market.CC.price,
+    open: st.market.CC.candles[st.market.CC.candles.length - 12]?.c ?? st.market.CC.price,
+    memePrice: st.market.MEME.price,
+    totalHash: st.live.totalHash,
+    ccPerSec: st.live.ccPerSec,
+    elec: st.live.electricityPerSec,
+    hottest: st.live.hottest,
+    room: st.live.rooms[st.activeRoom],
+    activeRoom: st.activeRoom,
+    pool: st.pool,
+    event: st.event,
+    lifetime: st.lifetimeEarnings,
+    muted: st.settings.muted,
+  }));
+  const updateSettings = useGameStore((st) => st.updateSettings);
+  const sellCoin = useGameStore((st) => st.sellCoin);
+  const [now, setNow] = useState(() => Date.now());
+  const [pops, setPops] = useState<{ id: number; text: string }[]>([]);
+  const popId = useRef(0);
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 500);
+    const off = fxBus.on((fx) => {
+      if (fx.kind !== 'sell') return;
+      popId.current += 1;
+      const id = popId.current;
+      setPops((p) => [...p.slice(-3), { id, text: `+${formatCash(fx.amount)}` }]);
+      setTimeout(() => setPops((p) => p.filter((x) => x.id !== id)), 1200);
+    });
+    return () => {
+      clearInterval(t);
+      off();
+    };
+  }, []);
+
+  const lifetime = bnToNumber(s.lifetime);
+  const level = levelFromEarnings(lifetime);
+  const lvlFrom = earningsForLevel(level);
+  const lvlTo = earningsForLevel(level + 1);
+  const lvlProgress = Math.max(0, Math.min(1, (Math.log10(Math.max(1, lifetime)) - Math.log10(lvlFrom)) / (Math.log10(lvlTo) - Math.log10(lvlFrom))));
+  const change = s.open > 0 ? s.price / s.open - 1 : 0;
+  const room = ROOM_BY_ID[s.activeRoom];
+  const ccValue = bnToNumber(s.cc) * s.price;
+  const event = s.event ? NETWORK_EVENTS[s.event.id] : null;
+  const pool = POOLS[s.pool];
+
+  return (
+    <header className="pixel-box mx-2 mt-2 flex flex-col gap-2 px-3 py-2 sm:mx-3">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+        <div className="flex items-center gap-2 pr-2">
+          <div className="grid size-9 place-items-center bg-[#14532d] font-pixel text-[10px] text-lime shadow-[inset_0_0_0_2px_#a3e635]">
+            ₿
+          </div>
+          <div className="leading-none">
+            <h1 className="font-pixel text-[11px] text-ink sm:text-[13px]">
+              HASH<span className="text-lime">HARVEST</span>
+            </h1>
+            <div className="mt-1 flex items-center gap-1.5">
+              <span className="font-silk text-[10px] text-amber">LV {level}</span>
+              <div className="h-1.5 w-16 bg-[#1b1838]">
+                <div className="h-full bg-amber" style={{ width: `${lvlProgress * 100}%` }} />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="relative">
+          <Stat icon={<Coins size={16} />} label="Cash" value={formatCash(s.cash)} color="#facc15" glow sub={<span>{s.elec > 0 ? `-${formatCash(s.elec)}/s power` : 'no power bill'}</span>} />
+          {pops.map((p) => (
+            <span key={p.id} className="rise-fade pointer-events-none absolute -top-1 left-10 font-pixel text-[10px] text-lime">
+              {p.text}
+            </span>
+          ))}
+        </div>
+        <Stat
+          icon={<Pickaxe size={16} />}
+          label="$CC Wallet"
+          value={formatNumber(s.cc)}
+          color="#22d3ee"
+          sub={
+            <span>
+              {formatPrice(s.price)}{' '}
+              <span style={{ color: change >= 0 ? '#a3e635' : '#f43f5e' }}>
+                {change >= 0 ? '▲' : '▼'}
+                {Math.abs(change * 100).toFixed(1)}%
+              </span>{' '}
+              ≈ {formatCash(ccValue)}
+            </span>
+          }
+        />
+        <Stat icon={<ScrollText size={16} />} label="$MEME" value={formatNumber(s.meme)} color="#e879f9" sub={formatPrice(s.memePrice)} />
+        <Stat icon={<Cpu size={16} />} label="Hashrate" value={formatHashrate(s.totalHash)} color="#a3e635" glow sub={`${formatNumber(s.ccPerSec, 3)} CC/s · ${pool.name.split(' ')[0]}`} />
+        <div className="flex items-center gap-3">
+          <span className="flex items-center gap-1 font-pixel text-[10px] text-magenta" title="Gems">
+            <Gem size={14} /> {s.gems}
+          </span>
+          <span className="font-pixel text-[10px] text-amber" title="Smart Contracts">
+            {s.sc} $SC
+          </span>
+        </div>
+
+        <div className="ml-auto flex items-center gap-1">
+          <PixelButton size="sm" variant="primary" disabled={bnToNumber(s.cc) <= 0} onClick={() => sellCoin('CC', bnToNumber(s.cc))} title="Sell every $CC at market price">
+            Sell all CC
+          </PixelButton>
+          <PixelButton size="sm" variant="ghost" onClick={() => updateSettings({ muted: !s.muted })} aria-label={s.muted ? 'Unmute' : 'Mute'}>
+            {s.muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+          </PixelButton>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-x-5 gap-y-2 border-t-2 border-[#1b1838] pt-2 md:grid-cols-2 2xl:grid-cols-[1fr_1fr_1.2fr]">
+        <div className="flex items-center gap-2">
+          <Zap size={14} className="shrink-0 text-amber" />
+          <span className="w-24 shrink-0 font-silk text-[10px] uppercase text-dim">{room.name.split(' ')[0]} line</span>
+          <Meter value={s.room?.wall ?? 0} max={room.maxPowerW} color="#fbbf24" className="flex-1" />
+          <span className="shrink-0 whitespace-nowrap text-right text-[16px] leading-none" style={{ color: (s.room?.brownout ?? 1) < 1 ? '#f43f5e' : '#e9e6ff' }}>
+            {formatPower(s.room?.wall ?? 0)}/{formatPower(room.maxPowerW)}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Thermometer size={14} className="shrink-0" style={{ color: tempColor(s.hottest) }} />
+          <span className="w-24 shrink-0 font-silk text-[10px] uppercase text-dim">Hottest die</span>
+          <Meter value={Math.max(0, s.hottest - 20)} max={80} color="#22c55e" warnAt={0.6} dangerAt={0.81} className="flex-1" />
+          <span className="shrink-0 whitespace-nowrap text-right text-[16px] leading-none" style={{ color: tempColor(s.hottest) }}>
+            {formatTemp(s.hottest)} · air {formatTemp(s.room?.temp ?? room.ambient)}
+          </span>
+        </div>
+        <div className="flex min-w-0 items-center gap-2 overflow-hidden md:col-span-2 2xl:col-span-1">
+          {event ? (
+            <div className="flex min-w-0 flex-1 items-center gap-2 px-2 py-0.5" style={{ background: `${event.color}22`, boxShadow: `inset 0 0 0 2px ${event.color}88` }}>
+              <span className="blink font-pixel text-[9px]" style={{ color: event.color }}>
+                ⚠ {event.name}
+              </span>
+              <span className="truncate text-[16px] leading-none text-ink/80">{event.description}</span>
+              <span className="ml-auto shrink-0 font-pixel text-[9px]" style={{ color: event.color }}>
+                {Math.max(0, Math.ceil(((s.event?.endsAt ?? now) - now) / 1000))}s
+              </span>
+            </div>
+          ) : (
+            <div className="relative h-5 flex-1 overflow-hidden text-[16px] leading-5 text-dim">
+              <span className="marquee absolute whitespace-nowrap">
+                NETWORK STABLE · {pool.name.toUpperCase()} · $CC {formatPrice(s.price)} · $MEME {formatPrice(s.memePrice)} · KEEP DIES UNDER 85°C TO AVOID THROTTLING · OVERCLOCK IN THE BIOS FOR UP TO +40% ·
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+    </header>
+  );
+}
