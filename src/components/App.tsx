@@ -1,7 +1,9 @@
 import confetti from 'canvas-confetti';
-import { Award, Coins, Crown, LineChart, Network, Server, Settings, ShoppingCart } from 'lucide-react';
+import { Award, Cloud, Coins, Crown, LineChart, Network, Server, Settings, ShoppingCart } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useSfxBridge } from '../hooks/useAudioFx';
+import { useCloudSync } from '../hooks/useCloudSync';
+import { AccountPanel } from './account/AccountPanel';
 import { useGameLoop, type LoopMode } from '../hooks/useGameLoop';
 import type { SideTab } from '../store/storeTypes';
 import { useGameShallow, useGameStore } from '../store/useGameStore';
@@ -30,6 +32,7 @@ const TABS: { id: SideTab; label: string; icon: ReactNode; color: string }[] = [
   { id: 'halving', label: 'Halving', icon: <Coins size={14} />, color: '#fbbf24' },
   { id: 'vip', label: 'VIP', icon: <Crown size={14} />, color: '#e879f9' },
   { id: 'trophies', label: 'Trophies', icon: <Award size={14} />, color: '#facc15' },
+  { id: 'account', label: 'Account', icon: <Cloud size={14} />, color: '#38bdf8' },
   { id: 'system', label: 'System', icon: <Settings size={14} />, color: '#a5b4fc' },
 ];
 
@@ -37,6 +40,7 @@ export function App() {
   const [loopMode, setLoopMode] = useState<LoopMode | null>(null);
   useGameLoop(setLoopMode);
   useSfxBridge();
+  useCloudSync();
   const ui = useGameShallow((s) => ({ sideTab: s.sideTab, selectedRack: s.selectedRack, biosGpu: s.biosGpu }));
   const setSideTab = useGameStore((s) => s.setSideTab);
 
@@ -99,6 +103,7 @@ export function App() {
             {ui.sideTab === 'halving' && <HalvingTalentTree />}
             {ui.sideTab === 'vip' && <VipPanel />}
             {ui.sideTab === 'trophies' && <AchievementsPanel />}
+            {ui.sideTab === 'account' && <AccountPanel />}
             {ui.sideTab === 'system' && <SettingsPanel loopMode={loopMode} />}
           </div>
         </aside>

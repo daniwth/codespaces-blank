@@ -1,7 +1,9 @@
-import { Coins, Cpu, Gem, Pickaxe, ScrollText, Thermometer, Volume2, VolumeX, Zap } from 'lucide-react';
+import { Cloud, CloudOff, Coins, Cpu, Gem, Pickaxe, ScrollText, Thermometer, Volume2, VolumeX, Zap } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { NETWORK_EVENTS, POOLS, earningsForLevel, levelFromEarnings } from '../../config/gameBalance';
 import { ROOM_BY_ID } from '../../config/roomsCatalog';
+import { useShallow } from 'zustand/react/shallow';
+import { useAccountStore } from '../../store/useAccountStore';
 import { useGameShallow, useGameStore } from '../../store/useGameStore';
 import { bnToNumber } from '../../utils/bignum';
 import { fxBus } from '../../utils/eventBus';
@@ -50,6 +52,8 @@ export function RetroHUD() {
   }));
   const updateSettings = useGameStore((st) => st.updateSettings);
   const sellCoin = useGameStore((st) => st.sellCoin);
+  const setSideTab = useGameStore((st) => st.setSideTab);
+  const account = useAccountStore(useShallow((a) => ({ email: a.user?.email ?? null, active: !!a.user?.subscription.active, sync: a.syncState })));
   const [now, setNow] = useState(() => Date.now());
   const [pops, setPops] = useState<{ id: number; text: string }[]>([]);
   const popId = useRef(0);
@@ -136,6 +140,15 @@ export function RetroHUD() {
         </div>
 
         <div className="ml-auto flex items-center gap-1">
+          <PixelButton
+            size="sm"
+            variant={account.active ? 'gold' : 'ghost'}
+            onClick={() => setSideTab('account')}
+            title={account.email ? `${account.email} · cloud ${account.sync}` : 'Log in to save your progress in the cloud'}
+            icon={account.active ? <Cloud size={13} className={account.sync === 'syncing' ? 'blink' : ''} /> : <CloudOff size={13} />}
+          >
+            <span className="hidden sm:inline">{account.email ? (account.active ? 'Miner Pass' : 'Account') : 'Log in'}</span>
+          </PixelButton>
           <PixelButton size="sm" variant="primary" disabled={bnToNumber(s.cc) <= 0} onClick={() => sellCoin('CC', bnToNumber(s.cc))} title="Sell every $CC at market price">
             Sell all CC
           </PixelButton>

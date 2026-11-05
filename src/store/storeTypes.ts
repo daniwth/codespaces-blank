@@ -10,7 +10,7 @@ export interface LogEntry {
   tone: MessageTone;
 }
 
-export type SideTab = 'shop' | 'rigs' | 'market' | 'pools' | 'halving' | 'vip' | 'trophies' | 'system';
+export type SideTab = 'shop' | 'rigs' | 'market' | 'pools' | 'halving' | 'vip' | 'trophies' | 'account' | 'system';
 
 export interface OfflineReport {
   seconds: number;
