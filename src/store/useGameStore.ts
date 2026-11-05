@@ -19,7 +19,7 @@ import type { CoreActions, GameStore, GetState, SetState, UiState } from './stor
 
 const DATA_KEYS: (keyof GameData)[] = [
   'saveVersion', 'createdAt', 'lastTick', 'cash', 'cc', 'meme', 'memeCostBasis', 'ccCostBasis', 'gems', 'sc', 'scLifetime',
-  'runEarnings', 'lifetimeEarnings', 'gpus', 'psus', 'coolers', 'racks', 'ownedRooms', 'activeRoom',
+  'runEarnings', 'lifetimeEarnings', 'runStartedAt', 'gpus', 'psus', 'coolers', 'racks', 'ownedRooms', 'activeRoom',
   'roomTemps', 'technicians', 'pool', 'market', 'bots', 'event', 'nextEventAt', 'talents', 'vip',
   'achievements', 'stats', 'settings', 'contracts',
 ];

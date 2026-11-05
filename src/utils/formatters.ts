@@ -68,6 +68,9 @@ export const formatTemp = (celsius: number, digits = 0): string => `${celsius.to
 
 export const formatPercent = (ratio: number, digits = 0): string => `${(ratio * 100).toFixed(digits)}%`;
 
+/** Multipliers such as grid demand: x1.6, x17, x1.2K. */
+export const formatMultiplier = (value: number): string => `x${formatNumber(value, value < 10 ? 1 : 2)}`;
+
 export const formatPrice = (price: number): string => {
   if (price >= 100) return `$${price.toFixed(0)}`;
   if (price >= 1) return `$${price.toFixed(3)}`;

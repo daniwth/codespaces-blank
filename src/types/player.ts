@@ -157,6 +157,8 @@ export interface GameData {
   scLifetime: number;
   runEarnings: BigNum;
   lifetimeEarnings: BigNum;
+  /** Epoch ms when the current run started (first launch or last Halving). */
+  runStartedAt: number;
   // Hardware (normalized by uid)
   gpus: Record<string, GpuInstance>;
   psus: Record<string, PsuInstance>;

@@ -1,12 +1,12 @@
 import { Atom, Building2, Coins, Cpu, Crown, Leaf, Moon, Snowflake, TrendingUp, Wrench, Zap, type LucideIcon } from 'lucide-react';
 import { useState } from 'react';
-import { HALVING_MIN_EARNINGS, PRESTIGE_TREE, talentCost, talentLevel } from '../../config/prestigeTree';
+import { HALVING_MIN_EARNINGS, PRESTIGE_TREE, earningsForSc, nextScMilestone, talentCost, talentLevel } from '../../config/prestigeTree';
 import { halvingReward } from '../../store/slices/economySlice';
 import { useGameShallow, useGameStore } from '../../store/useGameStore';
 import type { TalentIcon } from '../../types/player';
 import { bnToNumber } from '../../utils/bignum';
 import { cn } from '../../utils/cn';
-import { formatCash } from '../../utils/formatters';
+import { formatCash, formatDuration } from '../../utils/formatters';
 import { PixelButton } from '../ui/PixelButton';
 
 const ICONS: Record<TalentIcon, LucideIcon> = {
@@ -25,12 +25,20 @@ export function HalvingTalentTree() {
     scLifetime: st.scLifetime,
     talents: st.talents,
     halvings: st.stats.halvings,
+    runStartedAt: st.runStartedAt,
+    now: st.lastTick,
   }));
   const { performHalving, buyTalent } = useGameStore.getState();
   const [confirm, setConfirm] = useState(false);
   const reward = halvingReward(s);
   const run = bnToNumber(s.runEarnings);
   const progress = Math.min(1, run / HALVING_MIN_EARNINGS);
+  const runSec = Math.max(0, (s.now - s.runStartedAt) / 1000);
+  const scPerHour = reward > 0 && runSec > 0 ? reward / (runSec / 3600) : 0;
+  const nextAt = nextScMilestone(run);
+  const prevAt = earningsForSc(reward);
+  // Log-scale progress between the current and the next $SC milestone.
+  const milestoneProgress = reward > 0 ? Math.min(1, Math.max(0, Math.log(run / prevAt) / Math.log(nextAt / prevAt))) : 0;
 
   return (
     <div className="flex flex-col gap-3">
@@ -52,7 +60,29 @@ export function HalvingTalentTree() {
             <div className="font-silk text-[9px] text-dim">HALVINGS</div>
             <div className="text-gold">{s.halvings}</div>
           </div>
+          <div>
+            <div className="font-silk text-[9px] text-dim">RUN TIME</div>
+            <div className="text-amber">{formatDuration(runSec)}</div>
+          </div>
+          <div data-testid="halving-rate">
+            <div className="font-silk text-[9px] text-dim">$SC / HOUR</div>
+            <div className="text-amber">{reward > 0 ? scPerHour.toFixed(2) : '—'}</div>
+          </div>
+          <div>
+            <div className="font-silk text-[9px] text-dim">NEXT $SC AT</div>
+            <div className="text-amber">{formatCash(nextAt)}</div>
+          </div>
         </div>
+        {reward > 0 && (
+          <div className="mt-2" data-testid="halving-milestone">
+            <div className="h-2 bg-black">
+              <div className="h-full bg-amber" style={{ width: `${milestoneProgress * 100}%` }} />
+            </div>
+            <div className="mt-1 text-[15px] leading-tight text-dim">
+              +1 $SC ({reward + 1} total) at {formatCash(nextAt)} (x{Math.round(nextAt / prevAt)} the last milestone). Each extra $SC needs x2, x3, x4… more earnings, so $SC per hour peaks and then falls: cash out near the peak.
+            </div>
+          </div>
+        )}
         {reward <= 0 && (
           <div className="mt-2">
             <div className="h-2 bg-black">

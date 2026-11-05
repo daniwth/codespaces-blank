@@ -5,11 +5,12 @@ import { ROOM_CATALOG, ROOM_ORDER } from '../../config/roomsCatalog';
 import { talentModifiers } from '../../config/prestigeTree';
 import { PHYSICS } from '../../config/gameBalance';
 import { sprites } from '../../engine/SpriteManager';
+import { gridTariff } from '../../store/gamePhysics';
 import { technicianCost } from '../../store/slices/roomsSlice';
 import { useGameShallow, useGameStore } from '../../store/useGameStore';
 import { bnGte } from '../../utils/bignum';
 import { cn } from '../../utils/cn';
-import { formatCash, formatHashrate, formatPercent, formatPower, formatTemp } from '../../utils/formatters';
+import { formatCash, formatHashrate, formatMultiplier, formatPercent, formatPower, formatTemp } from '../../utils/formatters';
 import { PixelButton } from '../ui/PixelButton';
 import { SpriteImg } from '../ui/SpriteImg';
 
@@ -89,6 +90,9 @@ export function HardwareShop() {
               <div className="text-lime">{formatHashrate(g.hashrate)}</div>
               <div className="text-dim">
                 {formatPower(g.power)} · {formatHashrate(g.hashrate / g.power).replace('/s', '/W')} · ROI ~{Math.round(g.price / ((g.hashrate / 1e6) * PHYSICS.rewardPerMHs))}s
+              </div>
+              <div className="text-dim" title="Grid demand: dense, high-hash hardware is billed at a higher rate per watt.">
+                grid tariff <span className="text-amber">{formatMultiplier(gridTariff(g.id))}</span> per watt
               </div>
             </Card>
           ))}

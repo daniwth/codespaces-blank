@@ -9,7 +9,7 @@ import { repairCost, repasteCost } from '../../store/slices/hardwareSlice';
 import { useGameShallow, useGameStore } from '../../store/useGameStore';
 import type { GpuInstance } from '../../types/hardware';
 import { cn } from '../../utils/cn';
-import { formatCash, formatHashrate, formatPercent, formatPower, formatTemp, tempColor } from '../../utils/formatters';
+import { formatCash, formatHashrate, formatMultiplier, formatPercent, formatPower, formatTemp, tempColor } from '../../utils/formatters';
 import { Meter } from '../ui/Meter';
 import { PixelButton } from '../ui/PixelButton';
 import { PixelModal } from '../ui/PixelModal';
@@ -159,6 +159,11 @@ export function RackDetailModal({ rackUid }: { rackUid: string }) {
             <div>
               <div className="font-silk text-[9px] text-dim">WALL DRAW</div>
               <div className="text-amber">{model.selfPowered ? '0 W (gold)' : formatPower(rackLive?.wall ?? 0)}</div>
+              {!model.selfPowered && (rackLive?.powerCost ?? 0) > 0 && (
+                <div className="text-[14px] leading-none text-dim" title="Grid demand: dense, high-hash GPUs are billed at a higher rate per watt.">
+                  -{formatCash(rackLive?.powerCost ?? 0)}/s · grid {formatMultiplier(rackLive?.tariff ?? 1)}
+                </div>
+              )}
             </div>
           </div>
 

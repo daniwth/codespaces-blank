@@ -126,6 +126,15 @@ try {
     await page.screenshot({ path: join(ART, 'panels.png') });
   });
 
+  await check('HUD grid demand and Halving $SC/h readouts', async () => {
+    const grid = await page.getByTestId('hud-grid').textContent();
+    assert(/grid x\d/.test(grid ?? ''), `HUD grid readout: ${grid}`);
+    await page.locator('nav[aria-label="Panels"] button:has-text("Halving")').click();
+    await page.getByTestId('halving-rate').getByText('$SC / HOUR').waitFor({ timeout: 3000 });
+    await page.getByText('NEXT $SC AT').waitFor({ timeout: 3000 });
+    await page.screenshot({ path: join(ART, 'halving.png') });
+  });
+
   await check('account: register, subscribe (demo) and cloud save', async () => {
     await page.locator('nav[aria-label="Panels"] button:has-text("Account")').click();
     await page.click('button:has-text("Create account")');

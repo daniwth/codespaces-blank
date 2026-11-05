@@ -184,6 +184,7 @@ function sanitize(data: GameData, source: Json): GameData {
     ccCostBasis: Math.max(0, finite(data.ccCostBasis, 0)),
     gems: Math.max(0, Math.floor(finite(data.gems, 0))),
     sc: Math.max(0, Math.floor(finite(data.sc, 0))),
+    runStartedAt: Math.min(Date.now(), finite(data.runStartedAt, Date.now())),
     ownedRooms: ownedRooms.length ? Array.from(new Set(ownedRooms)) : ['bedroom'],
     activeRoom: ownedRooms.includes(data.activeRoom) ? data.activeRoom : 'bedroom',
   };
@@ -196,6 +197,7 @@ function sanitize(data: GameData, source: Json): GameData {
  * v1 → v2: added $MEME cost basis, VIP auto-sell toggle and ambient hum setting.
  * v2 → v3: added $CC cost basis (earnings only count realized profit).
  * v3 → v4: added the Contracts board (generated from the migrated farm) and stats.contractsCompleted.
+ * v4 → v5: added runStartedAt (for the Halving $SC/h readout); older runs are dated from their last tick.
  */
 export function migrateSave(raw: unknown, fromVersion: number): GameData {
   const defaults = createInitialData();
@@ -207,6 +209,8 @@ export function migrateSave(raw: unknown, fromVersion: number): GameData {
   if (fromVersion < 3) source.ccCostBasis = 0;
   // No board before v4: sanitize() generates one scaled to the player's actual farm.
   if (fromVersion < 4) delete source.contracts;
+  // The real run start is unknown: the last tick is the best lower bound on how long it has lasted.
+  if (fromVersion < 5) source.runStartedAt = finite(source.lastTick, Date.now());
   const merged = mergeTyped(defaults, source);
   merged.saveVersion = SAVE_VERSION;
   return sanitize(merged, source);

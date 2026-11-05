@@ -169,6 +169,10 @@ export interface RackLive {
   hash: number;
   maxTemp: number;
   cooling: number;
+  /** Grid demand multiplier billed on this rack's wall draw (GPU-load weighted). */
+  tariff: number;
+  /** Electricity bill of this rack in $/s. */
+  powerCost: number;
 }
 
 export type ComponentKind = 'gpu' | 'psu' | 'cooler' | 'rack';

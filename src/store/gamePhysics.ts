@@ -6,12 +6,13 @@
  * Integrated analytically so large Δt (background tabs, offline progress) stay stable:
  *   T(t+Δt) = T_eq + (T − T_eq) · e^(−kΔt / C),  T_eq = T_amb + Q_gen / k
  */
-import { COOLER_BY_ID, GPU_BY_ID, OC_LIMITS, PSU_BY_ID, RACK_BY_ID } from '../config/hardwareCatalog';
+import { COOLER_BY_ID, GPU_BY_ID, GPU_CATALOG, OC_LIMITS, PSU_BY_ID, RACK_BY_ID } from '../config/hardwareCatalog';
 import { ROOM_BY_ID } from '../config/roomsCatalog';
 import { talentModifiers, type TalentModifiers } from '../config/prestigeTree';
 import {
   EVENT_EFFECTS,
   EVENT_INTERVAL,
+  GRID,
   MARKET,
   NETWORK_EVENTS,
   PHYSICS,
@@ -64,6 +65,8 @@ export interface LiveMetrics {
   totalHash: number;
   ccPerSec: number;
   electricityPerSec: number;
+  /** Farm-wide grid demand: wall-weighted average of the running GPUs' tariffs (see `gridTariff`). */
+  gridDemand: number;
   difficulty: number;
   hottest: number;
   rooms: Partial<Record<RoomId, RoomLive>>;
@@ -221,6 +224,20 @@ export function rackNominalLoad(rack: RackInstance, data: Pick<GameData, 'gpus' 
   return topo.gpuUids.reduce((acc, u) => acc + GPU_BY_ID[data.gpus[u].modelId].power * ocPowerMul(data.gpus[u].oc), 0) + topo.fanPower;
 }
 
+// ───────────────────────── Grid demand ─────────────────────────
+
+const REF_EFFICIENCY = GPU_CATALOG[0].hashrate / GPU_CATALOG[0].power;
+const GRID_TARIFFS: Record<string, number> = Object.fromEntries(
+  GPU_CATALOG.map((m) => [m.id, (m.hashrate / m.power / REF_EFFICIENCY) ** GRID.tariffExponent]),
+);
+
+/** Grid demand multiplier on the per-watt price of one GPU model (1 for the PX-460). */
+export const gridTariff = (modelId: string): number => GRID_TARIFFS[modelId] ?? 1;
+
+/** Base price of one wall watt-second in a room, before grid demand (room tariff and Green PPA). */
+export const wattPrice = (roomId: RoomId, mods: Pick<TalentModifiers, 'electricityMul'>): number =>
+  PHYSICS.pricePerWattSec * ROOM_BY_ID[roomId].priceMul * mods.electricityMul;
+
 // ───────────────────────── Simulation ─────────────────────────
 
 interface World {
@@ -271,7 +288,7 @@ function cloneWorld(input: SimInput): World {
 }
 
 function emptyLive(): LiveMetrics {
-  return { totalHash: 0, ccPerSec: 0, electricityPerSec: 0, difficulty: 1, hottest: 0, rooms: {}, racks: {}, gpus: {} };
+  return { totalHash: 0, ccPerSec: 0, electricityPerSec: 0, gridDemand: 1, difficulty: 1, hottest: 0, rooms: {}, racks: {}, gpus: {} };
 }
 
 interface StepAccumulator {
@@ -374,12 +391,14 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
   live.difficulty = difficulty;
   let totalHash = 0;
   let electricityRate = 0;
+  let farmPaidWall = 0;
+  let farmBilledWall = 0;
   let hottest = 0;
 
   const racksByRoom: Partial<Record<RoomId, RackInstance[]>> = {};
   Object.values(w.racks).forEach((r) => {
     if (!r.roomId) {
-      live.racks[r.uid] = { status: 'stored', load: 0, wall: 0, capacity: 0, hash: 0, maxTemp: 0, cooling: 0 };
+      live.racks[r.uid] = { status: 'stored', load: 0, wall: 0, capacity: 0, hash: 0, maxTemp: 0, cooling: 0, tariff: 1, powerCost: 0 };
       return;
     }
     (racksByRoom[r.roomId] ??= []).push(r);
@@ -397,34 +416,47 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
       const topo = rackTopology(rack, { gpus: w.gpus, psus: input.psus, coolers: input.coolers });
       let status: RackStatus;
       let load = 0;
+      let gpuLoad = 0;
+      let tariffLoad = 0;
       if (topo.gpuUids.length === 0) status = 'empty';
       else if (!topo.hasPsu) status = 'no_psu';
       else if (blackout && !topo.selfPowered) status = 'blackout';
       else if (rack.rebootUntil > now) status = 'rebooting';
       else {
-        load = topo.fanPower + topo.gpuUids.reduce((a, u) => {
+        topo.gpuUids.forEach((u) => {
           const g = w.gpus[u];
-          return a + (g.shutdown ? 0 : GPU_BY_ID[g.modelId].power * ocPowerMul(g.oc));
-        }, 0);
+          if (g.shutdown) return;
+          const p = GPU_BY_ID[g.modelId].power * ocPowerMul(g.oc);
+          gpuLoad += p;
+          tariffLoad += p * gridTariff(g.modelId);
+        });
+        load = topo.fanPower + gpuLoad;
         status = load > topo.capacity ? 'overload' : 'online';
       }
       if (status !== 'online') load = 0;
       const wall = topo.selfPowered ? 0 : load / topo.efficiency;
-      return { rack, topo, status, load, wall };
+      // Fans and PSU losses are billed at the rack's (GPU-load weighted) tariff.
+      const tariff = gpuLoad > 0 ? tariffLoad / gpuLoad : 1;
+      return { rack, topo, status, load, wall, tariff };
     });
 
     const roomWall = rackInfo.reduce((a, r) => a + r.wall, 0);
     const brownout = roomWall > room.maxPowerW ? room.maxPowerW / roomWall : 1;
     const paidWall = Math.min(roomWall, room.maxPowerW);
-    const elecRate = paidWall * PHYSICS.pricePerWattSec * room.priceMul * mods.electricityMul;
-    electricityRate += elecRate;
+    // A brownout caps the paid wall at the contracted line: every rack is billed pro rata.
+    const paidShare = roomWall > 0 ? paidWall / roomWall : 0;
+    const price = wattPrice(roomId, mods);
+    const billedWall = rackInfo.reduce((a, r) => a + r.wall * r.tariff, 0) * paidShare;
+    electricityRate += billedWall * price;
+    farmPaidWall += paidWall;
+    farmBilledWall += billedWall;
 
     let roomHeat = 0;
     let roomHash = 0;
     let racksOnline = 0;
 
     // Pass 2: thermals + hashrate
-    rackInfo.forEach(({ rack, topo, status, load, wall }) => {
+    rackInfo.forEach(({ rack, topo, status, load, wall, tariff }) => {
       const rackModel = RACK_BY_ID[rack.modelId];
       const powered = status === 'online';
       if (powered) racksOnline += 1;
@@ -484,6 +516,8 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
         hash: rackHash,
         maxTemp: rackMax,
         cooling: (PHYSICS.baseCooling * n + topo.fanCooling) * room.coolingMul,
+        tariff,
+        powerCost: wall * paidShare * tariff * price,
       };
     });
 
@@ -583,6 +617,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
   live.totalHash = totalHash;
   live.ccPerSec = baseRate * (input.pool === 'public' ? 1 - pool.fee : pool.payoutMul);
   live.electricityPerSec = electricityRate;
+  live.gridDemand = farmPaidWall > 0 ? farmBilledWall / farmPaidWall : 1;
   live.hottest = hottest;
   acc.peakTemp = Math.max(acc.peakTemp, hottest);
 }

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MARKET, PHYSICS, POOLS, STARTING_CASH } from '../../src/config/gameBalance';
 import { GPU_BY_ID, GPU_CATALOG, PSU_CATALOG, RACK_BY_ID } from '../../src/config/hardwareCatalog';
 import { ROOM_BY_ID } from '../../src/config/roomsCatalog';
-import { simulate } from '../../src/store/gamePhysics';
+import { gridTariff, simulate } from '../../src/store/gamePhysics';
 import { createGpu, createRack } from '../../src/store/initialState';
 import type { RoomId } from '../../src/types/player';
 import { starterWorld } from './helpers';
@@ -10,11 +10,11 @@ import { starterWorld } from './helpers';
 const NOW = 1_800_000_000_000;
 const CC_PER_MHS = PHYSICS.rewardPerMHs * (1 - POOLS.public.fee) * (1 - MARKET.fee);
 
-/** Net $/s of one device at $1 CC, on the cheapest PSU that powers a full steel rack of it. */
+/** Net $/s of one device at $1 CC, on the cheapest PSU that powers a full steel rack of it (grid demand included). */
 function netPerSec(modelId: string, room: RoomId = 'bedroom'): number {
   const m = GPU_BY_ID[modelId];
   const psu = PSU_CATALOG.find((p) => p.capacity >= m.power * 4) ?? PSU_CATALOG[PSU_CATALOG.length - 1];
-  const elec = (m.power / psu.efficiency) * PHYSICS.pricePerWattSec * ROOM_BY_ID[room].priceMul;
+  const elec = (m.power / psu.efficiency) * PHYSICS.pricePerWattSec * gridTariff(modelId) * ROOM_BY_ID[room].priceMul;
   return (m.hashrate / 1e6) * CC_PER_MHS - elec;
 }
 

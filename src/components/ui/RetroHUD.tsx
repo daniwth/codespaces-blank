@@ -1,13 +1,15 @@
 import { Cloud, CloudOff, Coins, Cpu, Gem, Pickaxe, ScrollText, Thermometer, Volume2, VolumeX, Zap } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { NETWORK_EVENTS, POOLS, earningsForLevel, levelFromEarnings } from '../../config/gameBalance';
+import { talentModifiers } from '../../config/prestigeTree';
 import { ROOM_BY_ID } from '../../config/roomsCatalog';
 import { useShallow } from 'zustand/react/shallow';
+import { wattPrice } from '../../store/gamePhysics';
 import { useAccountStore } from '../../store/useAccountStore';
 import { useGameShallow, useGameStore } from '../../store/useGameStore';
 import { bnToNumber } from '../../utils/bignum';
 import { fxBus } from '../../utils/eventBus';
-import { formatCash, formatHashrate, formatNumber, formatPower, formatPrice, formatTemp, tempColor } from '../../utils/formatters';
+import { formatCash, formatHashrate, formatMultiplier, formatNumber, formatPower, formatPrice, formatTemp, tempColor } from '../../utils/formatters';
 import { Meter } from './Meter';
 import { PixelButton } from './PixelButton';
 
@@ -42,6 +44,8 @@ export function RetroHUD() {
     totalHash: st.live.totalHash,
     ccPerSec: st.live.ccPerSec,
     elec: st.live.electricityPerSec,
+    grid: st.live.gridDemand,
+    elecMul: talentModifiers(st.talents).electricityMul,
     hottest: st.live.hottest,
     room: st.live.rooms[st.activeRoom],
     activeRoom: st.activeRoom,
@@ -83,6 +87,9 @@ export function RetroHUD() {
   const ccValue = bnToNumber(s.cc) * s.price;
   const event = s.event ? NETWORK_EVENTS[s.event.id] : null;
   const pool = POOLS[s.pool];
+  // $ per kWh actually billed in the active room at the farm's current grid demand.
+  const kwhPrice = wattPrice(s.activeRoom, { electricityMul: s.elecMul }) * s.grid * 3.6e6;
+  const gridTitle = `Grid demand x${s.grid.toFixed(s.grid < 10 ? 2 : 0)}: dense, high-hash rigs pay industrial demand rates. ${room.name}: ${formatCash(kwhPrice)}/kWh. Better PSUs, cheaper rooms and Green PPA cut the bill.`;
 
   return (
     <header className="pixel-box mx-2 mt-2 flex flex-col gap-2 px-3 py-2 sm:mx-3">
@@ -105,7 +112,18 @@ export function RetroHUD() {
         </div>
 
         <div className="relative">
-          <Stat icon={<Coins size={16} />} label="Cash" value={formatCash(s.cash)} color="#facc15" glow sub={<span>{s.elec > 0 ? `-${formatCash(s.elec)}/s power` : 'no power bill'}</span>} />
+          <Stat
+            icon={<Coins size={16} />}
+            label="Cash"
+            value={formatCash(s.cash)}
+            color="#facc15"
+            glow
+            sub={
+              <span title={gridTitle} data-testid="hud-grid">
+                {s.elec > 0 ? `-${formatCash(s.elec)}/s power` : 'no power bill'} · <span className={s.grid >= 10 ? 'text-amber' : ''}>grid {formatMultiplier(s.grid)}</span>
+              </span>
+            }
+          />
           {pops.map((p) => (
             <span key={p.id} className="rise-fade pointer-events-none absolute -top-1 left-10 font-pixel text-[10px] text-lime">
               {p.text}

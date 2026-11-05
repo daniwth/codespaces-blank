@@ -7,7 +7,7 @@ import type { CoolerModel, GpuModel, PsuModel, RackModel, SiliconQuality } from 
  */
 export const GPU_CATALOG: GpuModel[] = [
   {
-    id: 'px460', name: 'PX-460', brand: 'Pixelia', tier: 1, price: 40,
+    id: 'px460', name: 'PX-460', brand: 'Pixelia', tier: 1, price: 45,
     hashrate: 25e6, power: 120, thermalMass: 70, style: 'card', fans: 1,
     palette: { shroud: '#52525b', shroudDark: '#27272a', accent: '#22c55e', pcb: '#14532d' },
   },

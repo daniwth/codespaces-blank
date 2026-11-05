@@ -79,11 +79,43 @@ export const talentLevel = (talents: TalentLevels, id: TalentId): number => tale
 export const talentCost = (node: TalentNode, currentLevel: number): number =>
   Math.ceil(node.costBase * node.costGrowth ** currentLevel);
 
-/** Smart Contracts awarded for a halving given the run's cash earnings. */
-export const scForEarnings = (runEarnings: number): number =>
-  runEarnings < HALVING_MIN_EARNINGS ? 0 : Math.floor(2 * Math.sqrt(runEarnings / 1e6));
-
 export const HALVING_MIN_EARNINGS = 4e6;
+/** $SC minted by a Halving right at the unlock threshold. */
+export const HALVING_BASE_SC = 4;
+
+/**
+ * Smart Contracts awarded for a halving given the run's cash earnings.
+ * 4 $SC at $4M, then every extra $SC needs ×2, ×3, ×4… more earnings
+ * ($8M → 5, $24M → 6, $96M → 7, $480M → 8, $2.88B → 9…).
+ *
+ * Run earnings grow roughly like a power of run time, so these diminishing
+ * returns make $SC per hour of run time peak a little after the threshold
+ * and then decline: cashing out has a best moment instead of "always wait".
+ */
+export function scForEarnings(runEarnings: number): number {
+  if (!(runEarnings >= HALVING_MIN_EARNINGS)) return 0;
+  let sc = HALVING_BASE_SC;
+  let next = HALVING_MIN_EARNINGS * 2;
+  // `next` overflows to Infinity after ~170 milestones, which also stops the loop for E = Infinity.
+  while (Number.isFinite(next) && runEarnings >= next) {
+    sc += 1;
+    next *= sc - HALVING_BASE_SC + 2;
+  }
+  return sc;
+}
+
+/** Run earnings needed to mint `sc` Smart Contracts (the threshold for anything ≤ HALVING_BASE_SC). */
+export function earningsForSc(sc: number): number {
+  let e = HALVING_MIN_EARNINGS;
+  for (let m = 1; m <= sc - HALVING_BASE_SC; m += 1) e *= m + 1;
+  return e;
+}
+
+/** Run earnings at which the Halving reward grows by one more $SC. */
+export const nextScMilestone = (runEarnings: number): number => {
+  const sc = scForEarnings(runEarnings);
+  return sc <= 0 ? HALVING_MIN_EARNINGS : earningsForSc(sc + 1);
+};
 
 export interface TalentModifiers {
   hashMul: number;

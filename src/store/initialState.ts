@@ -111,6 +111,7 @@ export function createInitialData(carry?: Partial<GameData>): GameData {
     sc: carry?.sc ?? 0,
     scLifetime: carry?.scLifetime ?? 0,
     runEarnings: '0',
+    runStartedAt: now,
     lifetimeEarnings: carry?.lifetimeEarnings ?? '0',
     gpus: { [starterGpu.uid]: starterGpu, ...(carry?.gpus ?? {}) },
     psus: { [psuUid]: { uid: psuUid, modelId: 'psu500' } },
