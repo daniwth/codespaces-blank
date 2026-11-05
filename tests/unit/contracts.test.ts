@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { CONTRACT_DEFS, CONTRACTS } from '../../src/config/contracts';
-import { SAVE_VERSION } from '../../src/config/gameBalance';
+import { ACHIEVEMENTS, SAVE_VERSION } from '../../src/config/gameBalance';
 import {
   advanceContracts,
   contractContext,
@@ -329,7 +329,8 @@ describe('contracts in the store', () => {
   it('claiming pays the reward (not as earnings), frees the slot and counts it', () => {
     const c = make('deliver_cc', { completedAt: Date.now(), progress: 10, target: 10, reward: { cash: 500, gems: 2, gpuModelId: 'px580' } });
     const others = createBoard(ctxAt(), Date.now(), seeded(4)).slots.filter((x) => x.kind !== 'deliver_cc').slice(0, 2);
-    useGameStore.setState({ contracts: boardOf(c, ...others), gems: 1 });
+    // Pre-unlock every achievement: the reward GPU's silicon roll can be 'god', which would add gems.
+    useGameStore.setState({ contracts: boardOf(c, ...others), gems: 1, achievements: ACHIEVEMENTS.map((a) => a.id) });
     const gpusBefore = Object.keys(store().gpus).length;
     expect(store().claimContract(c.id)).toBe(true);
     expect(bnToNumber(store().cash)).toBe(10_500);
