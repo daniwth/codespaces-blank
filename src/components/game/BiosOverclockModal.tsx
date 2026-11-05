@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { isTopLayer, popLayer, pushLayer } from '../../utils/modalStack';
 import { GPU_BY_ID, OC_LIMITS, QUALITY_DEFS } from '../../config/hardwareCatalog';
 import { PHYSICS } from '../../config/gameBalance';
 import { hash01 } from '../../engine/SpriteManager';
@@ -108,8 +109,18 @@ export function BiosOverclockModal({ gpuUid }: { gpuUid: string }) {
 
   useEffect(() => () => timers.current.forEach((t) => window.clearInterval(t)), []);
 
+  const layer = useRef(0);
+  useEffect(() => {
+    layer.current = pushLayer();
+    const id = layer.current;
+    return () => popLayer(id);
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (!isTopLayer(layer.current)) return;
+      // The BIOS owns the keyboard while open (also during the BSOD).
+      if (e.key === 'Escape') e.stopImmediatePropagation();
       if (phase !== 'edit' && phase !== 'stable') return;
       if (e.key === 'Escape') close();
       if (phase !== 'edit') return;

@@ -7,6 +7,8 @@ import type { WorkerRequest, WorkerResponse } from '../workers/gameTick.worker';
 const TICK_MS = 250;
 /** Gaps longer than this on load are resolved as offline progress. */
 const OFFLINE_THRESHOLD_SEC = 30;
+/** While running, gaps beyond what one online tick integrates (sleep/hibernate) become offline progress. */
+const LIVE_GAP_SEC = 600;
 
 export type LoopMode = 'worker' | 'main-thread';
 
@@ -26,18 +28,22 @@ export function useGameLoop(onMode?: (mode: LoopMode) => void): void {
     let interval: ReturnType<typeof setInterval> | null = null;
     let raf = 0;
 
-    // ── Offline progress (resolved synchronously before the loop starts) ──
-    const boot = useGameStore.getState();
-    const now = Date.now();
-    const gap = (now - boot.lastTick) / 1000;
-    if (gap > OFFLINE_THRESHOLD_SEC && boot.settings.offlineProgress) {
-      const cap = talentModifiers(boot.talents).offlineHours * 3600;
-      const seconds = Math.min(gap, cap);
-      const out = simulateOffline(selectSimInput(boot), seconds, now);
-      boot.applyOffline(out, gap);
-    } else {
-      useGameStore.setState({ lastTick: now });
-    }
+    /**
+     * Resolves a long gap (tab reopened, laptop woke up from sleep) as offline
+     * progress with its "welcome back" report. Returns true when it did.
+     */
+    const resolveLongGap = (thresholdSec: number): boolean => {
+      const state = useGameStore.getState();
+      const now = Date.now();
+      const gap = (now - state.lastTick) / 1000;
+      if (gap <= thresholdSec || !state.settings.offlineProgress) return false;
+      const cap = talentModifiers(state.talents).offlineHours * 3600;
+      state.applyOffline(simulateOffline(selectSimInput(state), Math.min(gap, cap), now), gap);
+      return true;
+    };
+
+    // Boot: anything shorter than the threshold is simply simulated by the first tick.
+    resolveLongGap(OFFLINE_THRESHOLD_SEC);
 
     const apply = (res: WorkerResponse) => {
       if (disposed) return;
@@ -60,6 +66,7 @@ export function useGameLoop(onMode?: (mode: LoopMode) => void): void {
       };
       interval = setInterval(() => {
         if (!worker || inFlight) return;
+        if (resolveLongGap(LIVE_GAP_SEC)) return;
         inFlight = true;
         reqId += 1;
         const msg: WorkerRequest = { type: 'tick', id: reqId, input: selectSimInput(useGameStore.getState()), now: Date.now() };
@@ -80,6 +87,7 @@ export function useGameLoop(onMode?: (mode: LoopMode) => void): void {
         if (disposed) return;
         if (t - last >= TICK_MS) {
           last = t;
+          resolveLongGap(LIVE_GAP_SEC);
           const state = useGameStore.getState();
           const tickNow = Date.now();
           const out = simulateOnline(selectSimInput(state), Math.max(0, (tickNow - state.lastTick) / 1000), tickNow);
@@ -91,6 +99,7 @@ export function useGameLoop(onMode?: (mode: LoopMode) => void): void {
       // rAF pauses in background tabs: keep a slow timer so dt catches up.
       interval = setInterval(() => {
         if (document.visibilityState === 'hidden') {
+          resolveLongGap(LIVE_GAP_SEC);
           const state = useGameStore.getState();
           const tickNow = Date.now();
           state.applyTick(simulateOnline(selectSimInput(state), Math.max(0, (tickNow - state.lastTick) / 1000), tickNow));

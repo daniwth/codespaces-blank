@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const require = createRequire(import.meta.url);
-const { chromium } = require('playwright');
+const { chromium, devices } = require('playwright');
 
 const PORT = 8799;
 const URL = `http://localhost:${PORT}/`;
@@ -142,6 +142,136 @@ try {
 
   await check('no runtime errors in the console', async () => {
     assert(errors.length === 0, errors.join(' | '));
+  });
+
+  // ───────────── Regressions found by the QA pass (game-qa-tester) ─────────────
+  // Each one runs in its own fresh browser context.
+  const fresh = async (opts = { viewport: { width: 1600, height: 1000 } }) => {
+    const context = await browser.newContext(opts);
+    const p = await context.newPage();
+    return { context, p };
+  };
+  /** Boot once so a save exists, patch it before the next document loads, reload. */
+  const bootPatched = async (p, patch) => {
+    await p.goto(URL);
+    await p.locator('canvas[aria-label="Mining room view"]').waitFor({ timeout: 10_000 });
+    await p.waitForTimeout(2300);
+    await p.addInitScript((src) => {
+      if (sessionStorage.getItem('e2e-patch')) return;
+      sessionStorage.setItem('e2e-patch', '1');
+      const raw = JSON.parse(localStorage.getItem('hash-harvest-tycoon'));
+      new Function('state', src)(raw.state);
+      localStorage.setItem('hash-harvest-tycoon', JSON.stringify(raw));
+    }, patch);
+    await p.reload();
+    await p.locator('canvas[aria-label="Mining room view"]').waitFor({ timeout: 10_000 });
+  };
+
+  await check('regression: bot rule inputs accept 0.9x and re-typed numbers', async () => {
+    const { context, p } = await fresh();
+    try {
+      await bootPatched(p, "state.lifetimeEarnings = '1000';");
+      await p.locator('nav[aria-label="Panels"] button:has-text("Market")').click();
+      await p.click('button:has-text("New bot")');
+      const thr = p.locator('input[aria-label="Threshold multiple"]');
+      await thr.click();
+      await thr.press('Control+a');
+      await thr.pressSequentially('0.9');
+      const cd = p.locator('input[aria-label="Cooldown seconds"]');
+      await cd.click();
+      await cd.press('Control+a');
+      await cd.press('Backspace');
+      await cd.pressSequentially('30');
+      const got = { threshold: await thr.inputValue(), cooldown: await cd.inputValue() };
+      assert(got.threshold === '0.9' && got.cooldown === '30', `typed 0.9 / 30, inputs show ${got.threshold} / ${got.cooldown}`);
+    } finally {
+      await context.close();
+    }
+  });
+
+  await check('regression: Escape in the BIOS closes only the BIOS', async () => {
+    const { context, p } = await fresh();
+    try {
+      await p.goto(URL);
+      const cv = p.locator('canvas[aria-label="Mining room view"]');
+      await cv.waitFor();
+      const box = await cv.boundingBox();
+      await p.mouse.click(box.x + (212 / 480) * box.width, box.y + (180 / 270) * box.height);
+      await p.getByText('PCIE SLOTS').waitFor({ timeout: 3000 });
+      await p.locator('button[title="Overclock in the BIOS"]').first().click();
+      await p.getByText('PhoenixBits CMOS Setup Utility').waitFor({ timeout: 3000 });
+      await p.keyboard.press('Escape');
+      await p.waitForTimeout(200);
+      assert(!(await p.getByText('PhoenixBits CMOS Setup Utility').isVisible()), 'BIOS still open');
+      assert(await p.getByText('PCIE SLOTS').isVisible(), 'one Escape also closed the rack modal underneath');
+    } finally {
+      await context.close();
+    }
+  });
+
+  await check('regression: reloading the page does not cause a cloud conflict with yourself', async () => {
+    const { context, p } = await fresh();
+    try {
+      await p.goto(URL);
+      await p.locator('canvas[aria-label="Mining room view"]').waitFor();
+      await p.locator('nav[aria-label="Panels"] button:has-text("Account")').click();
+      await p.click('button:has-text("Create account")');
+      await p.fill('input[autocomplete="email"]', `e2e-reload${Date.now()}@example.com`);
+      await p.locator('input[autocomplete="new-password"]').nth(0).fill('e2e-password');
+      await p.locator('input[autocomplete="new-password"]').nth(1).fill('e2e-password');
+      await p.locator('form button:has-text("Create account")').last().click();
+      await p.locator('button:has-text("Subscribe")').first().click();
+      await p.getByText('ACTIVE ·').waitFor({ timeout: 8000 });
+      await p.waitForTimeout(800);
+      // Same device, nothing else open: the unload upload must not desync baseRevision.
+      await p.reload();
+      await p.locator('canvas[aria-label="Mining room view"]').waitFor();
+      await p.waitForTimeout(1500);
+      await p.locator('nav[aria-label="Panels"] button:has-text("Account")').click();
+      await p.click('button:has-text("Save to cloud")');
+      await p.waitForTimeout(1200);
+      assert(!(await p.getByText('Keep this device').isVisible()), 'conflict prompt after a plain reload on the only device');
+    } finally {
+      await context.close();
+    }
+  });
+
+  await check('regression: a 2 h sleep with the tab open is credited (not capped to 10 min)', async () => {
+    const { context, p } = await fresh();
+    try {
+      await p.clock.install();
+      await p.goto(URL);
+      await p.locator('canvas[aria-label="Mining room view"]').waitFor();
+      await p.clock.runFor(5000);
+      await p.waitForTimeout(300);
+      await p.clock.runFor(3000);
+      const before = await p.evaluate(() => JSON.parse(localStorage.getItem('hash-harvest-tycoon')).state.stats.playTimeSec);
+      await p.clock.fastForward('02:00:00'); // laptop lid closed: timers stop, then the clock jumps
+      for (let i = 0; i < 3; i += 1) {
+        await p.waitForTimeout(400);
+        await p.clock.runFor(3000);
+      }
+      const after = await p.evaluate(() => JSON.parse(localStorage.getItem('hash-harvest-tycoon')).state.stats.playTimeSec);
+      const report = await p.getByText('Welcome back, miner').isVisible();
+      assert(report || after - before > 3600, `only ${Math.round(after - before)}s of a 7200s gap were simulated and no offline report was shown`);
+    } finally {
+      await context.close();
+    }
+  });
+
+  await check('regression: mobile side tabs have accessible names and no horizontal overflow', async () => {
+    const { context, p } = await fresh({ ...devices['iPhone 13'] });
+    try {
+      await p.goto(URL);
+      await p.locator('canvas[aria-label="Mining room view"]').waitFor();
+      const overflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      assert(overflow <= 0, `horizontal overflow of ${overflow}px`);
+      const unnamed = await p.locator('nav[aria-label="Panels"] button').evaluateAll((bs) =>
+        bs.filter((b) => !(b.innerText.trim() || b.getAttribute('aria-label') || b.getAttribute('title'))).length);
+      assert(unnamed === 0, `${unnamed} icon-only tab buttons have no accessible name on mobile`);
+    } finally {
+      await context.close();
+    }
   });
 } catch (err) {
   results.push({ name: 'harness', ok: false, err: err.message });

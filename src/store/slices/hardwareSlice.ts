@@ -5,6 +5,7 @@ import { bnAdd, bnGte, bnSub } from '../../utils/bignum';
 import { makeUid, sfxBus, fxBus } from '../../utils/eventBus';
 import { formatCash } from '../../utils/formatters';
 import { aiAutoTune, crashChance, ocHashBonus, STOCK_OC } from '../gamePhysics';
+import { recordGpuEdit } from '../editLedger';
 import { createGpu, createRack, rollQuality } from '../initialState';
 import { PHYSICS } from '../../config/gameBalance';
 import type { GameStore, GetState, HardwareSlice, SetState } from '../storeTypes';
@@ -196,7 +197,8 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
           const uid = rack.gpuSlots[slot];
           const gpuSlots = rack.gpuSlots.slice();
           gpuSlots[slot] = null;
-          const gpus = uid && s.gpus[uid] ? { ...s.gpus, [uid]: { ...s.gpus[uid], temp: Math.min(s.gpus[uid].temp, 30) } } : s.gpus;
+          if (uid && s.gpus[uid]) recordGpuEdit(uid, { temp: Math.min(s.gpus[uid].temp, 30), shutdown: false });
+          const gpus = uid && s.gpus[uid] ? { ...s.gpus, [uid]: { ...s.gpus[uid], temp: Math.min(s.gpus[uid].temp, 30), shutdown: false } } : s.gpus;
           return { gpus, racks: { ...s.racks, [rackUid]: { ...rack, gpuSlots } } };
         }
         const fanSlots = rack.fanSlots.slice();
@@ -297,6 +299,7 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
       const gpu = get().gpus[gpuUid];
       if (!gpu || !spend(repasteCost(gpu), 'thermal paste')) return false;
       set((s) => ({ gpus: { ...s.gpus, [gpuUid]: { ...s.gpus[gpuUid], paste: 1 } } }));
+      recordGpuEdit(gpuUid, { paste: 1 });
       sfxBus.emit('install');
       return true;
     },
@@ -305,6 +308,7 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
       const gpu = get().gpus[gpuUid];
       if (!gpu || gpu.wear <= 0 || !spend(repairCost(gpu), 'silicon repair')) return false;
       set((s) => ({ gpus: { ...s.gpus, [gpuUid]: { ...s.gpus[gpuUid], wear: 0, overheatSeconds: 0 } } }));
+      recordGpuEdit(gpuUid, { wear: 0, overheatSeconds: 0 });
       get().pushLog(`${GPU_BY_ID[gpu.modelId].name} reballed & repaired. Efficiency restored.`, 'good');
       sfxBus.emit('success');
       return true;

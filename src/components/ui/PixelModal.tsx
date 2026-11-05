@@ -1,6 +1,7 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '../../utils/cn';
+import { isTopLayer, popLayer, pushLayer } from '../../utils/modalStack';
 
 interface PixelModalProps {
   title: ReactNode;
@@ -13,9 +14,16 @@ interface PixelModalProps {
 
 /** Full-screen dimmed overlay with a pixel-bordered window. ESC closes it. */
 export function PixelModal({ title, onClose, children, className, accent = '#22d3ee', hideClose }: PixelModalProps) {
+  const layer = useRef(0);
+  useEffect(() => {
+    layer.current = pushLayer();
+    const id = layer.current;
+    return () => popLayer(id);
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !hideClose) onClose();
+      if (e.key === 'Escape' && !hideClose && isTopLayer(layer.current)) onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

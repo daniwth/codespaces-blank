@@ -1,5 +1,5 @@
 import { ACHIEVEMENTS, VIP_COSTS } from '../../config/gameBalance';
-import { RACK_BY_ID } from '../../config/hardwareCatalog';
+import { MAX_TECHNICIANS, RACK_BY_ID } from '../../config/hardwareCatalog';
 import { PRESTIGE_TREE, TALENT_BY_ID, scForEarnings, talentCost, talentLevel } from '../../config/prestigeTree';
 import type { RackInstance } from '../../types/hardware';
 import type { AchievementContext, GameData } from '../../types/player';
@@ -64,7 +64,7 @@ export function createEconomySlice(set: SetState, get: GetState): EconomySlice {
         settings: s.settings,
       });
       set({ ...fresh, selectedRack: null, biosGpu: null, sideTab: 'halving' });
-      get().pushLog(`THE HALVING! Network reward cut in half — you minted ${reward} Smart Contracts ($SC) and +5 gems.`, 'good');
+      get().pushLog(`THE HALVING! Your run is cashed out — you minted ${reward} Smart Contracts ($SC) and +5 gems.`, 'good');
       sfxBus.emit('halving');
       fxBus.emit({ kind: 'confetti', intensity: 1 });
       return true;
@@ -84,7 +84,7 @@ export function createEconomySlice(set: SetState, get: GetState): EconomySlice {
       const talents = { ...s.talents, [id]: level + 1 };
       const patch: Partial<GameStore> = { sc: s.sc - cost, talents };
       // Immediate effects for talents that alter the current run.
-      if (id === 'tech_union') patch.technicians = s.technicians + 1;
+      if (id === 'tech_union') patch.technicians = Math.min(MAX_TECHNICIANS, s.technicians + 1);
       set(patch);
       s.pushLog(`Smart Contract deployed: ${node.name} Lv.${level + 1}.`, 'good');
       sfxBus.emit('unlock');

@@ -35,6 +35,7 @@ export function QualityBadge({ quality }: { quality: GpuInstance['quality'] }) {
 
 const STATUS_COPY: Record<string, { text: string; color: string }> = {
   online: { text: 'ONLINE', color: '#a3e635' },
+  overheat: { text: 'OVERHEAT — ALL GPUS SHUT DOWN', color: '#f43f5e' },
   empty: { text: 'NO GPUS', color: '#8f89c4' },
   no_psu: { text: 'NO PSU INSTALLED', color: '#fbbf24' },
   overload: { text: 'PSU OVERLOAD — TRIPPED', color: '#f43f5e' },
@@ -73,7 +74,7 @@ export function RackDetailModal({ rackUid }: { rackUid: string }) {
   const model = RACK_BY_ID[rack.modelId];
   const rackLive = s.live.racks[rack.uid];
   const status = rackLive?.status ?? (rack.roomId ? 'empty' : 'stored');
-  const powered = status === 'online';
+  const powered = status === 'online' || status === 'overheat';
   const nominal = rackNominalLoad(rack, s);
   const psu = rack.psuUid ? s.psus[rack.psuUid] : undefined;
   const psuModel = psu ? PSU_BY_ID[psu.modelId] : undefined;

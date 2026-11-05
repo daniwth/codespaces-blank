@@ -4,7 +4,7 @@ import type { TradingBot } from '../../types/economy';
 import { bnAdd, bnGte, bnSub, bnSubClamp, bnToNumber } from '../../utils/bignum';
 import { fxBus, makeUid, sfxBus } from '../../utils/eventBus';
 import { formatCash, formatNumber } from '../../utils/formatters';
-import { buyPrice, sellPrice } from '../gamePhysics';
+import { buyPrice, realizedEarnings, sellPrice } from '../gamePhysics';
 import type { GetState, MarketSlice, SetState } from '../storeTypes';
 
 export function createMarketSlice(set: SetState, get: GetState): MarketSlice {
@@ -15,21 +15,17 @@ export function createMarketSlice(set: SetState, get: GetState): MarketSlice {
       const qty = Math.min(amount, holding);
       if (!(qty > 0)) return { ok: false, message: `No $${coin} to sell.` };
       const proceeds = qty * sellPrice(s.market, coin, talentModifiers(s.talents));
-      let bestTrade = s.stats.bestTrade;
+      const costBasis = coin === 'CC' ? s.ccCostBasis : s.memeCostBasis;
+      const { earned, basis } = realizedEarnings(proceeds, holding, costBasis, qty);
       const patch = coin === 'CC'
-        ? { cc: bnSubClamp(s.cc, qty) }
-        : (() => {
-          const share = s.meme > 0 ? qty / s.meme : 1;
-          const basis = s.memeCostBasis * share;
-          bestTrade = Math.max(bestTrade, proceeds - basis);
-          return { meme: Math.max(0, s.meme - qty), memeCostBasis: Math.max(0, s.memeCostBasis - basis) };
-        })();
+        ? { cc: bnSubClamp(s.cc, qty), ccCostBasis: Math.max(0, s.ccCostBasis - basis) }
+        : { meme: Math.max(0, s.meme - qty), memeCostBasis: Math.max(0, s.memeCostBasis - basis) };
       set({
         ...patch,
         cash: bnAdd(s.cash, proceeds),
-        runEarnings: bnAdd(s.runEarnings, proceeds),
-        lifetimeEarnings: bnAdd(s.lifetimeEarnings, proceeds),
-        stats: { ...s.stats, bestTrade },
+        runEarnings: bnAdd(s.runEarnings, earned),
+        lifetimeEarnings: bnAdd(s.lifetimeEarnings, earned),
+        stats: { ...s.stats, bestTrade: coin === 'MEME' ? Math.max(s.stats.bestTrade, proceeds - basis) : s.stats.bestTrade },
       });
       sfxBus.emit('sell');
       fxBus.emit({ kind: 'sell', amount: proceeds });
@@ -46,7 +42,7 @@ export function createMarketSlice(set: SetState, get: GetState): MarketSlice {
       }
       const qty = cash / buyPrice(s.market, coin);
       set(coin === 'CC'
-        ? { cash: bnSub(s.cash, cash), cc: bnAdd(s.cc, qty) }
+        ? { cash: bnSub(s.cash, cash), cc: bnAdd(s.cc, qty), ccCostBasis: s.ccCostBasis + cash }
         : { cash: bnSub(s.cash, cash), meme: s.meme + qty, memeCostBasis: s.memeCostBasis + cash });
       sfxBus.emit('buy');
       const msg = `Bought ${formatNumber(qty)} $${coin} for ${formatCash(cash)}.`;

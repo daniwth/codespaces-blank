@@ -107,7 +107,7 @@ const q = {
   deleteSession: db.prepare('DELETE FROM sessions WHERE token_hash = ?'),
   purgeSessions: db.prepare('DELETE FROM sessions WHERE expires_at <= ?'),
   saveByUser: db.prepare('SELECT * FROM saves WHERE user_id = ?'),
-  saveMetaByUser: db.prepare('SELECT revision, updated_at, summary, save_version FROM saves WHERE user_id = ?'),
+  saveMetaByUser: db.prepare('SELECT revision, updated_at, summary, save_version, checksum FROM saves WHERE user_id = ?'),
   upsertSave: db.prepare(`
     INSERT INTO saves (user_id, blob, checksum, save_version, revision, updated_at, summary)
     VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -155,8 +155,10 @@ export const saves = {
     return row ? (row as unknown as SaveRow) : undefined;
   },
   meta: (userId: string) => {
-    const row = q.saveMetaByUser.get(userId) as { revision: number; updated_at: number; summary: string; save_version: number } | undefined;
-    return row ? { revision: row.revision, updatedAt: row.updated_at, saveVersion: row.save_version, summary: JSON.parse(row.summary) as SaveSummary } : null;
+    const row = q.saveMetaByUser.get(userId) as { revision: number; updated_at: number; summary: string; save_version: number; checksum: string } | undefined;
+    return row
+      ? { revision: row.revision, updatedAt: row.updated_at, saveVersion: row.save_version, checksum: row.checksum, summary: JSON.parse(row.summary) as SaveSummary }
+      : null;
   },
   upsert: (userId: string, blob: string, checksum: string, saveVersion: number, revision: number, summary: SaveSummary) =>
     q.upsertSave.run(userId, blob, checksum, saveVersion, revision, Date.now(), JSON.stringify(summary)),

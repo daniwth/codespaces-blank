@@ -37,7 +37,7 @@ export function HalvingTalentTree() {
       <div className="relative overflow-hidden bg-[#1a0f00] p-3 shadow-[inset_0_0_0_2px_#a16207]">
         <div className="gold-shimmer font-pixel text-[13px]">THE HALVING</div>
         <p className="mt-1 text-[16px] leading-tight text-amber/80">
-          The block reward is cut in half: wipe ordinary hardware, rooms and $CC to mint permanent <b>Smart Contracts ($SC)</b>. Gold racks, gems, bots and talents survive.
+          Cash out your run before the network halves: wipe ordinary hardware, rooms and $CC to mint permanent <b>Smart Contracts ($SC)</b>. Gold racks, gems, bots and talents survive.
         </p>
         <div className="mt-2 grid grid-cols-3 gap-2 text-[16px] leading-tight">
           <div>

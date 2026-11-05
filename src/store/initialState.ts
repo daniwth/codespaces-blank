@@ -105,6 +105,7 @@ export function createInitialData(carry?: Partial<GameData>): GameData {
     cc: '0',
     meme: 0,
     memeCostBasis: 0,
+    ccCostBasis: 0,
     gems: carry?.gems ?? 0,
     sc: carry?.sc ?? 0,
     scLifetime: carry?.scLifetime ?? 0,

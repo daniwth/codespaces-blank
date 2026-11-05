@@ -37,7 +37,7 @@ export type SimInput = Pick<
   GameData,
   | 'gpus' | 'psus' | 'coolers' | 'racks' | 'ownedRooms' | 'roomTemps' | 'technicians'
   | 'pool' | 'market' | 'bots' | 'event' | 'nextEventAt' | 'talents' | 'vip'
-  | 'cash' | 'cc' | 'meme' | 'memeCostBasis' | 'lastTick'
+  | 'cash' | 'cc' | 'ccCostBasis' | 'meme' | 'memeCostBasis' | 'lastTick'
 >;
 
 export type MessageTone = 'info' | 'good' | 'warn' | 'bad';
@@ -83,6 +83,7 @@ export interface SimOutput {
   ccDelta: number;
   memeDelta: number;
   memeCostDelta: number;
+  ccCostDelta: number;
   gemsDelta: number;
   earnedCash: number;
   ccMined: number;
@@ -230,6 +231,7 @@ interface World {
   cc: number;
   meme: number;
   memeCost: number;
+  ccCost: number;
 }
 
 function cloneWorld(input: SimInput): World {
@@ -260,6 +262,7 @@ function cloneWorld(input: SimInput): World {
     cc: bnToNumber(input.cc),
     meme: input.meme,
     memeCost: input.memeCostBasis,
+    ccCost: input.ccCostBasis,
   };
 }
 
@@ -280,20 +283,33 @@ interface StepAccumulator {
   sounds: SoundCue[];
 }
 
+/**
+ * Earnings = proceeds above the cash originally paid for the coins sold.
+ * Mined coins have zero cost basis, so selling them is pure earnings, while a
+ * buy -> sell round trip only counts its (rare) profit: no wash-trading levels.
+ */
+export function realizedEarnings(proceeds: number, holding: number, costBasis: number, amount: number): { earned: number; basis: number } {
+  const share = holding > 0 ? Math.min(1, amount / holding) : 1;
+  const basis = costBasis * share;
+  return { earned: Math.max(0, proceeds - basis), basis };
+}
+
 function sellCoin(w: World, coin: CoinId, amount: number, mods: TalentModifiers, acc: StepAccumulator): number {
   if (amount <= 0) return 0;
   const proceeds = amount * sellPrice(w.market, coin, mods);
   if (coin === 'CC') {
+    const { earned, basis } = realizedEarnings(proceeds, w.cc, w.ccCost, amount);
+    w.ccCost -= basis;
     w.cc -= amount;
+    acc.earnedCash += earned;
   } else {
-    const share = w.meme > 0 ? amount / w.meme : 1;
-    const basis = w.memeCost * share;
+    const { earned, basis } = realizedEarnings(proceeds, w.meme, w.memeCost, amount);
     w.memeCost -= basis;
     w.meme -= amount;
     acc.bestTrade = Math.max(acc.bestTrade, proceeds - basis);
+    acc.earnedCash += earned;
   }
   w.cash += proceeds;
-  acc.earnedCash += proceeds;
   return proceeds;
 }
 
@@ -301,8 +317,10 @@ function buyCoin(w: World, coin: CoinId, cashAmount: number): number {
   if (cashAmount <= 0) return 0;
   const qty = cashAmount / buyPrice(w.market, coin);
   w.cash -= cashAmount;
-  if (coin === 'CC') w.cc += qty;
-  else {
+  if (coin === 'CC') {
+    w.cc += qty;
+    w.ccCost += cashAmount;
+  } else {
     w.meme += qty;
     w.memeCost += cashAmount;
   }
@@ -451,8 +469,9 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
       });
       roomHeat += load > 0 ? topo.fanPower + (wall - load) : 0;
       roomHash += rackHash;
+      const allShutdown = powered && topo.gpuUids.length > 0 && topo.gpuUids.every((u) => w.gpus[u].shutdown);
       live.racks[rack.uid] = {
-        status,
+        status: allShutdown ? 'overheat' : status,
         load,
         wall,
         capacity: topo.capacity,
@@ -520,6 +539,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
   bill -= fromCash;
   if (bill > 0 && w.cc > 0) {
     const ccNeeded = Math.min(w.cc, bill / w.market.CC.price);
+    w.ccCost *= w.cc > 0 ? (w.cc - ccNeeded) / w.cc : 0;
     w.cc -= ccNeeded;
   }
 
@@ -568,6 +588,7 @@ export function simulate(input: SimInput, dtSec: number, now: number, opts: SimO
   const cc0 = w.cc;
   const meme0 = w.meme;
   const memeCost0 = w.memeCost;
+  const ccCost0 = w.ccCost;
   const rebootBefore: Record<string, number> = {};
   Object.values(w.racks).forEach((r) => {
     rebootBefore[r.uid] = r.rebootUntil;
@@ -600,6 +621,7 @@ export function simulate(input: SimInput, dtSec: number, now: number, opts: SimO
     ccDelta: w.cc - cc0,
     memeDelta: w.meme - meme0,
     memeCostDelta: w.memeCost - memeCost0,
+    ccCostDelta: w.ccCost - ccCost0,
     gemsDelta: acc.gems,
     earnedCash: acc.earnedCash,
     ccMined: acc.ccMined,

@@ -8,6 +8,7 @@ import type { CoinId, TradingBot } from '../../types/economy';
 import { bnToNumber } from '../../utils/bignum';
 import { cn } from '../../utils/cn';
 import { formatCash, formatNumber, formatPrice } from '../../utils/formatters';
+import { NumberField } from '../ui/NumberField';
 import { PixelButton } from '../ui/PixelButton';
 import { CryptoCanvasChart } from './CryptoCanvasChart';
 
@@ -152,15 +153,15 @@ function BotRow({ bot, onChange, onRemove }: { bot: TradingBot; onChange: (p: Pa
         <option value="above">≥</option>
         <option value="below">≤</option>
       </select>
-      <input className="retro-input w-16" type="number" step={0.05} min={0.1} max={10} value={bot.threshold} onChange={(e) => onChange({ threshold: Number(e.target.value) || 1 })} aria-label="Threshold multiple" />
+      <NumberField className="w-16" step={0.05} min={0.1} max={10} value={bot.threshold} onCommit={(threshold) => onChange({ threshold })} aria-label="Threshold multiple" />
       <span className="text-dim">x THEN</span>
       <select className="retro-input" value={bot.side} onChange={(e) => onChange({ side: e.target.value as TradingBot['side'] })}>
         <option value="sell">SELL</option>
         <option value="buy">BUY</option>
       </select>
-      <input className="retro-input w-14" type="number" min={1} max={100} value={bot.amountPct} onChange={(e) => onChange({ amountPct: Math.max(1, Math.min(100, Number(e.target.value) || 1)) })} aria-label="Amount percent" />
+      <NumberField className="w-14" min={1} max={100} value={bot.amountPct} onCommit={(amountPct) => onChange({ amountPct })} aria-label="Amount percent" />
       <span className="text-dim">% · cd</span>
-      <input className="retro-input w-14" type="number" min={5} max={600} value={bot.cooldownSec} onChange={(e) => onChange({ cooldownSec: Math.max(5, Number(e.target.value) || 5) })} aria-label="Cooldown seconds" />
+      <NumberField className="w-14" min={5} max={600} value={bot.cooldownSec} onCommit={(cooldownSec) => onChange({ cooldownSec })} aria-label="Cooldown seconds" />
       <span className="text-dim">s</span>
       <button type="button" onClick={onRemove} className="ml-auto text-dim hover:text-hot" aria-label="Delete bot">
         <Trash2 size={14} />

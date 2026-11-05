@@ -7,6 +7,7 @@ import { bnAdd, bnMax, bnToNumber } from '../utils/bignum';
 import { fxBus, sfxBus, type SfxCue } from '../utils/eventBus';
 import { decodeSave, encodeSave } from '../utils/saveCodec';
 import { emptyLive, type SimInput, type SimOutput, type SoundCue } from './gamePhysics';
+import { pruneGpuEdits, reconcileGpuUpdate } from './editLedger';
 import { createInitialData } from './initialState';
 import { migrateSave } from './migrations';
 import { createEconomySlice } from './slices/economySlice';
@@ -16,7 +17,7 @@ import { createRoomsSlice } from './slices/roomsSlice';
 import type { CoreActions, GameStore, GetState, SetState, UiState } from './storeTypes';
 
 const DATA_KEYS: (keyof GameData)[] = [
-  'saveVersion', 'createdAt', 'lastTick', 'cash', 'cc', 'meme', 'memeCostBasis', 'gems', 'sc', 'scLifetime',
+  'saveVersion', 'createdAt', 'lastTick', 'cash', 'cc', 'meme', 'memeCostBasis', 'ccCostBasis', 'gems', 'sc', 'scLifetime',
   'runEarnings', 'lifetimeEarnings', 'gpus', 'psus', 'coolers', 'racks', 'ownedRooms', 'activeRoom',
   'roomTemps', 'technicians', 'pool', 'market', 'bots', 'event', 'nextEventAt', 'talents', 'vip',
   'achievements', 'stats', 'settings',
@@ -35,7 +36,7 @@ export const selectSimInput = (s: GameStore): SimInput => ({
   gpus: s.gpus, psus: s.psus, coolers: s.coolers, racks: s.racks, ownedRooms: s.ownedRooms,
   roomTemps: s.roomTemps, technicians: s.technicians, pool: s.pool, market: s.market, bots: s.bots,
   event: s.event, nextEventAt: s.nextEventAt, talents: s.talents, vip: s.vip, cash: s.cash, cc: s.cc,
-  meme: s.meme, memeCostBasis: s.memeCostBasis, lastTick: s.lastTick,
+  meme: s.meme, memeCostBasis: s.memeCostBasis, ccCostBasis: s.ccCostBasis, lastTick: s.lastTick,
 });
 
 /**
@@ -109,8 +110,9 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
     set((s) => {
       const gpus = { ...s.gpus };
       Object.entries(out.gpuUpdates).forEach(([uid, upd]) => {
-        if (gpus[uid]) gpus[uid] = { ...gpus[uid], ...upd };
+        if (gpus[uid]) gpus[uid] = { ...gpus[uid], ...reconcileGpuUpdate(uid, upd, out.now) };
       });
+      pruneGpuEdits(out.now);
       let racks = s.racks;
       const rebootEntries = Object.entries(out.rackReboots);
       if (rebootEntries.length) {
@@ -128,6 +130,7 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
         cc: bnMax(0, bnAdd(s.cc, out.ccDelta)),
         meme: Math.max(0, s.meme + out.memeDelta),
         memeCostBasis: Math.max(0, s.memeCostBasis + out.memeCostDelta),
+        ccCostBasis: Math.max(0, s.ccCostBasis + out.ccCostDelta),
         gems: s.gems + out.gemsDelta,
         runEarnings: bnAdd(s.runEarnings, out.earnedCash),
         lifetimeEarnings: bnAdd(s.lifetimeEarnings, out.earnedCash),

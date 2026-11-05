@@ -80,6 +80,9 @@ export function App() {
                 key={t.id}
                 type="button"
                 onClick={() => setSideTab(t.id)}
+                aria-label={t.label}
+                aria-current={ui.sideTab === t.id ? 'page' : undefined}
+                title={t.label}
                 className="flex items-center gap-1 px-2 py-1.5 font-pixel text-[8px] uppercase transition-colors"
                 style={
                   ui.sideTab === t.id

@@ -146,6 +146,8 @@ export interface GameData {
   meme: number;
   /** Total cash spent on the current $MEME bag (for P&L). */
   memeCostBasis: number;
+  /** Cash spent on $CC that is still held (mined coins have no cost). */
+  ccCostBasis: number;
   gems: number;
   sc: number;
   scLifetime: number;

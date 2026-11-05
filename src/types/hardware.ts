@@ -141,6 +141,8 @@ export interface RackInstance {
 
 export type RackStatus =
   | 'online'
+  /** Powered, but every GPU is in thermal-protection shutdown. */
+  | 'overheat'
   | 'empty'
   | 'no_psu'
   | 'overload'

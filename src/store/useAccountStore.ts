@@ -13,6 +13,12 @@ interface AccountState {
   baseRevision: number | null;
   autoSync: boolean;
   lastSyncAt: number | null;
+  /**
+   * Checksum of an upload whose response may never arrive (sent while the page
+   * unloads). If the server later reports a "conflict" with exactly this save,
+   * it is our own upload, not another device.
+   */
+  pendingChecksum: string | null;
   // runtime
   user: AccountUser | null;
   plans: Plan[];
@@ -42,6 +48,22 @@ interface AccountState {
 
 const message = (err: unknown): string => (err instanceof Error ? err.message : 'Something went wrong.');
 
+/** A 401 that means "your session is gone" (not "wrong confirmation password"). */
+const sessionExpired = (err: unknown): boolean => err instanceof ApiError && err.status === 401 && err.code !== 'bad_credentials';
+
+/** Everything tied to a signed-in account, cleared on logout / expiry / deletion. */
+const SIGNED_OUT = { token: null, user: null, cloud: null, baseRevision: null, pendingChecksum: null, syncState: 'idle', conflict: null } as const;
+
+/** The checksum embedded in an exported save (identifies exactly what was uploaded). */
+function blobChecksum(blob: string): string | null {
+  try {
+    const env = JSON.parse(atob(blob)) as { checksum?: unknown };
+    return typeof env.checksum === 'string' ? env.checksum : null;
+  } catch {
+    return null;
+  }
+}
+
 export const useAccountStore = create<AccountState>()(
   persist(
     (set, get) => {
@@ -51,7 +73,7 @@ export const useAccountStore = create<AccountState>()(
         try {
           return await fn();
         } catch (err) {
-          if (err instanceof ApiError && err.status === 401) set({ token: null, user: null, cloud: null });
+          if (sessionExpired(err)) set({ ...SIGNED_OUT });
           if (err instanceof ApiError && err.code === 'offline') set({ serverUp: false });
           set({ error: message(err) });
           sfxBus.emit('error');
@@ -71,6 +93,7 @@ export const useAccountStore = create<AccountState>()(
         baseRevision: null,
         autoSync: true,
         lastSyncAt: null,
+        pendingChecksum: null,
         user: null,
         plans: [],
         devBilling: false,
@@ -100,7 +123,7 @@ export const useAccountStore = create<AccountState>()(
             const { user, save } = await cloudApi.me(token);
             set({ user, cloud: save, serverUp: true });
           } catch (err) {
-            if (err instanceof ApiError && err.status === 401) set({ token: null, user: null, cloud: null });
+            if (sessionExpired(err)) set({ ...SIGNED_OUT });
             if (err instanceof ApiError && err.code === 'offline') set({ serverUp: false });
           }
         },
@@ -118,7 +141,7 @@ export const useAccountStore = create<AccountState>()(
           const res = await run(() => cloudApi.login(email, password));
           if (!res) return false;
           // New device / account: progress has no known cloud base yet.
-          set({ baseRevision: null });
+          set({ baseRevision: null, pendingChecksum: null, syncState: 'idle', conflict: null });
           afterAuth(res.token, res.user);
           useGameStore.getState().pushLog(`Logged in as ${res.user.email}`, 'good');
           sfxBus.emit('success');
@@ -128,7 +151,7 @@ export const useAccountStore = create<AccountState>()(
         logout: async () => {
           const { token } = get();
           if (token) await cloudApi.logout(token).catch(() => undefined);
-          set({ token: null, user: null, cloud: null, baseRevision: null, syncState: 'idle', conflict: null, notice: 'Logged out. Local progress stays on this device.' });
+          set({ ...SIGNED_OUT, notice: 'Logged out. Local progress stays on this device.' });
         },
 
         deleteAccount: async (password) => {
@@ -136,7 +159,7 @@ export const useAccountStore = create<AccountState>()(
           if (!token) return false;
           const res = await run(() => cloudApi.deleteAccount(token, password));
           if (!res) return false;
-          set({ token: null, user: null, cloud: null, baseRevision: null, notice: 'Account and cloud save deleted.' });
+          set({ ...SIGNED_OUT, notice: 'Account and cloud save deleted.' });
           return true;
         },
 
@@ -168,16 +191,32 @@ export const useAccountStore = create<AccountState>()(
         },
 
         uploadSave: async (opts = {}) => {
-          const { token, user, baseRevision } = get();
+          const { token, user } = get();
           if (!token || !user?.subscription.active) return false;
           if (get().syncState === 'syncing') return false;
           set({ syncState: 'syncing', ...(opts.silent ? {} : { error: null, notice: null }) });
+          const attempt = async (blob: string, base: number | null, force: boolean, keepalive: boolean) => {
+            // Remember what we send: the response of an unload upload is lost with the page.
+            set({ pendingChecksum: blobChecksum(blob) });
+            return cloudApi.putSave(token, blob, base, force, keepalive);
+          };
+          // Checksum of an earlier upload whose response we may never have seen.
+          const previousPending = get().pendingChecksum;
           try {
             const blob = await useGameStore.getState().exportSave();
             // Browsers reject keepalive requests with bodies over 64 KiB.
             const keepalive = !!opts.keepalive && blob.length < 60_000;
-            const { save } = await cloudApi.putSave(token, blob, baseRevision, !!opts.force, keepalive);
-            set({ baseRevision: save.revision, cloud: save, lastSyncAt: Date.now(), syncState: 'ok', conflict: null });
+            let save: CloudSaveMeta;
+            try {
+              ({ save } = await attempt(blob, get().baseRevision, !!opts.force, keepalive));
+            } catch (err) {
+              const remote = err instanceof ApiError && err.code === 'save_conflict' ? (err.details as (CloudSaveMeta & { checksum?: string }) | null) : null;
+              const ours = !!remote?.checksum && (remote.checksum === previousPending || remote.checksum === blobChecksum(blob));
+              if (!remote || !ours) throw err;
+              // The cloud holds our own earlier upload: adopt its revision and retry once.
+              ({ save } = await attempt(blob, remote.revision, false, keepalive));
+            }
+            set({ baseRevision: save.revision, cloud: save, lastSyncAt: Date.now(), syncState: 'ok', conflict: null, pendingChecksum: null });
             if (!opts.silent) set({ notice: `Saved to the cloud (revision ${save.revision}).` });
             return true;
           } catch (err) {
@@ -186,7 +225,7 @@ export const useAccountStore = create<AccountState>()(
               useGameStore.getState().pushLog('Cloud save conflict: choose which progress to keep in the Account tab.', 'warn');
             } else {
               if (err instanceof ApiError && err.status === 402) await get().refresh();
-              if (err instanceof ApiError && err.status === 401) set({ token: null, user: null });
+              if (sessionExpired(err)) set({ ...SIGNED_OUT });
               set({ syncState: 'error', error: message(err) });
             }
             return false;
@@ -220,7 +259,7 @@ export const useAccountStore = create<AccountState>()(
     {
       name: 'hash-harvest-account',
       storage: createJSONStorage(() => localStorage),
-      partialize: (s) => ({ token: s.token, baseRevision: s.baseRevision, autoSync: s.autoSync, lastSyncAt: s.lastSyncAt }),
+      partialize: (s) => ({ token: s.token, baseRevision: s.baseRevision, autoSync: s.autoSync, lastSyncAt: s.lastSyncAt, pendingChecksum: s.pendingChecksum }),
     },
   ),
 );

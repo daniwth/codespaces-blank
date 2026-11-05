@@ -1,7 +1,7 @@
 import type { NetworkEventDef, NetworkEventId, PoolDefinition, PoolMode } from '../types/economy';
 import type { AchievementDef } from '../types/player';
 
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 export const SAVE_KEY = 'hash-harvest-tycoon';
 export const SAVE_SALT = 'HHT::pixel-rigs::v1';
 

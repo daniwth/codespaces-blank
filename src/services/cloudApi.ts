@@ -38,6 +38,8 @@ export interface CloudSaveMeta {
   revision: number;
   updatedAt: number;
   saveVersion: number;
+  /** SHA-256 of the stored save envelope. */
+  checksum?: string;
   summary: SaveSummary;
 }
 

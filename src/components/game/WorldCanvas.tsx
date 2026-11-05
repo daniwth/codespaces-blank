@@ -28,6 +28,7 @@ const SHIRTS = ['#ef4444', '#22c55e', '#3b82f6', '#f97316', '#a855f7', '#14b8a6'
 const STATUS_LABEL: Partial<Record<RackStatus, { text: string; color: string }>> = {
   no_psu: { text: 'NO PSU', color: '#fbbf24' },
   overload: { text: 'OVERLOAD', color: '#f43f5e' },
+  overheat: { text: 'OVERHEAT', color: '#f43f5e' },
   rebooting: { text: 'REBOOT', color: '#60a5fa' },
   blackout: { text: 'NO POWER', color: '#94a3b8' },
   empty: { text: 'EMPTY', color: '#8f89c4' },
@@ -226,7 +227,7 @@ export function WorldCanvas() {
         const model = RACK_BY_ID[rack.modelId];
         const live = s.live.racks[rack.uid];
         const status: RackStatus = live?.status ?? 'empty';
-        const powered = status === 'online';
+        const powered = status === 'online' || status === 'overheat';
 
         ctx.globalAlpha = 0.35;
         px(ctx, x - 3, y + RACK_H - 2, RACK_W + 6, 4, '#000000');
