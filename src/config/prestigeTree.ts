@@ -2,72 +2,76 @@ import type { TalentId, TalentLevels, TalentNode } from '../types/player';
 
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 
-/** Smart Contract ($SC) permanent talent tree, unlocked by The Halving. */
+/**
+ * Smart Contract ($SC) permanent talent tree, unlocked by The Halving.
+ * Priced for the diminishing-returns reward (≈4–9 $SC per run): ~250 $SC buys
+ * the whole tree, so it fills over a few dozen runs with Quantum Entangle last.
+ */
 export const PRESTIGE_TREE: TalentNode[] = [
   {
     id: 'hash_core', name: 'Hash Amplifier', icon: 'zap', col: 2, row: 0,
     description: 'Global hashrate bonus on every device.',
-    maxLevel: 10, costBase: 1, costGrowth: 1.45, requires: [], effect: 0.1,
+    maxLevel: 10, costBase: 1, costGrowth: 1.2, requires: [], effect: 0.1,
     format: (l) => `+${pct(l * 0.1)} hashrate`,
   },
   {
     id: 'power_discount', name: 'Green PPA', icon: 'leaf', col: 0, row: 1,
     description: 'Long-term renewable power purchase agreement.',
-    maxLevel: 5, costBase: 2, costGrowth: 1.6, requires: ['hash_core'], effect: 0.08,
+    maxLevel: 5, costBase: 1, costGrowth: 1.4, requires: ['hash_core'], effect: 0.08,
     format: (l) => `-${pct(l * 0.08)} electricity`,
   },
   {
     id: 'thermal_mastery', name: 'Thermal Mastery', icon: 'snowflake', col: 2, row: 1,
     description: 'Undervolt-friendly firmware: devices emit less heat.',
-    maxLevel: 5, costBase: 2, costGrowth: 1.6, requires: ['hash_core'], effect: 0.06,
+    maxLevel: 5, costBase: 1, costGrowth: 1.4, requires: ['hash_core'], effect: 0.06,
     format: (l) => `-${pct(l * 0.06)} heat`,
   },
   {
     id: 'quick_start', name: 'Seed Capital', icon: 'coins', col: 4, row: 1,
     description: 'Start every run with extra cash.',
-    maxLevel: 5, costBase: 1, costGrowth: 2, requires: ['hash_core'], effect: 1,
+    maxLevel: 5, costBase: 1, costGrowth: 1.5, requires: ['hash_core'], effect: 1,
     format: (l) => (l === 0 ? '+$0 start' : `+$${(250 * 4 ** l).toLocaleString('en-US')} start`),
   },
   {
     id: 'offline_ext', name: 'Night Shift', icon: 'moon', col: 0, row: 2,
     description: 'Extends the offline earnings window.',
-    maxLevel: 4, costBase: 3, costGrowth: 1.8, requires: ['power_discount'], effect: 4,
+    maxLevel: 4, costBase: 2, costGrowth: 1.4, requires: ['power_discount'], effect: 4,
     format: (l) => `+${l * 4}h offline cap`,
   },
   {
     id: 'silicon_luck', name: 'Silicon Whisperer', icon: 'cpu', col: 1, row: 2,
     description: 'Better odds in the silicon lottery.',
-    maxLevel: 3, costBase: 4, costGrowth: 2, requires: ['thermal_mastery'], effect: 1,
+    maxLevel: 3, costBase: 2, costGrowth: 1.6, requires: ['thermal_mastery'], effect: 1,
     format: (l) => `x${(1 + l * 0.6).toFixed(1)} Gold/God odds`,
   },
   {
     id: 'market_insight', name: 'Insider Ticker', icon: 'trending', col: 3, row: 2,
     description: 'Sell coins at a premium.',
-    maxLevel: 5, costBase: 3, costGrowth: 1.7, requires: ['quick_start'], effect: 0.03,
+    maxLevel: 5, costBase: 2, costGrowth: 1.4, requires: ['quick_start'], effect: 0.03,
     format: (l) => `+${pct(l * 0.03)} sell price`,
   },
   {
     id: 'tech_union', name: 'Tech Union', icon: 'wrench', col: 4, row: 2,
     description: 'Free starting technician and faster maintenance.',
-    maxLevel: 3, costBase: 4, costGrowth: 2, requires: ['quick_start'], effect: 0.25,
+    maxLevel: 3, costBase: 2, costGrowth: 1.6, requires: ['quick_start'], effect: 0.25,
     format: (l) => `+${l} tech, +${pct(l * 0.25)} speed`,
   },
   {
     id: 'vip_slots', name: 'VIP Floor Plans', icon: 'crown', col: 1, row: 3,
     description: 'Extra rack pad in every room.',
-    maxLevel: 3, costBase: 8, costGrowth: 2, requires: ['silicon_luck', 'offline_ext'], effect: 1,
+    maxLevel: 3, costBase: 4, costGrowth: 1.6, requires: ['silicon_luck', 'offline_ext'], effect: 1,
     format: (l) => `+${l} rack pads`,
   },
   {
     id: 'quantum_entanglement', name: 'Quantum Entangle', icon: 'atom', col: 2, row: 3,
     description: 'Late-game multiplicative hashrate bonus.',
-    maxLevel: 5, costBase: 15, costGrowth: 2.2, requires: ['silicon_luck', 'market_insight'], effect: 0.25,
+    maxLevel: 5, costBase: 6, costGrowth: 1.5, requires: ['silicon_luck', 'market_insight'], effect: 0.25,
     format: (l) => `x${(1 + l * 0.25).toFixed(2)} hashrate`,
   },
   {
     id: 'room_keeper', name: 'Real Estate Trust', icon: 'building', col: 3, row: 3,
     description: 'Keep purchased rooms through every Halving.',
-    maxLevel: 1, costBase: 25, costGrowth: 1, requires: ['market_insight'], effect: 1,
+    maxLevel: 1, costBase: 10, costGrowth: 1, requires: ['market_insight'], effect: 1,
     format: (l) => (l > 0 ? 'Rooms kept' : 'Rooms reset'),
   },
 ];
