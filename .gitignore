@@ -5,3 +5,4 @@ dist
 data
 .env
 tests/e2e/artifacts
+.claude/worktrees/
