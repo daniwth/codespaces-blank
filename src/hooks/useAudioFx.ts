@@ -216,6 +216,18 @@ class AudioEngine {
         this.arp([1047, 784, 523, 392, 523, 784, 1047, 1568, 2093], 0.09, 'triangle', 0.22);
         this.tone({ freq: 65, type: 'sawtooth', dur: 1.2, gain: 0.15 });
         break;
+      case 'contract':
+        // Two-bar "order fulfilled" fanfare.
+        this.arp([392, 523, 659], 0.07, 'square', 0.13);
+        this.tone({ freq: 784, type: 'triangle', dur: 0.32, gain: 0.2, delay: 0.24 });
+        this.tone({ freq: 1047, type: 'triangle', dur: 0.4, gain: 0.16, delay: 0.32 });
+        break;
+      case 'claim':
+        // Cash-register: drawer clunk + bell.
+        this.noise({ dur: 0.05, gain: 0.3, filter: 'lowpass', freq: 900 });
+        this.tone({ freq: 1760, type: 'triangle', dur: 0.25, gain: 0.16, delay: 0.05 });
+        this.tone({ freq: 2637, type: 'triangle', dur: 0.35, gain: 0.12, delay: 0.1 });
+        break;
       case 'boot':
         this.tone({ freq: 1000, type: 'square', dur: 0.14, gain: 0.1 });
         break;

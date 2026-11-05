@@ -96,6 +96,10 @@ export interface SimOutput {
   raids: number;
   overheats: number;
   bestTrade: number;
+  /** Hottest die temperature reached at any integration step of this tick (°C, 0 with no mounted GPU). */
+  peakTemp: number;
+  /** Realized profit (over cost basis) made by trading-bot sells during this tick. */
+  botEarned: number;
   live: LiveMetrics;
   messages: GameMessage[];
   sounds: SoundCue[];
@@ -279,6 +283,8 @@ interface StepAccumulator {
   raids: number;
   overheats: number;
   bestTrade: number;
+  peakTemp: number;
+  botEarned: number;
   messages: GameMessage[];
   sounds: SoundCue[];
 }
@@ -557,7 +563,9 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
     if (bot.side === 'sell') {
       const holding = bot.coin === 'CC' ? w.cc : w.meme;
       if (holding <= 1e-9) return;
+      const earnedBefore = acc.earnedCash;
       sellCoin(w, bot.coin, holding * pctAmt, mods, acc);
+      acc.botEarned += acc.earnedCash - earnedBefore;
     } else {
       if (w.cash <= 0.01) return;
       buyCoin(w, bot.coin, w.cash * pctAmt);
@@ -576,13 +584,14 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
   live.ccPerSec = baseRate * (input.pool === 'public' ? 1 - pool.fee : pool.payoutMul);
   live.electricityPerSec = electricityRate;
   live.hottest = hottest;
+  acc.peakTemp = Math.max(acc.peakTemp, hottest);
 }
 
 /** Advance the world by `dtSec` seconds ending at `now` (epoch ms). */
 export function simulate(input: SimInput, dtSec: number, now: number, opts: SimOptions): SimOutput {
   const w = cloneWorld(input);
   const mods = talentModifiers(input.talents);
-  const acc: StepAccumulator = { ccMined: 0, electricity: 0, earnedCash: 0, gems: 0, blocks: 0, raids: 0, overheats: 0, bestTrade: 0, messages: [], sounds: [] };
+  const acc: StepAccumulator = { ccMined: 0, electricity: 0, earnedCash: 0, gems: 0, blocks: 0, raids: 0, overheats: 0, bestTrade: 0, peakTemp: 0, botEarned: 0, messages: [], sounds: [] };
   const live = emptyLive();
   const cash0 = w.cash;
   const cc0 = w.cc;
@@ -634,6 +643,8 @@ export function simulate(input: SimInput, dtSec: number, now: number, opts: SimO
     raids: acc.raids,
     overheats: acc.overheats,
     bestTrade: acc.bestTrade,
+    peakTemp: acc.peakTemp,
+    botEarned: acc.botEarned,
     live,
     messages: acc.messages.slice(-12),
     sounds: Array.from(new Set(acc.sounds)),

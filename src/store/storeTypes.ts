@@ -10,7 +10,7 @@ export interface LogEntry {
   tone: MessageTone;
 }
 
-export type SideTab = 'shop' | 'rigs' | 'market' | 'pools' | 'halving' | 'vip' | 'trophies' | 'account' | 'system';
+export type SideTab = 'shop' | 'rigs' | 'market' | 'pools' | 'contracts' | 'halving' | 'vip' | 'trophies' | 'account' | 'system';
 
 export interface OfflineReport {
   seconds: number;
@@ -28,6 +28,14 @@ export interface LotteryReveal {
   t: number;
 }
 
+/** Small HUD banner shown when a contract is completed. */
+export interface ContractToast {
+  contractId: string;
+  title: string;
+  goal: string;
+  t: number;
+}
+
 export interface UiState {
   live: LiveMetrics;
   log: LogEntry[];
@@ -36,6 +44,7 @@ export interface UiState {
   offlineReport: OfflineReport | null;
   sideTab: SideTab;
   lottery: LotteryReveal | null;
+  contractToast: ContractToast | null;
 }
 
 export type OcResult = 'stable' | 'crash' | 'invalid';
@@ -84,6 +93,20 @@ export interface EconomySlice {
   checkAchievements: () => void;
 }
 
+export interface ContractsSlice {
+  /** Pay out a completed contract (cash, gems and/or a GPU) and free its slot. */
+  claimContract: (id: string) => boolean;
+  /** Swap an unfinished contract for a new one (cooldown + small cash cost). */
+  rerollContract: (id: string) => boolean;
+  /** Current reroll price in cash. */
+  contractRerollCost: () => number;
+  /** Fold a merged simulation tick into the board (called by applyTick / applyOffline). */
+  advanceContractBoard: (out: SimOutput, offline: boolean) => void;
+  /** Credit realized profit from a manual market sale. */
+  creditContractProfit: (amount: number) => void;
+  dismissContractToast: () => void;
+}
+
 export interface CoreActions {
   applyTick: (out: SimOutput) => void;
   applyOffline: (out: SimOutput, requestedSeconds: number) => void;
@@ -99,7 +122,7 @@ export interface CoreActions {
   hardReset: () => void;
 }
 
-export type GameStore = GameData & UiState & HardwareSlice & RoomsSlice & MarketSlice & EconomySlice & CoreActions;
+export type GameStore = GameData & UiState & HardwareSlice & RoomsSlice & MarketSlice & EconomySlice & ContractsSlice & CoreActions;
 
 export type SetState = (partial: Partial<GameStore> | ((state: GameStore) => Partial<GameStore>)) => void;
 export type GetState = () => GameStore;
