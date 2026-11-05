@@ -149,7 +149,7 @@ export const useAccountStore = create<AccountState>()(
             window.location.assign(res.url); // Stripe Checkout
             return;
           }
-          set({ user: res.user, notice: 'Miner Pass activated (demo billing — no real charge).' });
+          set({ user: res.user, notice: res.reactivated ? 'Miner Pass resumed: it will renew normally.' : 'Miner Pass activated (demo billing — no real charge).' });
           useGameStore.getState().pushLog('Miner Pass active: cloud saves unlocked!', 'good');
           sfxBus.emit('unlock');
           await get().uploadSave({ silent: true });
@@ -174,7 +174,9 @@ export const useAccountStore = create<AccountState>()(
           set({ syncState: 'syncing', ...(opts.silent ? {} : { error: null, notice: null }) });
           try {
             const blob = await useGameStore.getState().exportSave();
-            const { save } = await cloudApi.putSave(token, blob, baseRevision, !!opts.force, opts.keepalive);
+            // Browsers reject keepalive requests with bodies over 64 KiB.
+            const keepalive = !!opts.keepalive && blob.length < 60_000;
+            const { save } = await cloudApi.putSave(token, blob, baseRevision, !!opts.force, keepalive);
             set({ baseRevision: save.revision, cloud: save, lastSyncAt: Date.now(), syncState: 'ok', conflict: null });
             if (!opts.silent) set({ notice: `Saved to the cloud (revision ${save.revision}).` });
             return true;

@@ -1,11 +1,22 @@
-import { mkdirSync } from 'node:fs';
+import { chmodSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { config } from './config.ts';
 
-mkdirSync(config.dataDir, { recursive: true });
+mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });
+try {
+  chmodSync(config.dataDir, 0o700);
+} catch {
+  // Not owner of the directory: keep existing permissions.
+}
 
-export const db = new DatabaseSync(join(config.dataDir, 'hash-harvest.db'));
+const dbPath = join(config.dataDir, 'hash-harvest.db');
+export const db = new DatabaseSync(dbPath);
+try {
+  chmodSync(dbPath, 0o600);
+} catch {
+  // ignore
+}
 
 db.exec(`
   PRAGMA journal_mode = WAL;
@@ -105,6 +116,12 @@ const q = {
       updated_at = excluded.updated_at, summary = excluded.summary
   `),
   insertEvent: db.prepare('INSERT OR IGNORE INTO webhook_events (id, received_at) VALUES (?, ?)'),
+  hasEvent: db.prepare('SELECT 1 AS hit FROM webhook_events WHERE id = ?'),
+  purgeEvents: db.prepare('DELETE FROM webhook_events WHERE received_at < ?'),
+  setPassword: db.prepare('UPDATE users SET password_hash = ? WHERE id = ?'),
+  expireDemoSubs: db.prepare(
+    "UPDATE users SET sub_status = 'canceled', period_end = 0, cancel_at_period_end = 0 WHERE sub_id LIKE 'demo\\_%' ESCAPE '\\' AND sub_status <> 'canceled'",
+  ),
 };
 
 const asUser = (row: unknown): UserRow | undefined => (row ? (row as UserRow) : undefined);
@@ -116,6 +133,9 @@ export const users = {
   insert: (id: string, email: string, passwordHash: string) => q.insertUser.run(id, email, passwordHash, Date.now()),
   remove: (id: string) => q.deleteUser.run(id),
   setCustomer: (id: string, customerId: string) => q.setCustomer.run(customerId, id),
+  setPasswordHash: (id: string, hash: string) => q.setPassword.run(hash, id),
+  /** Demo subscriptions are void once real billing is enabled. Returns rows changed. */
+  expireDemoSubscriptions: () => Number(q.expireDemoSubs.run().changes),
   setSubscription: (
     id: string,
     sub: { plan: string | null; subId: string | null; status: string; periodEnd: number; cancelAtPeriodEnd: boolean },
@@ -144,6 +164,8 @@ export const saves = {
 
 /** Records a webhook event id; returns false if it was already processed. */
 export const markWebhookEvent = (id: string): boolean => Number(q.insertEvent.run(id, Date.now()).changes) > 0;
+export const webhookEventSeen = (id: string): boolean => q.hasEvent.get(id) !== undefined;
+export const purgeWebhookEvents = (olderThanMs: number) => q.purgeEvents.run(Date.now() - olderThanMs);
 
 /** Run a function inside a SQLite transaction. */
 export function transaction<T>(fn: () => T): T {

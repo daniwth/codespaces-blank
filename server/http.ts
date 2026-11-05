@@ -1,4 +1,7 @@
+import { createHash } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { isIP } from 'node:net';
+import { config } from './config.ts';
 
 export class HttpError extends Error {
   readonly status: number;
@@ -13,11 +16,27 @@ export class HttpError extends Error {
   }
 }
 
-const SECURITY_HEADERS: Record<string, string> = {
+export const SECURITY_HEADERS: Record<string, string> = {
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'X-Frame-Options': 'DENY',
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  ...(config.appUrl.startsWith('https://') ? { 'Strict-Transport-Security': 'max-age=31536000; includeSubDomains' } : {}),
 };
+
+/** CSP for the static app: own scripts/workers, Google Fonts, data: sprites. */
+export const PAGE_CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "worker-src 'self' blob:",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com",
+  "img-src 'self' data: blob:",
+  "connect-src 'self'",
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "form-action 'self' https://checkout.stripe.com https://billing.stripe.com",
+].join('; ');
 
 export function sendJson(res: ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
@@ -69,26 +88,94 @@ export const str = (v: unknown, field: string, max = 512): string => {
   return v;
 };
 
+/**
+ * Client IP used for rate limiting. X-Forwarded-For is attacker-controlled, so
+ * it is only honoured when TRUST_PROXY=<hops> is set, and then we take the entry
+ * appended by the closest trusted proxy (counting from the right).
+ */
 export function clientIp(req: IncomingMessage): string {
-  const fwd = req.headers['x-forwarded-for'];
-  const first = Array.isArray(fwd) ? fwd[0] : fwd?.split(',')[0];
-  return (first ?? req.socket.remoteAddress ?? 'unknown').trim();
+  const socketIp = req.socket.remoteAddress ?? 'unknown';
+  if (config.trustProxyHops <= 0) return socketIp;
+  const header = req.headers['x-forwarded-for'];
+  const chain = (Array.isArray(header) ? header.join(',') : header ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const candidate = chain[chain.length - config.trustProxyHops];
+  return candidate && isIP(candidate) ? candidate : socketIp;
 }
 
-/** Fixed-window in-memory rate limiter (per process). */
-export function createRateLimiter(max: number, windowMs: number) {
+/** Short fixed-size key so attacker-supplied strings never bloat memory. */
+const limiterKey = (key: string): string => createHash('sha256').update(key).digest('base64url').slice(0, 22);
+
+export interface RateLimiter {
+  /** Counts a hit and throws 429 when over the limit. */
+  hit: (key: string) => void;
+  /** Throws 429 if the key is already over the limit, without counting. */
+  check: (key: string) => void;
+  reset: (key: string) => void;
+}
+
+/** Fixed-window in-memory rate limiter with a hard cap on tracked keys. */
+export function createRateLimiter(max: number, windowMs: number, maxKeys = 20_000): RateLimiter {
   const hits = new Map<string, { count: number; resetAt: number }>();
-  return (key: string): void => {
-    const now = Date.now();
-    const entry = hits.get(key);
-    if (!entry || entry.resetAt <= now) {
-      hits.set(key, { count: 1, resetAt: now + windowMs });
-      if (hits.size > 10_000) for (const [k, v] of hits) if (v.resetAt <= now) hits.delete(k);
+  const blocked = (entry: { count: number; resetAt: number }, now: number) => {
+    throw new HttpError(429, 'rate_limited', `Too many attempts. Try again in ${Math.ceil((entry.resetAt - now) / 1000)}s.`);
+  };
+  return {
+    hit: (raw) => {
+      const key = limiterKey(raw);
+      const now = Date.now();
+      const entry = hits.get(key);
+      if (!entry || entry.resetAt <= now) {
+        if (entry) hits.delete(key);
+        // Map keeps insertion order: evict the oldest windows first (O(1)).
+        while (hits.size >= maxKeys) {
+          const oldest = hits.keys().next().value;
+          if (oldest === undefined) break;
+          hits.delete(oldest);
+        }
+        hits.set(key, { count: 1, resetAt: now + windowMs });
+        return;
+      }
+      entry.count += 1;
+      if (entry.count > max) blocked(entry, now);
+    },
+    check: (raw) => {
+      const now = Date.now();
+      const entry = hits.get(limiterKey(raw));
+      if (entry && entry.resetAt > now && entry.count >= max) blocked(entry, now);
+    },
+    reset: (raw) => {
+      hits.delete(limiterKey(raw));
+    },
+  };
+}
+
+/** Caps concurrent CPU-heavy work (scrypt) so floods queue or get 503 instead of starving the server. */
+export function createSemaphore(concurrency: number, maxQueue: number) {
+  let active = 0;
+  const queue: (() => void)[] = [];
+  const acquire = async (): Promise<void> => {
+    if (active < concurrency) {
+      active += 1;
       return;
     }
-    entry.count += 1;
-    if (entry.count > max) {
-      throw new HttpError(429, 'rate_limited', `Too many attempts. Try again in ${Math.ceil((entry.resetAt - now) / 1000)}s.`);
+    if (queue.length >= maxQueue) throw new HttpError(503, 'busy', 'Server busy, please retry in a moment.');
+    // The slot is handed over directly by release(), so no one can jump the queue.
+    await new Promise<void>((resolve) => queue.push(resolve));
+  };
+  const release = (): void => {
+    const next = queue.shift();
+    if (next) next();
+    else active -= 1;
+  };
+  return async <T,>(fn: () => Promise<T>): Promise<T> => {
+    await acquire();
+    try {
+      return await fn();
+    } finally {
+      release();
     }
   };
 }

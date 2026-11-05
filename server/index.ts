@@ -6,22 +6,36 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 import {
-  burnPasswordCheck, createSession, hashPassword, newUserId, normalizeEmail, requireUser, revokeSession,
+  burnPasswordCheck, createSession, hashPassword, needsRehash, newUserId, normalizeEmail, requireUser, revokeSession,
   validateCredentials, verifyPassword,
 } from './auth.ts';
-import { demoCancel, handleWebhook, isPlanId, openPortal, PLANS, publicUser, startCheckout, subscriptionOf } from './billing.ts';
-import { config, devBilling } from './config.ts';
-import { saves, sessions, transaction, users } from './db.ts';
-import { clientIp, createRateLimiter, HttpError, readJson, readRawBody, sendError, sendJson, str } from './http.ts';
+import {
+  cancelBillingForDeletion, demoCancel, handleWebhook, isPlanId, onBillingStartup, openPortal, PLANS, publicUser,
+  startCheckout, subscriptionOf,
+} from './billing.ts';
+import { billingMode, config, devBilling } from './config.ts';
+import { purgeWebhookEvents, saves, sessions, transaction, users } from './db.ts';
+import {
+  clientIp, createRateLimiter, HttpError, PAGE_CSP, readJson, readRawBody, SECURITY_HEADERS, sendError, sendJson, str,
+} from './http.ts';
 import { inspectSave } from './saves.ts';
 
-const authLimiter = createRateLimiter(10, 60_000);
+/** Account creation per IP. */
+const registerLimiter = createRateLimiter(10, 60_000);
+/** All login attempts per IP (throttles credential stuffing across many emails). */
+const loginIpLimiter = createRateLimiter(30, 60_000);
+/**
+ * Failed logins per (email, IP) pair: only failures count and a success resets
+ * it, so a third party cannot lock a victim out of their own account.
+ */
+const loginFailLimiter = createRateLimiter(10, 10 * 60_000);
+const sensitiveLimiter = createRateLimiter(10, 60_000);
 const saveLimiter = createRateLimiter(30, 60_000);
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
 
 const routes: Record<string, Handler> = {
-  'GET /api/health': async (_req, res) => sendJson(res, 200, { ok: true, devBilling }),
+  'GET /api/health': async (_req, res) => sendJson(res, 200, { ok: true }),
 
   'GET /api/plans': async (_req, res) =>
     sendJson(res, 200, {
@@ -30,7 +44,7 @@ const routes: Record<string, Handler> = {
     }),
 
   'POST /api/auth/register': async (req, res) => {
-    authLimiter(`reg:${clientIp(req)}`);
+    registerLimiter.hit(clientIp(req));
     const body = await readJson(req);
     const email = normalizeEmail(str(body.email, 'email', 254));
     const password = str(body.password, 'password', 200);
@@ -52,15 +66,19 @@ const routes: Record<string, Handler> = {
   'POST /api/auth/login': async (req, res) => {
     const body = await readJson(req);
     const email = normalizeEmail(str(body.email, 'email', 254));
-    authLimiter(`login:${clientIp(req)}`);
-    authLimiter(`login:${email}`);
+    const ip = clientIp(req);
+    const failKey = `${email}|${ip}`;
+    loginIpLimiter.hit(ip);
+    loginFailLimiter.check(failKey);
     const password = str(body.password, 'password', 200);
     const user = users.byEmail(email);
-    if (!user) {
-      await burnPasswordCheck(password);
+    const ok = user ? await verifyPassword(password, user.password_hash) : (await burnPasswordCheck(password), false);
+    if (!user || !ok) {
+      loginFailLimiter.hit(failKey);
       throw new HttpError(401, 'bad_credentials', 'Wrong email or password.');
     }
-    if (!(await verifyPassword(password, user.password_hash))) throw new HttpError(401, 'bad_credentials', 'Wrong email or password.');
+    loginFailLimiter.reset(failKey);
+    if (needsRehash(user.password_hash)) users.setPasswordHash(user.id, await hashPassword(password));
     const session = createSession(user.id);
     sendJson(res, 200, { token: session.token, expiresAt: session.expiresAt, user: publicUser(user) });
   },
@@ -77,14 +95,13 @@ const routes: Record<string, Handler> = {
 
   'DELETE /api/me': async (req, res) => {
     const user = requireUser(req);
-    authLimiter(`del:${user.id}`);
+    sensitiveLimiter.hit(`del:${user.id}`);
     const body = await readJson(req);
     if (!(await verifyPassword(str(body.password, 'password', 200), user.password_hash))) {
       throw new HttpError(401, 'bad_credentials', 'Wrong password.');
     }
-    if (subscriptionOf(user).active && !devBilling && !user.cancel_at_period_end) {
-      throw new HttpError(409, 'active_subscription', 'Cancel your Miner Pass in the billing portal before deleting the account.');
-    }
+    // Cancel any subscription that could still charge before the account disappears.
+    await cancelBillingForDeletion(user);
     users.remove(user.id);
     sendJson(res, 200, { ok: true });
   },
@@ -127,7 +144,7 @@ const routes: Record<string, Handler> = {
 
   'PUT /api/save': async (req, res) => {
     const user = requireUser(req);
-    saveLimiter(`save:${user.id}`);
+    saveLimiter.hit(user.id);
     if (!subscriptionOf(user).active) {
       throw new HttpError(402, 'subscription_required', 'Cloud saving requires an active Miner Pass.');
     }
@@ -161,16 +178,22 @@ const MIME: Record<string, string> = {
 
 function serveStatic(req: IncomingMessage, res: ServerResponse): boolean {
   if (!existsSync(config.staticDir) || (req.method !== 'GET' && req.method !== 'HEAD')) return false;
-  const urlPath = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname);
+  let urlPath: string;
+  try {
+    urlPath = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname);
+  } catch {
+    throw new HttpError(400, 'bad_request', 'Malformed URL.');
+  }
   const safe = normalize(urlPath).replace(/^(\.\.[/\\])+/, '');
   let file = join(config.staticDir, safe);
   if (!file.startsWith(config.staticDir) || !existsSync(file) || statSync(file).isDirectory()) file = join(config.staticDir, 'index.html');
   if (!existsSync(file)) return false;
   const immutable = file.includes(`${join(config.staticDir, 'assets')}`);
   res.writeHead(200, {
+    ...SECURITY_HEADERS,
+    'Content-Security-Policy': PAGE_CSP,
     'Content-Type': MIME[extname(file)] ?? 'application/octet-stream',
     'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
-    'X-Content-Type-Options': 'nosniff',
   });
   if (req.method === 'HEAD') res.end();
   else createReadStream(file).pipe(res);
@@ -179,7 +202,7 @@ function serveStatic(req: IncomingMessage, res: ServerResponse): boolean {
 
 // ───────────────────────── Server ─────────────────────────
 
-const server = createServer(async (req, res) => {
+const server = createServer({ maxHeaderSize: 8 * 1024 }, async (req, res) => {
   const path = new URL(req.url ?? '/', 'http://x').pathname;
   try {
     if (path.startsWith('/api/')) {
@@ -194,9 +217,13 @@ const server = createServer(async (req, res) => {
   }
 });
 
-setInterval(() => sessions.purgeExpired(), 3_600_000).unref();
+setInterval(() => {
+  sessions.purgeExpired();
+  purgeWebhookEvents(90 * 86_400_000);
+}, 3_600_000).unref();
+onBillingStartup();
 
 server.listen(config.port, () => {
   console.log(`[server] Hash Harvest accounts on http://localhost:${config.port}`);
-  console.log(`[server] billing: ${devBilling ? 'DEMO mode (no STRIPE_SECRET_KEY, no real charges)' : 'Stripe live/test keys'}`);
+  console.log(`[server] billing mode: ${billingMode}${config.trustProxyHops ? ` · trusting ${config.trustProxyHops} proxy hop(s)` : ''}`);
 });

@@ -17,7 +17,7 @@ export function useCloudSync(): void {
       if (checkout || params.has('billing')) {
         const game = useGameStore.getState();
         game.setSideTab('account');
-        if (checkout === 'success') game.pushLog('Payment received. Activating your Miner Pass…', 'good');
+        if (checkout === 'success') game.pushLog('Back from checkout. Confirming your Miner Pass with the server…', 'info');
         if (checkout === 'cancel') game.pushLog('Checkout cancelled. No charge was made.', 'info');
         // The webhook may land a moment after the redirect: poll briefly.
         let tries = 0;
