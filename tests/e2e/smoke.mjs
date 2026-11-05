@@ -13,7 +13,7 @@ import { join } from 'node:path';
 const require = createRequire(import.meta.url);
 const { chromium, devices } = require('playwright');
 
-const PORT = 8799;
+const PORT = Number(process.env.E2E_PORT ?? 8799);
 const URL = `http://localhost:${PORT}/`;
 const ART = join(process.cwd(), 'tests/e2e/artifacts');
 mkdirSync(ART, { recursive: true });

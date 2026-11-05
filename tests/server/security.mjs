@@ -10,6 +10,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+/** Base port (5 consecutive ports are used); override with SEC_PORT_BASE for parallel runs. */
+const BASE = Number(process.env.SEC_PORT_BASE ?? 8781);
+const P = { fake: BASE, demo: BASE + 1, prod: BASE + 2, live: BASE + 3 };
 const results = [];
 const check = async (name, fn) => {
   try {
@@ -53,7 +56,7 @@ const fake = createServer(async (req, res) => {
   if (req.url === '/v1/checkout/sessions') return send(200, { url: 'https://checkout.stripe.com/c/test' });
   send(404, { error: { message: 'unknown' } });
 });
-await new Promise((r) => fake.listen(8781, r));
+await new Promise((r) => fake.listen(P.fake, r));
 
 const SECRET = 'whsec_test';
 const mkSub = (id, userId, status, price = 'price_month', extra = {}) => {
@@ -95,8 +98,8 @@ const signed = (event) => {
 console.log('Server security & billing tests');
 try {
   // ── Demo mode ──
-  let demo = await start(8782, { STRIPE_SECRET_KEY: '', TRUST_PROXY: '0' });
-  const d = api(8782);
+  let demo = await start(P.demo, { STRIPE_SECRET_KEY: '', TRUST_PROXY: '0' });
+  const d = api(P.demo);
 
   await check('X-Forwarded-For rotation does not bypass the register limit', async () => {
     const codes = [];
@@ -109,19 +112,19 @@ try {
     const before = (await d('GET', '/health')).status;
     let tooLarge = 0;
     for (let i = 0; i < 300; i += 1) {
-      const r = await fetch('http://localhost:8782/api/auth/register', { method: 'POST', headers: { 'X-Forwarded-For': `${junk}${i}` } }).catch(() => null);
+      const r = await fetch(`http://localhost:${P.demo}/api/auth/register`, { method: 'POST', headers: { 'X-Forwarded-For': `${junk}${i}` } }).catch(() => null);
       if (!r || r.status === 429 || r.status === 400 || r.status === 431) tooLarge += 1;
     }
     assert(before === 200 && tooLarge === 300, `unexpected responses (${tooLarge}/300)`);
   });
 
   await check('malformed URI answers 400, not 500', async () => {
-    const r = await fetch('http://localhost:8782/%E0%A4%A');
+    const r = await fetch(`http://localhost:${P.demo}/%E0%A4%A`);
     assert(r.status === 400 || r.status === 404, `got ${r.status}`);
   });
 
   await check('static pages ship CSP and frame protections', async () => {
-    const r = await fetch('http://localhost:8782/');
+    const r = await fetch(`http://localhost:${P.demo}/`);
     if (r.status === 404) return; // dist not built
     assert(/frame-ancestors 'none'/.test(r.headers.get('content-security-policy') ?? ''), 'missing CSP');
     assert(r.headers.get('x-frame-options') === 'DENY', 'missing XFO');
@@ -129,7 +132,7 @@ try {
 
   await check('demo: cancel then re-subscribe resumes instead of stacking', async () => {
     await stop(demo);
-    demo = await start(8782, { STRIPE_SECRET_KEY: '', TRUST_PROXY: '1' });
+    demo = await start(P.demo, { STRIPE_SECRET_KEY: '', TRUST_PROXY: '1' });
     const reg = await d('POST', '/auth/register', { email: 'demo@x.io', password: 'password123' }, { 'X-Forwarded-For': '203.0.113.9' });
     const auth = { Authorization: `Bearer ${reg.json.token}` };
     await d('POST', '/billing/checkout', { plan: 'monthly' }, auth);
@@ -149,14 +152,14 @@ try {
   await stop(demo);
 
   await check('refuses to start in production without Stripe key', async () => {
-    const r = await start(8783, { STRIPE_SECRET_KEY: '', NODE_ENV: 'production' }).then(() => 'started', (e) => e.out);
+    const r = await start(P.prod, { STRIPE_SECRET_KEY: '', NODE_ENV: 'production' }).then(() => 'started', (e) => e.out);
     assert(r !== 'started' && /Refusing to start/.test(r), `unexpected: ${r}`);
   });
 
   // ── Stripe mode (fake API) ──
-  const stripeEnv = { STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_WEBHOOK_SECRET: SECRET, STRIPE_PRICE_MONTHLY: 'price_month', STRIPE_PRICE_YEARLY: 'price_year', STRIPE_API_BASE: 'http://localhost:8781' };
-  const live = await start(8784, stripeEnv);
-  const s = api(8784);
+  const stripeEnv = { STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_WEBHOOK_SECRET: SECRET, STRIPE_PRICE_MONTHLY: 'price_month', STRIPE_PRICE_YEARLY: 'price_year', STRIPE_API_BASE: `http://localhost:${P.fake}` };
+  const live = await start(P.live, stripeEnv);
+  const s = api(P.live);
 
   await check('demo subscriptions are voided when real billing starts', async () => {
     const login = await s('POST', '/auth/login', { email: 'demo@x.io', password: 'password123' });
