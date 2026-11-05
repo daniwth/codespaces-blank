@@ -1,7 +1,7 @@
 import type { NetworkEventDef, NetworkEventId, PoolDefinition, PoolMode } from '../types/economy';
 import type { AchievementDef } from '../types/player';
 
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 export const SAVE_KEY = 'hash-harvest-tycoon';
 export const SAVE_SALT = 'HHT::pixel-rigs::v1';
 
@@ -140,4 +140,5 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'oc5', name: 'Overclock Artisan', description: 'Apply 5 stable overclocks.', gems: 4, check: (c) => c.stableOverclocks >= 5 },
   { id: 'tech3', name: 'Crew Chief', description: 'Hire 3 technicians.', gems: 3, check: (c) => c.technicians >= 3 },
   { id: 'trade', name: 'Diamond Hands', description: 'Profit $1K in a single trade.', gems: 3, check: (c) => c.bestTrade >= 1_000 },
+  { id: 'contracts10', name: 'Reliable Contractor', description: 'Claim 10 contracts.', gems: 3, check: (c) => c.contractsCompleted >= 10 },
 ];

@@ -24,6 +24,7 @@ export function achievementContext(s: GameStore): AchievementContext {
     goldRacks: s.vip.goldRacksBought,
     stableOverclocks: s.stats.stableOverclocks,
     bestTrade: s.stats.bestTrade,
+    contractsCompleted: s.stats.contractsCompleted,
   };
 }
 

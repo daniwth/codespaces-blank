@@ -35,7 +35,9 @@ export type SfxCue =
   | 'halving'
   | 'install'
   | 'unlock'
-  | 'boot';
+  | 'boot'
+  | 'contract'
+  | 'claim';
 
 export type VisualFx =
   | { kind: 'confetti'; intensity: number }

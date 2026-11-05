@@ -7,6 +7,7 @@ import type { GameData, RoomId, TalentLevels, VipState } from '../types/player';
 import { bn } from '../utils/bignum';
 import { makeUid } from '../utils/eventBus';
 import { randRange, weightedPick } from '../utils/random';
+import { contractContext, createBoard } from './contracts';
 import { STOCK_OC } from './gamePhysics';
 
 export function rollQuality(luck: number): SiliconQuality {
@@ -97,7 +98,7 @@ export function createInitialData(carry?: Partial<GameData>): GameData {
 
   const ownedRooms: RoomId[] = carry?.ownedRooms ?? ['bedroom'];
 
-  return {
+  const data: Omit<GameData, 'contracts'> = {
     saveVersion: SAVE_VERSION,
     createdAt: carry?.createdAt ?? now,
     lastTick: now,
@@ -129,10 +130,12 @@ export function createInitialData(carry?: Partial<GameData>): GameData {
     achievements: carry?.achievements ?? [],
     stats: carry?.stats ?? {
       blocksFound: 0, halvings: 0, raids: 0, bsods: 0, overheats: 0, stableOverclocks: 0,
-      gpusBought: 0, playTimeSec: 0, maxHashrate: 0, bestTrade: 0,
+      gpusBought: 0, playTimeSec: 0, maxHashrate: 0, bestTrade: 0, contractsCompleted: 0,
     },
     settings: carry?.settings ?? { muted: false, volume: 0.6, ambientHum: true, particles: true, offlineProgress: true },
   };
+  // A fresh board scaled to this run (The Halving starts a new one: the old targets were sized for the old farm).
+  return { ...data, contracts: carry?.contracts ?? createBoard(contractContext(data), now) };
 }
 
 export const gpuModelOf = (g: GpuInstance) => GPU_BY_ID[g.modelId];

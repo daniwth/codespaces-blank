@@ -27,6 +27,7 @@ export function createMarketSlice(set: SetState, get: GetState): MarketSlice {
         lifetimeEarnings: bnAdd(s.lifetimeEarnings, earned),
         stats: { ...s.stats, bestTrade: coin === 'MEME' ? Math.max(s.stats.bestTrade, proceeds - basis) : s.stats.bestTrade },
       });
+      get().creditContractProfit(earned);
       sfxBus.emit('sell');
       fxBus.emit({ kind: 'sell', amount: proceeds });
       const msg = `Sold ${formatNumber(qty)} $${coin} for ${formatCash(proceeds)}.`;

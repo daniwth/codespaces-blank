@@ -10,6 +10,7 @@ import { emptyLive, type SimInput, type SimOutput, type SoundCue } from './gameP
 import { pruneGpuEdits, reconcileGpuUpdate } from './editLedger';
 import { createInitialData } from './initialState';
 import { migrateSave } from './migrations';
+import { createContractsSlice } from './slices/contractsSlice';
 import { createEconomySlice } from './slices/economySlice';
 import { createHardwareSlice } from './slices/hardwareSlice';
 import { createMarketSlice } from './slices/marketSlice';
@@ -20,7 +21,7 @@ const DATA_KEYS: (keyof GameData)[] = [
   'saveVersion', 'createdAt', 'lastTick', 'cash', 'cc', 'meme', 'memeCostBasis', 'ccCostBasis', 'gems', 'sc', 'scLifetime',
   'runEarnings', 'lifetimeEarnings', 'gpus', 'psus', 'coolers', 'racks', 'ownedRooms', 'activeRoom',
   'roomTemps', 'technicians', 'pool', 'market', 'bots', 'event', 'nextEventAt', 'talents', 'vip',
-  'achievements', 'stats', 'settings',
+  'achievements', 'stats', 'settings', 'contracts',
 ];
 
 export const extractData = (s: GameStore): GameData => {
@@ -103,6 +104,7 @@ const initialUi = (): UiState => ({
   offlineReport: null,
   sideTab: 'shop',
   lottery: null,
+  contractToast: null,
 });
 
 function createCoreActions(set: SetState, get: GetState): CoreActions {
@@ -156,8 +158,9 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
   return {
     applyTick: (out) => {
       mergeTick(out);
-      const { pushLog, checkAchievements } = get();
+      const { pushLog, checkAchievements, advanceContractBoard } = get();
       out.messages.forEach((m) => pushLog(m.text, m.tone));
+      advanceContractBoard(out, false);
       out.sounds.forEach((cue) => sfxBus.emit(SOUND_MAP[cue]));
       if (out.blocksFound > 0) fxBus.emit({ kind: 'block' });
       checkAchievements();
@@ -176,6 +179,7 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
           cashDelta: out.cashDelta,
         },
       });
+      get().advanceContractBoard(out, true);
       get().checkAchievements();
     },
 
@@ -229,6 +233,7 @@ export const useGameStore = create<GameStore>()(
         ...createRoomsSlice(s, g),
         ...createMarketSlice(s, g),
         ...createEconomySlice(s, g),
+        ...createContractsSlice(s, g),
         ...createCoreActions(s, g),
       };
     },

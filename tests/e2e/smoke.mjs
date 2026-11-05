@@ -119,7 +119,7 @@ try {
   });
 
   await check('every side panel renders', async () => {
-    for (const tab of ['Shop', 'Rigs', 'Market', 'Pools', 'Halving', 'VIP', 'Trophies', 'Account', 'System']) {
+    for (const tab of ['Shop', 'Rigs', 'Market', 'Pools', 'Contracts', 'Halving', 'VIP', 'Trophies', 'Account', 'System']) {
       await page.locator(`nav[aria-label="Panels"] button:has-text("${tab}")`).click();
       await page.waitForTimeout(150);
     }
@@ -166,6 +166,44 @@ try {
     await p.reload();
     await p.locator('canvas[aria-label="Mining room view"]').waitFor({ timeout: 10_000 });
   };
+
+  await check('contracts: board renders 3 cards and a completed contract can be claimed', async () => {
+    const { context, p } = await fresh();
+    try {
+      // Seed: the first contract is already fulfilled, with a known reward.
+      await bootPatched(p, `
+        const c = state.contracts.slots[0];
+        c.progress = c.target;
+        c.completedAt = Date.now();
+        c.expiresAt = Date.now() + 3600000;
+        c.reward = { cash: 777, gems: 2, gpuModelId: null };
+        state.gems = 0;
+      `);
+      const tab = p.locator('nav[aria-label="Panels"] button:has-text("Contracts")');
+      assert(/ready to claim/.test((await tab.getAttribute('aria-label')) ?? ''), 'tab does not announce a claimable contract');
+      await tab.click();
+      const cards = p.locator('article[aria-label^="Contract:"]');
+      await cards.first().waitFor({ timeout: 3000 });
+      assert((await cards.count()) === 3, `expected 3 contract cards, got ${await cards.count()}`);
+      const done = p.locator('article[data-contract-state="complete"]');
+      assert((await done.count()) === 1, 'seeded contract is not shown as complete');
+      assert((await p.locator('article[data-contract-state="active"] button[aria-label^="Reroll"]').count()) === 2, 'reroll buttons missing');
+      await p.screenshot({ path: join(ART, 'contracts.png') });
+      const claimedId = await p.evaluate(() => JSON.parse(localStorage.getItem('hash-harvest-tycoon')).state.contracts.slots[0].id);
+      await done.locator('button[aria-label^="Claim"]').click();
+      await p.waitForTimeout(150);
+      assert((await p.locator('article[data-contract-state="complete"]').count()) === 0, 'claimed card still on the board');
+      await p.getByText('Incoming contract in').waitFor({ timeout: 2000 });
+      await p.waitForTimeout(2600); // throttled save
+      const after = await p.evaluate(() => JSON.parse(localStorage.getItem('hash-harvest-tycoon')).state);
+      assert(after.gems === 2, `gems after claim: ${after.gems}`);
+      assert(after.stats.contractsCompleted === 1, `contractsCompleted: ${after.stats.contractsCompleted}`);
+      assert(!after.contracts.slots.some((c) => c.id === claimedId), 'claimed contract still persisted');
+      await p.screenshot({ path: join(ART, 'contracts-claimed.png') });
+    } finally {
+      await context.close();
+    }
+  });
 
   await check('regression: bot rule inputs accept 0.9x and re-typed numbers', async () => {
     const { context, p } = await fresh();
