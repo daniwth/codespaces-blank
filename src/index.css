@@ -1,0 +1,232 @@
+@import "tailwindcss";
+
+@theme {
+  --font-pixel: "Press Start 2P", ui-monospace, monospace;
+  --font-silk: "Silkscreen", ui-monospace, monospace;
+  --font-term: "VT323", ui-monospace, monospace;
+
+  --color-void: #07060f;
+  --color-panel: #110f22;
+  --color-panel-2: #1a1733;
+  --color-panel-3: #241f45;
+  --color-edge: #3a3470;
+  --color-edge-hi: #5b52a8;
+  --color-neon: #22d3ee;
+  --color-lime: #a3e635;
+  --color-hot: #f43f5e;
+  --color-amber: #fbbf24;
+  --color-magenta: #e879f9;
+  --color-gold: #facc15;
+  --color-ink: #e9e6ff;
+  --color-dim: #8f89c4;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-void);
+  background-image:
+    radial-gradient(circle at 20% -10%, rgba(91, 82, 168, 0.25), transparent 45%),
+    radial-gradient(circle at 110% 30%, rgba(232, 121, 249, 0.12), transparent 40%),
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+  background-size: auto, auto, 16px 16px, 16px 16px;
+  color: var(--color-ink);
+  font-family: var(--font-term);
+  font-size: 20px;
+  -webkit-font-smoothing: none;
+  overflow-x: hidden;
+}
+
+.pixelated {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+/* Notched pixel border (no rounded corners anywhere). */
+.pixel-box {
+  position: relative;
+  background: var(--color-panel);
+  box-shadow:
+    0 -3px 0 0 var(--color-edge),
+    0 3px 0 0 var(--color-edge),
+    -3px 0 0 0 var(--color-edge),
+    3px 0 0 0 var(--color-edge),
+    inset 0 3px 0 0 rgba(255, 255, 255, 0.04),
+    inset 0 -3px 0 0 rgba(0, 0, 0, 0.35);
+}
+
+.pixel-box-hi {
+  box-shadow:
+    0 -3px 0 0 var(--color-edge-hi),
+    0 3px 0 0 var(--color-edge-hi),
+    -3px 0 0 0 var(--color-edge-hi),
+    3px 0 0 0 var(--color-edge-hi),
+    inset 0 3px 0 0 rgba(255, 255, 255, 0.06),
+    inset 0 -3px 0 0 rgba(0, 0, 0, 0.35);
+}
+
+/* CRT monitor effect: scanlines + glow + flicker. */
+.crt {
+  position: relative;
+  overflow: hidden;
+  background: #020a06;
+}
+.crt::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0) 0, rgba(0, 0, 0, 0) 2px, rgba(0, 0, 0, 0.28) 3px);
+  z-index: 2;
+}
+.crt::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 55%, rgba(0, 0, 0, 0.65) 100%);
+  z-index: 3;
+  animation: crt-flicker 4s infinite steps(1);
+}
+@keyframes crt-flicker {
+  0%, 100% { opacity: 1; }
+  47% { opacity: 0.92; }
+  48% { opacity: 1; }
+  82% { opacity: 0.96; }
+}
+
+.text-glow {
+  text-shadow: 0 0 6px currentColor;
+}
+
+@keyframes blink-step {
+  50% { opacity: 0; }
+}
+.blink {
+  animation: blink-step 1s steps(1) infinite;
+}
+
+@keyframes rise-fade {
+  0% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(-28px); opacity: 0; }
+}
+.rise-fade {
+  animation: rise-fade 1.2s ease-out forwards;
+}
+
+@keyframes pop-in {
+  0% { transform: scale(0.85); opacity: 0; }
+  60% { transform: scale(1.03); opacity: 1; }
+  100% { transform: scale(1); }
+}
+.pop-in {
+  animation: pop-in 0.22s steps(4) both;
+}
+
+@keyframes marquee {
+  from { transform: translateX(100%); }
+  to { transform: translateX(-100%); }
+}
+.marquee {
+  animation: marquee 18s linear infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.gold-shimmer {
+  background: linear-gradient(90deg, #a16207, #facc15, #fef08a, #facc15, #a16207);
+  background-size: 200% 100%;
+  animation: shimmer 3s linear infinite;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Animated power cable (current flowing towards the GPU). */
+.cable-flow {
+  background-image: repeating-linear-gradient(90deg, #facc15 0 3px, #78350f 3px 6px) !important;
+  background-size: 12px 100% !important;
+  animation: cable-flow 0.5s linear infinite;
+}
+@keyframes cable-flow {
+  to { background-position: 12px 0; }
+}
+
+/* BIOS range sliders */
+.bios-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 14px;
+  background: #00007a;
+  border: 2px solid #aaaaaa;
+  outline: none;
+}
+.bios-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 18px;
+  background: #ffff55;
+  border: 2px solid #000;
+  cursor: pointer;
+}
+.bios-range::-moz-range-thumb {
+  width: 12px;
+  height: 18px;
+  background: #ffff55;
+  border: 2px solid #000;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.retro-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.retro-scroll::-webkit-scrollbar-track {
+  background: #0b0a18;
+}
+.retro-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-edge);
+  border: 2px solid #0b0a18;
+}
+.retro-scroll {
+  scrollbar-color: var(--color-edge) #0b0a18;
+  scrollbar-width: thin;
+}
+
+input[type="number"].retro-input,
+input[type="text"].retro-input,
+textarea.retro-input,
+select.retro-input {
+  background: #07060f;
+  border: 2px solid var(--color-edge);
+  color: var(--color-ink);
+  font-family: var(--font-term);
+  font-size: 20px;
+  padding: 2px 8px;
+  outline: none;
+  border-radius: 0;
+}
+input.retro-input:focus,
+textarea.retro-input:focus,
+select.retro-input:focus {
+  border-color: var(--color-neon);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marquee, .blink, .crt::after, .gold-shimmer { animation: none; }
+}
