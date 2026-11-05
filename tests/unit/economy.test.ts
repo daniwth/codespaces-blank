@@ -51,8 +51,9 @@ describe('migrations', () => {
 });
 
 describe('prestige', () => {
-  it('awards Smart Contracts only past $1M', () => {
+  it('awards Smart Contracts only past the $4M halving threshold', () => {
     expect(scForEarnings(999_999)).toBe(0);
+    expect(scForEarnings(3_999_999)).toBe(0);
     expect(scForEarnings(4e6)).toBe(4);
   });
 });

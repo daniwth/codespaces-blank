@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { GPU_BY_ID } from '../../src/config/hardwareCatalog';
 import { createInitialData } from '../../src/store/initialState';
 import { useGameStore } from '../../src/store/useGameStore';
 
@@ -12,7 +13,7 @@ describe('game store', () => {
   it('buys a GPU, rolls silicon quality and charges cash', () => {
     const gpu = store().buyGpu('px580');
     expect(gpu).not.toBeNull();
-    expect(Number(store().cash)).toBeCloseTo(1_000_000 - 250);
+    expect(Number(store().cash)).toBeCloseTo(1_000_000 - GPU_BY_ID.px580.price);
     expect(['bronze', 'silver', 'gold', 'god']).toContain(gpu?.quality);
   });
 
