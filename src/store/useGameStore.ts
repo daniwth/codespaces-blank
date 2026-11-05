@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { useShallow } from 'zustand/react/shallow';
 import { SAVE_KEY, SAVE_VERSION } from '../config/gameBalance';
-import type { GameData } from '../types/player';
+import type { GameData, RoomId } from '../types/player';
 import { bnAdd, bnMax, bnToNumber } from '../utils/bignum';
 import { fxBus, sfxBus, type SfxCue } from '../utils/eventBus';
 import { decodeSave, encodeSave } from '../utils/saveCodec';
@@ -96,6 +96,16 @@ const SOUND_MAP: Record<SoundCue, SfxCue> = {
 
 let logId = 0;
 
+/** Rooms whose racks a raid just put into inspection reboot (raids are the only simulated reboots). */
+export function raidRooms(out: Pick<SimOutput, 'rackReboots' | 'now'>, racks: GameData['racks']): Map<RoomId, number> {
+  const rooms = new Map<RoomId, number>();
+  Object.entries(out.rackReboots).forEach(([uid, until]) => {
+    const roomId = racks[uid]?.roomId;
+    if (roomId && until > out.now) rooms.set(roomId, Math.max(rooms.get(roomId) ?? 0, until));
+  });
+  return rooms;
+}
+
 const initialUi = (): UiState => ({
   live: emptyLive(),
   log: [],
@@ -163,6 +173,7 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
       advanceContractBoard(out, false);
       out.sounds.forEach((cue) => sfxBus.emit(SOUND_MAP[cue]));
       if (out.blocksFound > 0) fxBus.emit({ kind: 'block' });
+      if (out.raids > 0) raidRooms(out, get().racks).forEach((until, roomId) => fxBus.emit({ kind: 'raid', roomId, until }));
       checkAchievements();
     },
 

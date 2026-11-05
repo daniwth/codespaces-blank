@@ -1,4 +1,6 @@
 /** Tiny typed pub/sub used to decouple the store from audio and visual FX. */
+import type { RoomId } from '../types/player';
+
 export interface Bus<T> {
   emit: (payload: T) => void;
   on: (listener: (payload: T) => void) => () => void;
@@ -43,7 +45,9 @@ export type VisualFx =
   | { kind: 'confetti'; intensity: number }
   | { kind: 'block' }
   | { kind: 'sell'; amount: number }
-  | { kind: 'lottery'; quality: string };
+  | { kind: 'lottery'; quality: string }
+  /** Darknet raid: electrical inspection of `roomId` until epoch ms `until`. */
+  | { kind: 'raid'; roomId: RoomId; until: number };
 
 export const sfxBus = createBus<SfxCue>();
 export const fxBus = createBus<VisualFx>();
