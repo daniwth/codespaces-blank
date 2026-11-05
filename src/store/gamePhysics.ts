@@ -429,23 +429,25 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
           acc.sounds.push('restart');
         }
 
-        const throttled = running && g.temp > PHYSICS.throttleTemp;
-        if (running && g.temp > PHYSICS.wearTemp) {
+        // Re-evaluate after the thermal protection check: a GPU that just shut down stops hashing now.
+        const active = powered && !g.shutdown;
+        const throttled = active && g.temp > PHYSICS.throttleTemp;
+        if (active && g.temp > PHYSICS.wearTemp) {
           g.overheatSeconds += dt;
           g.wear = Math.min(PHYSICS.maxWear, g.wear + (PHYSICS.wearPerMinute * dt) / 60);
         }
-        if (running) g.paste = Math.max(0, g.paste - dt / PHYSICS.pasteLifetimeSec);
+        if (active) g.paste = Math.max(0, g.paste - dt / PHYSICS.pasteLifetimeSec);
         if (techPaste > 0) g.paste = Math.min(1, g.paste + techPaste * dt);
         if (techRepair > 0 && g.wear > 0) g.wear = Math.max(0, g.wear - techRepair * dt);
 
-        const hash = running
+        const hash = active
           ? model.hashrate * (1 + g.ocBonus) * (throttled ? 0.5 : 1) * (1 - g.wear) * brownout * mods.hashMul
           : 0;
         rackHash += hash;
         rackMax = Math.max(rackMax, g.temp);
         hottest = Math.max(hottest, g.temp);
         roomHeat += heat;
-        live.gpus[uid] = { hash, running, throttled, heat, load: running ? clamp(heat / model.power, 0, 2) : 0 };
+        live.gpus[uid] = { hash, running: active, throttled, heat, load: active ? clamp(heat / model.power, 0, 2) : 0 };
       });
       roomHeat += load > 0 ? topo.fanPower + (wall - load) : 0;
       roomHash += rackHash;

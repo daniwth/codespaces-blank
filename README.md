@@ -11,7 +11,12 @@ npm run dev        # frontend con proxy /api → :8787 (terminal 2)
 npm run typecheck  # tsc del frontend y del servidor
 npm run build      # typecheck + build de producción en dist/
 npm start          # build + un solo proceso que sirve dist/ y la API
+npm test           # tests unitarios (Vitest)
+npm run test:e2e   # test E2E con Playwright (requiere build)
+npm run test:all   # build + unitarios + E2E
 ```
+
+En `.claude/agents/` hay agentes de Claude Code para este proyecto (features, pixel art, balance, QA y seguridad). Ver `CLAUDE.md`.
 
 Requiere Node ≥ 22.18 (usa `node:sqlite` y ejecuta TypeScript sin compilar).
 
