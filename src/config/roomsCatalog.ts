@@ -12,7 +12,7 @@ export const ROOM_CATALOG: RoomDefinition[] = [
   },
   {
     id: 'garage', name: 'Garage', subtitle: 'Summer heat: +35°C ambient',
-    price: 5_000, ambient: 35, maxPowerW: 6_000, pads: 4, priceMul: 0.85, coolingMul: 1.05, heatPerWatt: 0.0016,
+    price: 2_500, ambient: 35, maxPowerW: 6_000, pads: 4, priceMul: 0.85, coolingMul: 1.05, heatPerWatt: 0.0016,
     theme: { wall: '#4b5563', wallDark: '#374151', floorA: '#57534e', floorB: '#44403c', trim: '#a16207', light: '#fef9c3' },
   },
   {

@@ -83,7 +83,7 @@ export const talentCost = (node: TalentNode, currentLevel: number): number =>
 export const scForEarnings = (runEarnings: number): number =>
   runEarnings < HALVING_MIN_EARNINGS ? 0 : Math.floor(2 * Math.sqrt(runEarnings / 1e6));
 
-export const HALVING_MIN_EARNINGS = 1e6;
+export const HALVING_MIN_EARNINGS = 4e6;
 
 export interface TalentModifiers {
   hashMul: number;
