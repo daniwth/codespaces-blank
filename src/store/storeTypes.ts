@@ -12,6 +12,9 @@ export interface LogEntry {
 
 export type SideTab = 'shop' | 'rigs' | 'market' | 'pools' | 'contracts' | 'halving' | 'vip' | 'trophies' | 'account' | 'system';
 
+/** Top-level screen: the title menu (simulation paused) or the running game. */
+export type AppScreen = 'menu' | 'game';
+
 export interface OfflineReport {
   seconds: number;
   requested: number;
@@ -45,6 +48,10 @@ export interface UiState {
   sideTab: SideTab;
   lottery: LotteryReveal | null;
   contractToast: ContractToast | null;
+  /** Title menu or game. Not persisted: every launch starts on the menu. */
+  screen: AppScreen;
+  /** "How to play" wiki overlay (reachable from the menu and in game). */
+  wikiOpen: boolean;
 }
 
 export type OcResult = 'stable' | 'crash' | 'invalid';
@@ -120,6 +127,13 @@ export interface CoreActions {
   exportSave: () => Promise<string>;
   importSave: (text: string) => Promise<TradeResult>;
   hardReset: () => void;
+  /** Leave the title menu and resume the local save (the game loop credits offline time on start). */
+  continueGame: () => void;
+  /** Wipe the local save for a fresh run (starter bench rig, lastTick = now) and enter the game. Settings are kept. */
+  startNewGame: () => void;
+  /** Flush the save and go back to the title menu (the game loop stops). */
+  returnToMenu: () => void;
+  setWikiOpen: (open: boolean) => void;
 }
 
 export type GameStore = GameData & UiState & HardwareSlice & RoomsSlice & MarketSlice & EconomySlice & ContractsSlice & CoreActions;

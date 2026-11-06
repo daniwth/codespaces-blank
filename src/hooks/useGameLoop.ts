@@ -12,15 +12,22 @@ const LIVE_GAP_SEC = 600;
 
 export type LoopMode = 'worker' | 'main-thread';
 
+/** The simulation only runs on the game screen; the title menu freezes the save. */
+const inGame = (): boolean => useGameStore.getState().screen === 'game';
+
 /**
  * Connects the simulation (Web Worker, or rAF fallback) to the Zustand store
- * and resolves offline earnings once on boot.
+ * while the game screen is up, and resolves offline earnings each time it starts
+ * (on Continue / New game). On the title menu nothing ticks: no worker, no
+ * offline credit, `lastTick` stays frozen.
  */
 export function useGameLoop(onMode?: (mode: LoopMode) => void): void {
   const onModeRef = useRef(onMode);
   onModeRef.current = onMode;
+  const running = useGameStore((s) => s.screen === 'game');
 
   useEffect(() => {
+    if (!running) return undefined;
     let disposed = false;
     let worker: Worker | null = null;
     let inFlight = false;
@@ -33,6 +40,7 @@ export function useGameLoop(onMode?: (mode: LoopMode) => void): void {
      * progress with its "welcome back" report. Returns true when it did.
      */
     const resolveLongGap = (thresholdSec: number): boolean => {
+      if (disposed || !inGame()) return false;
       const state = useGameStore.getState();
       const now = Date.now();
       const gap = (now - state.lastTick) / 1000;
@@ -46,7 +54,8 @@ export function useGameLoop(onMode?: (mode: LoopMode) => void): void {
     resolveLongGap(OFFLINE_THRESHOLD_SEC);
 
     const apply = (res: WorkerResponse) => {
-      if (disposed) return;
+      // A tick still in flight when the player left for the menu must not land.
+      if (disposed || !inGame()) return;
       useGameStore.getState().applyTick(res.output);
     };
 
@@ -65,7 +74,7 @@ export function useGameLoop(onMode?: (mode: LoopMode) => void): void {
         startFallback();
       };
       interval = setInterval(() => {
-        if (!worker || inFlight) return;
+        if (!worker || inFlight || !inGame()) return;
         if (resolveLongGap(LIVE_GAP_SEC)) return;
         inFlight = true;
         reqId += 1;
@@ -85,7 +94,7 @@ export function useGameLoop(onMode?: (mode: LoopMode) => void): void {
       let last = performance.now();
       const loop = (t: number) => {
         if (disposed) return;
-        if (t - last >= TICK_MS) {
+        if (t - last >= TICK_MS && inGame()) {
           last = t;
           resolveLongGap(LIVE_GAP_SEC);
           const state = useGameStore.getState();
@@ -98,7 +107,7 @@ export function useGameLoop(onMode?: (mode: LoopMode) => void): void {
       raf = requestAnimationFrame(loop);
       // rAF pauses in background tabs: keep a slow timer so dt catches up.
       interval = setInterval(() => {
-        if (document.visibilityState === 'hidden') {
+        if (document.visibilityState === 'hidden' && !disposed && inGame()) {
           resolveLongGap(LIVE_GAP_SEC);
           const state = useGameStore.getState();
           const tickNow = Date.now();
@@ -113,5 +122,5 @@ export function useGameLoop(onMode?: (mode: LoopMode) => void): void {
       cancelAnimationFrame(raf);
       worker?.terminate();
     };
-  }, []);
+  }, [running]);
 }

@@ -67,14 +67,46 @@ try {
   page.on('console', (m) => {
     if (m.type() === 'error' && !/status of 409/.test(m.text())) errors.push(m.text());
   });
-  const state = () => page.evaluate(() => JSON.parse(localStorage.getItem('hash-harvest-tycoon') ?? '{}').state ?? {});
+  const saveOf = (p) => p.evaluate(() => JSON.parse(localStorage.getItem('hash-harvest-tycoon') ?? '{}').state ?? {});
+  const state = () => saveOf(page);
   const canvas = page.locator('canvas[aria-label="Mining room view"]');
+  const roomCanvas = (p) => p.locator('canvas[aria-label="Mining room view"]');
+  const menuOf = (p) => p.getByTestId('title-screen');
+  /**
+   * Passes the title screen. `new` = New game on a browser without progress,
+   * `overwrite` = New game + confirm, `continue` = resume the seeded save.
+   * Picks "Play as guest" when the account step is shown.
+   */
+  const enterGame = async (p, how = 'new') => {
+    const menu = menuOf(p);
+    await menu.waitFor({ timeout: 10_000 });
+    await p.locator('[data-testid="menu-identity"], [data-testid="menu-main"]').first().waitFor({ timeout: 5000 });
+    if (await p.getByTestId('menu-identity').isVisible()) await menu.locator('button:has-text("Play as guest")').click();
+    if (how === 'continue') await menu.locator('button:has-text("Continue")').click();
+    else {
+      await menu.locator('button:has-text("New game")').click();
+      if (how === 'overwrite') await p.locator('[role="dialog"] button:has-text("Overwrite")').click();
+    }
+    await roomCanvas(p).waitFor({ timeout: 10_000 });
+  };
 
   console.log('Hash Harvest E2E smoke test');
   await page.goto(URL);
 
+  await check('title menu shows on boot, with no Continue and no running game without a save', async () => {
+    await menuOf(page).waitFor({ timeout: 10_000 });
+    await page.getByTestId('menu-identity').waitFor({ timeout: 3000 });
+    assert((await canvas.count()) === 0, 'the game canvas is mounted behind the menu');
+    await page.screenshot({ path: join(ART, 'menu-identity.png') });
+    await menuOf(page).locator('button:has-text("Play as guest")').click();
+    await page.getByTestId('menu-main').waitFor({ timeout: 3000 });
+    assert((await menuOf(page).locator('button:has-text("Continue")').count()) === 0, 'Continue offered without a save');
+    assert(await menuOf(page).locator('button:has-text("New game")').isVisible(), 'New game missing');
+    assert(/guest/i.test((await page.getByTestId('menu-identity-status').textContent()) ?? ''), 'guest status line missing');
+  });
+
   await check('boots and renders the room canvas', async () => {
-    await canvas.waitFor({ timeout: 10_000 });
+    await enterGame(page, 'new');
     const box = await canvas.boundingBox();
     assert(box && box.width >= 320, 'canvas too small');
     const colors = await canvas.evaluate((c) => {
@@ -99,10 +131,17 @@ try {
       sessionStorage.setItem('e2e-cash', '1');
       const raw = JSON.parse(localStorage.getItem('hash-harvest-tycoon'));
       raw.state.cash = '100000';
+      raw.state.stats.playTimeSec = Math.max(raw.state.stats.playTimeSec, 60);
       localStorage.setItem('hash-harvest-tycoon', JSON.stringify(raw));
     });
     await page.reload();
-    await canvas.waitFor();
+    await menuOf(page).waitFor({ timeout: 10_000 });
+    // Continue appears only once a save with progress exists, with its summary.
+    const summary = (await page.getByTestId('continue-summary').textContent()) ?? '';
+    assert(/\$100(\.0)?K|\$100,000|\$100000/i.test(summary), `Continue summary does not show the saved cash: ${summary}`);
+    assert(/played/i.test(summary) && /last played/i.test(summary), `Continue summary incomplete: ${summary}`);
+    await page.screenshot({ path: join(ART, 'menu.png') });
+    await enterGame(page, 'continue');
     await page.locator('div.bg-panel-2', { hasText: 'Pixelia PX-580' }).locator('button').first().click();
     await page.getByText('SILICON LOTTERY', { exact: true }).waitFor({ timeout: 3000 });
   });
@@ -161,19 +200,22 @@ try {
     return { context, p };
   };
   /** Boot once so a save exists, patch it before the next document loads, reload. */
-  const bootPatched = async (p, patch) => {
+  const bootPatched = async (p, patch, { enter = true } = {}) => {
     await p.goto(URL);
-    await p.locator('canvas[aria-label="Mining room view"]').waitFor({ timeout: 10_000 });
+    await enterGame(p, 'new');
     await p.waitForTimeout(2300);
     await p.addInitScript((src) => {
       if (sessionStorage.getItem('e2e-patch')) return;
       sessionStorage.setItem('e2e-patch', '1');
       const raw = JSON.parse(localStorage.getItem('hash-harvest-tycoon'));
+      // Enough play time to count as a save worth continuing.
+      raw.state.stats.playTimeSec = Math.max(raw.state.stats.playTimeSec, 60);
       new Function('state', src)(raw.state);
       localStorage.setItem('hash-harvest-tycoon', JSON.stringify(raw));
     }, patch);
     await p.reload();
-    await p.locator('canvas[aria-label="Mining room view"]').waitFor({ timeout: 10_000 });
+    if (enter) await enterGame(p, 'continue');
+    else await menuOf(p).waitFor({ timeout: 10_000 });
   };
 
   await check('contracts: board renders 3 cards and a completed contract can be claimed', async () => {
@@ -240,8 +282,8 @@ try {
     const { context, p } = await fresh();
     try {
       await p.goto(URL);
-      const cv = p.locator('canvas[aria-label="Mining room view"]');
-      await cv.waitFor();
+      await enterGame(p, 'new');
+      const cv = roomCanvas(p);
       const box = await cv.boundingBox();
       await p.mouse.click(box.x + (212 / 480) * box.width, box.y + (180 / 270) * box.height);
       await p.getByText('PCIE SLOTS').waitFor({ timeout: 3000 });
@@ -260,7 +302,7 @@ try {
     const { context, p } = await fresh();
     try {
       await p.goto(URL);
-      await p.locator('canvas[aria-label="Mining room view"]').waitFor();
+      await enterGame(p, 'new');
       await p.locator('nav[aria-label="Panels"] button:has-text("Account")').click();
       await p.click('button:has-text("Create account")');
       await p.fill('input[autocomplete="email"]', `e2e-reload${Date.now()}@example.com`);
@@ -269,10 +311,10 @@ try {
       await p.locator('form button:has-text("Create account")').last().click();
       await p.locator('button:has-text("Subscribe")').first().click();
       await p.getByText('ACTIVE ·').waitFor({ timeout: 8000 });
-      await p.waitForTimeout(800);
+      await p.waitForTimeout(5500); // enough play time for the title menu to offer Continue
       // Same device, nothing else open: the unload upload must not desync baseRevision.
       await p.reload();
-      await p.locator('canvas[aria-label="Mining room view"]').waitFor();
+      await enterGame(p, 'continue');
       await p.waitForTimeout(1500);
       await p.locator('nav[aria-label="Panels"] button:has-text("Account")').click();
       await p.click('button:has-text("Save to cloud")');
@@ -288,7 +330,7 @@ try {
     try {
       await p.clock.install();
       await p.goto(URL);
-      await p.locator('canvas[aria-label="Mining room view"]').waitFor();
+      await enterGame(p, 'new');
       await p.clock.runFor(5000);
       await p.waitForTimeout(300);
       await p.clock.runFor(3000);
@@ -310,12 +352,200 @@ try {
     const { context, p } = await fresh({ ...devices['iPhone 13'] });
     try {
       await p.goto(URL);
-      await p.locator('canvas[aria-label="Mining room view"]').waitFor();
+      await enterGame(p, 'new');
       const overflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       assert(overflow <= 0, `horizontal overflow of ${overflow}px`);
       const unnamed = await p.locator('nav[aria-label="Panels"] button').evaluateAll((bs) =>
         bs.filter((b) => !(b.innerText.trim() || b.getAttribute('aria-label') || b.getAttribute('title'))).length);
       assert(unnamed === 0, `${unnamed} icon-only tab buttons have no accessible name on mobile`);
+    } finally {
+      await context.close();
+    }
+  });
+  // ───────────── Title screen / main menu ─────────────
+
+  await check('menu: the simulation does not tick and no offline time is credited until Continue', async () => {
+    const { context, p } = await fresh();
+    try {
+      // Away for 2 hours: lastTick is in the past.
+      await bootPatched(p, 'state.lastTick = Date.now() - 2 * 3600 * 1000;', { enter: false });
+      const before = await saveOf(p);
+      await p.waitForTimeout(3500); // > the 2 s throttled save: any tick would have been persisted
+      const after = await saveOf(p);
+      assert(after.lastTick === before.lastTick, `lastTick moved on the menu (${before.lastTick} -> ${after.lastTick})`);
+      assert(after.cash === before.cash && after.cc === before.cc, `cash/cc changed on the menu (${before.cash} -> ${after.cash})`);
+      assert(after.stats.playTimeSec === before.stats.playTimeSec, 'play time advanced on the menu');
+      assert(!(await p.getByText('Welcome back, miner').isVisible()), 'offline report shown on the menu');
+      assert((await roomCanvas(p).count()) === 0, 'game canvas mounted on the menu');
+      // Continue applies the normal boot behaviour: offline progress + report.
+      await enterGame(p, 'continue');
+      await p.getByText('Welcome back, miner').waitFor({ timeout: 5000 });
+      await p.waitForTimeout(2500);
+      const resumed = await saveOf(p);
+      assert(resumed.lastTick > before.lastTick + 3600 * 1000, 'Continue did not credit the time away');
+    } finally {
+      await context.close();
+    }
+  });
+
+  await check('menu: New game asks for confirmation when progress exists, then starts from zero', async () => {
+    const { context, p } = await fresh();
+    try {
+      await bootPatched(p, "state.cash = '5000'; state.lifetimeEarnings = '9000'; state.lastTick = Date.now() - 3600 * 1000;", { enter: false });
+      const menu = menuOf(p);
+      await menu.locator('button:has-text("New game")').click();
+      const dialog = p.locator('[role="dialog"]', { hasText: 'Start a new game?' });
+      await dialog.waitFor({ timeout: 3000 });
+      assert(/overwritten/i.test((await dialog.textContent()) ?? ''), 'confirmation does not warn about overwriting');
+      assert(/cloud save/i.test((await dialog.textContent()) ?? ''), 'confirmation does not mention the cloud save');
+      await p.screenshot({ path: join(ART, 'menu-new-game-confirm.png') });
+      await p.keyboard.press('Escape');
+      await p.waitForTimeout(150);
+      assert(!(await dialog.isVisible()), 'Escape did not close the confirmation');
+      assert((await saveOf(p)).lifetimeEarnings === '9000', 'cancelling still wiped the save');
+      await menu.locator('button:has-text("New game")').click();
+      await p.locator('[role="dialog"] button:has-text("Overwrite")').click();
+      await roomCanvas(p).waitFor({ timeout: 10_000 });
+      assert(!(await p.getByText('Welcome back, miner').isVisible()), 'a new game credited offline progress');
+      const s = await saveOf(p);
+      assert(s.lifetimeEarnings === '0' && Number(s.cash) <= 41, `new game kept progress (cash ${s.cash}, lifetime ${s.lifetimeEarnings})`);
+      assert(Object.keys(s.gpus).length === 1 && Object.values(s.racks)[0].modelId === 'bench', 'starter bench rig missing');
+      assert(Date.now() - s.lastTick < 10_000, 'lastTick not reset to now');
+    } finally {
+      await context.close();
+    }
+  });
+
+  await check('menu: guest mode skips the account step on reload', async () => {
+    const { context, p } = await fresh();
+    try {
+      await p.goto(URL);
+      await p.getByTestId('menu-identity').waitFor({ timeout: 10_000 });
+      await p.click('[data-testid="menu-identity"] button:has-text("Play as guest")');
+      await p.getByTestId('menu-main').waitFor({ timeout: 3000 });
+      await p.reload();
+      await menuOf(p).waitFor({ timeout: 10_000 });
+      await p.getByTestId('menu-main').waitFor({ timeout: 3000 });
+      assert(!(await p.getByTestId('menu-identity').isVisible()), 'account step shown again after choosing guest');
+    } finally {
+      await context.close();
+    }
+  });
+
+  await check('menu: settings and How to play open from the menu (keyboard + Escape)', async () => {
+    const { context, p } = await fresh();
+    try {
+      await p.goto(URL);
+      await p.click('[data-testid="menu-identity"] button:has-text("Play as guest")');
+      const menu = menuOf(p);
+      await menu.locator('button:has-text("Settings")').click();
+      const settings = p.locator('[role="dialog"]', { hasText: 'AUDIO & VIDEO' });
+      await settings.waitFor({ timeout: 3000 });
+      for (const label of ['Mute all sound', 'Particles (smoke, coins)', 'Offline earnings']) {
+        assert(await settings.getByLabel(label).isVisible(), `${label} toggle missing`);
+      }
+      assert(await settings.locator('input[type="range"]').isVisible(), 'volume slider missing');
+      assert(await settings.locator('button:has-text("Export")').isVisible(), 'export missing');
+      assert(await settings.locator('button:has-text("Import pasted save")').isVisible(), 'import missing');
+      await settings.getByLabel('Mute all sound').check();
+      await p.screenshot({ path: join(ART, 'menu-settings.png') });
+      await p.keyboard.press('Escape');
+      await p.waitForTimeout(150);
+      assert(!(await settings.isVisible()), 'Escape did not close Settings');
+      assert((await roomCanvas(p).count()) === 0, 'settings started the game');
+      await p.waitForTimeout(2300);
+      assert((await saveOf(p)).settings?.muted === true, 'setting changed on the menu was not saved');
+      // How to play, opened with the keyboard.
+      await menu.locator('button:has-text("How to play")').focus();
+      await p.keyboard.press('Enter');
+      const wiki = p.locator('[role="dialog"]', { hasText: 'How to play' });
+      await wiki.waitFor({ timeout: 5000 });
+      await p.keyboard.press('Escape');
+      await p.waitForTimeout(150);
+      assert(!(await wiki.isVisible()), 'Escape did not close the wiki');
+      // And from the in-game HUD.
+      await enterGame(p, 'new');
+      await p.locator('header button[aria-label="How to play"]').click();
+      await wiki.waitFor({ timeout: 5000 });
+      await p.keyboard.press('Escape');
+    } finally {
+      await context.close();
+    }
+  });
+
+  await check('menu: "Main menu" saves, returns to the title screen and pauses the game', async () => {
+    const { context, p } = await fresh();
+    try {
+      await p.goto(URL);
+      await enterGame(p, 'new');
+      await p.waitForTimeout(6500);
+      await p.locator('nav[aria-label="Panels"] button:has-text("System")').click();
+      await p.click('button:has-text("Main menu")');
+      await menuOf(p).waitFor({ timeout: 3000 });
+      assert((await roomCanvas(p).count()) === 0, 'game still mounted');
+      const before = await saveOf(p);
+      assert(Date.now() - before.lastTick < 2000, 'save was not flushed when leaving the game');
+      await p.waitForTimeout(3000);
+      const after = await saveOf(p);
+      assert(after.lastTick === before.lastTick && after.cc === before.cc, 'simulation kept running behind the menu');
+      assert(await menuOf(p).locator('button:has-text("Continue")').isVisible(), 'Continue missing after returning with progress');
+      await enterGame(p, 'continue');
+    } finally {
+      await context.close();
+    }
+  });
+
+  await check('menu: sign in from the menu offers "Load cloud save" on another device', async () => {
+    const email = `e2e-menu${Date.now()}@example.com`;
+    const a = await fresh();
+    const b = await fresh();
+    try {
+      // Device A: create the account from the menu, play, subscribe (uploads the save).
+      await a.p.goto(URL);
+      await a.p.click('[data-testid="menu-identity"] button:has-text("Sign in")');
+      const dlg = a.p.locator('[role="dialog"]', { hasText: 'Account' });
+      await dlg.locator('button:has-text("Create account")').first().click();
+      await dlg.locator('input[autocomplete="email"]').fill(email);
+      await dlg.locator('input[autocomplete="new-password"]').nth(0).fill('e2e-password');
+      await dlg.locator('input[autocomplete="new-password"]').nth(1).fill('e2e-password');
+      await dlg.locator('form button:has-text("Create account")').last().click();
+      await a.p.getByTestId('menu-main').waitFor({ timeout: 8000 });
+      await a.p.getByTestId('menu-identity-status').getByText(email).waitFor({ timeout: 5000 });
+      await enterGame(a.p, 'new');
+      await a.p.waitForTimeout(6500);
+      await a.p.locator('nav[aria-label="Panels"] button:has-text("Account")').click();
+      await a.p.locator('button:has-text("Subscribe")').first().click();
+      await a.p.getByText('ACTIVE ·').waitFor({ timeout: 8000 });
+      await a.p.getByText(/synced/).first().waitFor({ timeout: 8000 });
+      // Device B: log in from the menu and load the cloud save.
+      await b.p.goto(URL);
+      await b.p.click('[data-testid="menu-identity"] button:has-text("Sign in")');
+      const dlgB = b.p.locator('[role="dialog"]', { hasText: 'Account' });
+      await dlgB.locator('input[autocomplete="email"]').fill(email);
+      await dlgB.locator('input[autocomplete="current-password"]').fill('e2e-password');
+      await dlgB.locator('form button:has-text("Log in")').last().click();
+      const offer = b.p.getByTestId('cloud-offer');
+      await offer.waitFor({ timeout: 8000 });
+      await b.p.screenshot({ path: join(ART, 'menu-cloud-offer.png') });
+      await offer.locator('button:has-text("Load cloud save")').click();
+      await roomCanvas(b.p).waitFor({ timeout: 10_000 });
+      await b.p.waitForTimeout(2500);
+      const loaded = await saveOf(b.p);
+      assert(loaded.stats.playTimeSec >= 5, `cloud save not loaded (played ${loaded.stats.playTimeSec}s)`);
+    } finally {
+      await a.context.close();
+      await b.context.close();
+    }
+  });
+
+  await check('menu: mobile layout has no horizontal overflow', async () => {
+    const { context, p } = await fresh({ ...devices['iPhone 13'] });
+    try {
+      await bootPatched(p, "state.cash = '123456';", { enter: false });
+      await p.getByTestId('continue-summary').waitFor({ timeout: 3000 });
+      const overflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      assert(overflow <= 0, `horizontal overflow of ${overflow}px on the menu`);
+      await p.screenshot({ path: join(ART, 'menu-mobile.png') });
     } finally {
       await context.close();
     }
