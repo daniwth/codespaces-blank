@@ -2,6 +2,7 @@ import { Bot, CheckCircle2, ClipboardList, CloudLightning, Coins, Cpu, Gauge, Ge
 import { useEffect, useState, type ReactNode } from 'react';
 import { CONTRACT_DEFS, CONTRACT_DIFFICULTY, CONTRACTS } from '../../config/contracts';
 import { GPU_BY_ID } from '../../config/hardwareCatalog';
+import { useT } from '../../i18n';
 import { sprites } from '../../engine/SpriteManager';
 import { contractGoal, contractHint, contractProgressText } from '../../store/contracts';
 import { contractTitle } from '../../store/slices/contractsSlice';
@@ -34,6 +35,7 @@ interface CardProps {
 }
 
 function ContractCard({ c, now, hottest, rerollCost, rerollReady, canPayReroll }: CardProps) {
+  const t = useT();
   const { claimContract, rerollContract } = useGameStore.getState();
   const def = CONTRACT_DEFS[c.kind];
   const diff = CONTRACT_DIFFICULTY[c.difficulty];
@@ -41,11 +43,11 @@ function ContractCard({ c, now, hottest, rerollCost, rerollReady, canPayReroll }
   const left = Math.max(0, (c.expiresAt - now) / 1000);
   const urgent = !done && left < 60;
   const gpu = c.reward.gpuModelId ? GPU_BY_ID[c.reward.gpuModelId] : undefined;
-  const title = contractTitle(c);
+  const title = t(contractTitle(c));
   return (
     <article
       className="flex flex-col gap-1.5 bg-panel-2 p-2"
-      aria-label={`Contract: ${title}`}
+      aria-label={t('Contract: {title}', { title })}
       data-contract-kind={c.kind}
       data-contract-state={done ? 'complete' : 'active'}
       style={{ boxShadow: done ? `inset 0 0 0 2px ${def.color}, 0 0 12px ${def.color}55` : `inset 3px 0 0 0 ${def.color}` }}
@@ -57,13 +59,13 @@ function ContractCard({ c, now, hottest, rerollCost, rerollReady, canPayReroll }
         <div className="min-w-0 flex-1 leading-tight">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
             <span className="font-pixel text-[9px]" style={{ color: def.color }}>{title.toUpperCase()}</span>
-            <span className="font-pixel text-[7px]" style={{ color: diff.color }}>{diff.label.toUpperCase()}</span>
+            <span className="font-pixel text-[7px]" style={{ color: diff.color }}>{t(diff.label).toUpperCase()}</span>
             {done ? (
               <span className="blink ml-auto flex items-center gap-1 font-pixel text-[8px] text-lime">
-                <CheckCircle2 size={11} /> COMPLETE
+                <CheckCircle2 size={11} /> {t('COMPLETE')}
               </span>
             ) : (
-              <span className={`ml-auto flex items-center gap-1 font-pixel text-[8px] ${urgent ? 'blink text-hot' : 'text-dim'}`} title="Time left">
+              <span className={`ml-auto flex items-center gap-1 font-pixel text-[8px] ${urgent ? 'blink text-hot' : 'text-dim'}`} title={t('Time left')}>
                 <Timer size={11} /> {formatDuration(left)}
               </span>
             )}
@@ -80,13 +82,13 @@ function ContractCard({ c, now, hottest, rerollCost, rerollReady, canPayReroll }
         {contractHint(c)}
         {c.kind === 'keep_cool' && !done && hottest > 0 && (
           <span>
-            {' '}Hottest now: <span style={{ color: hottest < c.param ? '#a3e635' : tempColor(Math.max(hottest, 80)) }}>{formatTemp(hottest)}</span>
+            {' '}{t('Hottest now:')}{' '}<span style={{ color: hottest < c.param ? '#a3e635' : tempColor(Math.max(hottest, 80)) }}>{formatTemp(hottest)}</span>
           </span>
         )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-t-2 border-[#1b1838] pt-1.5">
-        <span className="font-silk text-[10px] uppercase text-dim">Reward</span>
+        <span className="font-silk text-[10px] uppercase text-dim">{t('Reward')}</span>
         <span className="font-pixel text-[9px] text-gold">{formatCash(c.reward.cash)}</span>
         {c.reward.gems > 0 && (
           <span className="flex items-center gap-1 font-pixel text-[9px] text-magenta">
@@ -94,14 +96,14 @@ function ContractCard({ c, now, hottest, rerollCost, rerollReady, canPayReroll }
           </span>
         )}
         {gpu && (
-          <span className="flex items-center gap-1 text-[15px] text-neon" title={`Free ${gpu.brand} ${gpu.name} (silicon lottery on claim)`}>
-            <SpriteImg src={sprites.gpuIcon(gpu.id)} width={36} alt="" /> {gpu.name}
+          <span className="flex items-center gap-1 text-[15px] text-neon" title={t('Free {brand} {name} (silicon lottery on claim)', { brand: gpu.brand, name: t(gpu.name) })}>
+            <SpriteImg src={sprites.gpuIcon(gpu.id)} width={36} alt="" /> {t(gpu.name)}
           </span>
         )}
         <span className="ml-auto flex items-center">
           {done ? (
-            <PixelButton size="sm" variant="success" onClick={() => claimContract(c.id)} aria-label={`Claim ${title}`} silent>
-              Claim
+            <PixelButton size="sm" variant="success" onClick={() => claimContract(c.id)} aria-label={t('Claim {title}', { title })} silent>
+              {t('Claim')}
             </PixelButton>
           ) : (
             <PixelButton
@@ -109,8 +111,8 @@ function ContractCard({ c, now, hottest, rerollCost, rerollReady, canPayReroll }
               variant="ghost"
               disabled={!rerollReady || !canPayReroll}
               onClick={() => rerollContract(c.id)}
-              aria-label={`Reroll ${title} for ${formatCash(rerollCost)}`}
-              title={rerollReady ? `Swap for a new contract (${formatCash(rerollCost)})` : 'Reroll on cooldown'}
+              aria-label={t('Reroll {title} for {cost}', { title, cost: formatCash(rerollCost) })}
+              title={rerollReady ? t('Swap for a new contract ({cost})', { cost: formatCash(rerollCost) }) : t('Reroll on cooldown')}
               icon={<RefreshCw size={10} />}
             >
               {formatCash(rerollCost)}
@@ -124,6 +126,7 @@ function ContractCard({ c, now, hottest, rerollCost, rerollReady, canPayReroll }
 
 /** Harvest-style order board: three timed contracts scaled to the farm. */
 export function ContractsPanel() {
+  const t = useT();
   const s = useGameShallow((st) => ({
     board: st.contracts,
     cash: st.cash,
@@ -134,8 +137,8 @@ export function ContractsPanel() {
   }));
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
   }, []);
   const rerollCost = useGameStore.getState().contractRerollCost();
   const rerollLeft = Math.max(0, (s.board.rerollReadyAt - now) / 1000);
@@ -146,24 +149,24 @@ export function ContractsPanel() {
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-3 gap-2 bg-panel-2 p-2 text-[16px] leading-tight">
         <span className="flex flex-col">
-          <span className="font-silk text-[10px] uppercase text-dim">Ready</span>
+          <span className="font-silk text-[10px] uppercase text-dim">{t('Ready')}</span>
           <span className={ready ? 'text-lime' : ''}>{ready}/{CONTRACTS.slots}</span>
         </span>
         <span className="flex flex-col">
-          <span className="font-silk text-[10px] uppercase text-dim">Claimed</span>
+          <span className="font-silk text-[10px] uppercase text-dim">{t('Claimed')}</span>
           <span className="text-gold">{s.claimed}</span>
         </span>
         <span className="flex flex-col">
-          <span className="font-silk text-[10px] uppercase text-dim">Reroll</span>
-          <span className={rerollLeft > 0 ? 'text-dim' : 'text-neon'}>{rerollLeft > 0 ? formatDuration(rerollLeft) : 'Ready'}</span>
+          <span className="font-silk text-[10px] uppercase text-dim">{t('Reroll')}</span>
+          <span className={rerollLeft > 0 ? 'text-dim' : 'text-neon'}>{rerollLeft > 0 ? formatDuration(rerollLeft) : t('Ready')}</span>
         </span>
       </div>
       <p className="text-[16px] leading-tight text-dim">
-        Buyers post timed orders sized to your farm. Finish one before the timer runs out, then claim it. You can reroll one unfinished contract every {CONTRACTS.rerollCooldownSec / 60} minutes.
+        {t('Buyers post timed orders sized to your farm. Finish one before the timer runs out, then claim it. You can reroll one unfinished contract every {min} minutes.', { min: CONTRACTS.rerollCooldownSec / 60 })}
       </p>
 
       <h3 className="flex items-center gap-2 font-pixel text-[9px] text-amber">
-        <ClipboardList size={14} /> CONTRACTS BOARD
+        <ClipboardList size={14} /> {t('CONTRACTS BOARD')}
       </h3>
       <div className="flex flex-col gap-2">
         {s.board.slots.map((c) => (
@@ -180,7 +183,7 @@ export function ContractsPanel() {
         {Array.from({ length: empty }, (_, i) => (
           <div key={`empty-${i}`} className="flex items-center gap-2 bg-panel p-3 text-[16px] text-dim shadow-[inset_0_0_0_2px_#241f45]">
             <Hourglass size={14} className="blink" />
-            Incoming contract in {formatDuration(Math.max(0, (s.board.nextRefillAt + i * CONTRACTS.refillSec * 1000 - now) / 1000))}
+            {t('Incoming contract in {time}', { time: formatDuration(Math.max(0, (s.board.nextRefillAt + i * CONTRACTS.refillSec * 1000 - now) / 1000)) })}
           </div>
         ))}
       </div>
