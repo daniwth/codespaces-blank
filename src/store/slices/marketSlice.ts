@@ -1,3 +1,4 @@
+import { tr } from '../../i18n';
 import { BOT_UNLOCK_LEVEL, MARKET, POOLS, levelFromEarnings } from '../../config/gameBalance';
 import { talentModifiers } from '../../config/prestigeTree';
 import type { TradingBot } from '../../types/economy';
@@ -13,7 +14,7 @@ export function createMarketSlice(set: SetState, get: GetState): MarketSlice {
       const s = get();
       const holding = coin === 'CC' ? bnToNumber(s.cc) : s.meme;
       const qty = Math.min(amount, holding);
-      if (!(qty > 0)) return { ok: false, message: `No $${coin} to sell.` };
+      if (!(qty > 0)) return { ok: false, message: tr('No {coin} to sell.', { coin: `$${coin}` }) };
       const proceeds = qty * sellPrice(s.market, coin, talentModifiers(s.talents));
       const costBasis = coin === 'CC' ? s.ccCostBasis : s.memeCostBasis;
       const { earned, basis } = realizedEarnings(proceeds, holding, costBasis, qty);
@@ -30,7 +31,7 @@ export function createMarketSlice(set: SetState, get: GetState): MarketSlice {
       get().creditContractProfit(earned);
       sfxBus.emit('sell');
       fxBus.emit({ kind: 'sell', amount: proceeds });
-      const msg = `Sold ${formatNumber(qty)} $${coin} for ${formatCash(proceeds)}.`;
+      const msg = tr('Sold {qty} {coin} for {price}.', { qty: formatNumber(qty), coin: `$${coin}`, price: formatCash(proceeds) });
       s.pushLog(msg, 'good');
       return { ok: true, message: msg };
     },
@@ -39,14 +40,14 @@ export function createMarketSlice(set: SetState, get: GetState): MarketSlice {
       const s = get();
       if (!(cash > 0) || !bnGte(s.cash, cash)) {
         sfxBus.emit('error');
-        return { ok: false, message: 'Not enough cash.' };
+        return { ok: false, message: tr('Not enough cash.') };
       }
       const qty = cash / buyPrice(s.market, coin);
       set(coin === 'CC'
         ? { cash: bnSub(s.cash, cash), cc: bnAdd(s.cc, qty), ccCostBasis: s.ccCostBasis + cash }
         : { cash: bnSub(s.cash, cash), meme: s.meme + qty, memeCostBasis: s.memeCostBasis + cash });
       sfxBus.emit('buy');
-      const msg = `Bought ${formatNumber(qty)} $${coin} for ${formatCash(cash)}.`;
+      const msg = tr('Bought {qty} {coin} for {price}.', { qty: formatNumber(qty), coin: `$${coin}`, price: formatCash(cash) });
       s.pushLog(msg, 'info');
       return { ok: true, message: msg };
     },
@@ -55,7 +56,7 @@ export function createMarketSlice(set: SetState, get: GetState): MarketSlice {
       const s = get();
       if (s.bots.length >= MARKET.maxBots) return;
       if (levelFromEarnings(bnToNumber(s.lifetimeEarnings)) < BOT_UNLOCK_LEVEL) {
-        s.pushLog(`Trading bots unlock at level ${BOT_UNLOCK_LEVEL}.`, 'warn');
+        s.pushLog(tr('Trading bots unlock at level {level}.', { level: BOT_UNLOCK_LEVEL }), 'warn');
         return;
       }
       const bot: TradingBot = {
@@ -80,11 +81,11 @@ export function createMarketSlice(set: SetState, get: GetState): MarketSlice {
       const def = POOLS[pool];
       if (levelFromEarnings(bnToNumber(s.lifetimeEarnings)) < def.unlockLevel) {
         sfxBus.emit('error');
-        s.pushLog(`${def.name} unlocks at level ${def.unlockLevel}.`, 'warn');
+        s.pushLog(tr('{name} unlocks at level {level}.', { name: tr(def.name), level: def.unlockLevel }), 'warn');
         return false;
       }
       set({ pool });
-      s.pushLog(`Switched to ${def.name}.`, 'info');
+      s.pushLog(tr('Switched to {name}.', { name: tr(def.name) }), 'info');
       sfxBus.emit('switch');
       return true;
     },

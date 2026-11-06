@@ -1,3 +1,4 @@
+import { tr } from '../i18n';
 import { create } from 'zustand';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { useShallow } from 'zustand/react/shallow';
@@ -190,7 +191,12 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
     applyTick: (out) => {
       mergeTick(out);
       const { pushLog, checkAchievements, advanceContractBoard } = get();
-      out.messages.forEach((m) => pushLog(m.text, m.tone));
+      out.messages.forEach((m) => {
+        if (!m.key) return pushLog(m.text, m.tone);
+        const params: Record<string, string | number> = {};
+        Object.entries(m.params ?? {}).forEach(([k, v]) => { params[k] = typeof v === 'string' ? tr(v) : v; });
+        pushLog(tr(m.key, params), m.tone);
+      });
       advanceContractBoard(out, false);
       out.sounds.forEach((cue) => sfxBus.emit(SOUND_MAP[cue]));
       if (out.blocksFound > 0) fxBus.emit({ kind: 'block' });
@@ -235,20 +241,20 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
       const result = await decodeSave(text);
       if (!result.ok) {
         sfxBus.emit('error');
-        return { ok: false, message: result.error };
+        return { ok: false, message: tr(result.error) };
       }
       const data = migrateSave(result.data, result.version);
       set({ ...data, ...initialUi(), ...keepNav(get()), sideTab: 'system', lastTick: Date.now() });
       gameStorage.flush();
       sfxBus.emit('success');
-      get().pushLog('Save imported and verified (SHA-256 OK).', 'good');
-      return { ok: true, message: 'Save imported successfully.' };
+      get().pushLog(tr('Save imported and verified (SHA-256 OK).'), 'good');
+      return { ok: true, message: tr('Save imported successfully.') };
     },
 
     hardReset: () => {
       set({ ...createInitialData(), ...initialUi(), ...keepNav(get()), sideTab: 'system' });
       gameStorage.flush();
-      get().pushLog('Factory reset complete. Welcome back to the bedroom.', 'info');
+      get().pushLog(tr('Factory reset complete. Welcome back to the bedroom.'), 'info');
     },
 
     continueGame: () => {
@@ -262,7 +268,7 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
       set({ ...createInitialData({ settings: get().settings }), ...initialUi(), screen: 'game' });
       gameStorage.flush();
       sfxBus.emit('start');
-      get().pushLog('New farm founded: one PX-460 on a bench in your bedroom. Happy hashing!', 'good');
+      get().pushLog(tr('New farm founded: one PX-460 on a bench in your bedroom. Happy hashing!'), 'good');
     },
 
     returnToMenu: () => {

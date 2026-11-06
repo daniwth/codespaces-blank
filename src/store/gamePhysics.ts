@@ -45,8 +45,18 @@ export type MessageTone = 'info' | 'good' | 'warn' | 'bad';
 export type SoundCue = 'block' | 'alarm' | 'raid' | 'event' | 'shutdown' | 'sell' | 'restart';
 
 export interface GameMessage {
+  /** English text, already filled in. */
   text: string;
   tone: MessageTone;
+  /** English template + params so the main thread can translate (this module never imports i18n: it runs in a Worker). */
+  key?: string;
+  params?: Record<string, string | number>;
+}
+
+/** Build a message from an English template with `{name}` placeholders. */
+export function gameMsg(tone: MessageTone, key: string, params?: Record<string, string | number>): GameMessage {
+  const text = params ? key.replace(/\{(\w+)\}/g, (m, k: string) => (k in params ? String(params[k]) : m)) : key;
+  return { text, tone, key, params };
 }
 
 export interface RoomLive {
@@ -166,7 +176,7 @@ function stepMarket(market: MarketState, dt: number, now: number, event: ActiveN
     if (id === 'MEME' && !offline && Math.random() < dt / 150) {
       const jump = Math.random() < 0.5 ? randRange(0.45, 0.75) : randRange(1.4, 2.6);
       logP += Math.log(jump);
-      messages.push({ text: jump > 1 ? '$MEME PUMP! Whales are buying.' : '$MEME DUMP! Paper hands everywhere.', tone: jump > 1 ? 'good' : 'warn' });
+      messages.push(jump > 1 ? gameMsg('good', '$MEME PUMP! Whales are buying.') : gameMsg('warn', '$MEME DUMP! Paper hands everywhere.'));
     }
     const price = clamp(Math.exp(logP), coin.basePrice * cfg.min, coin.basePrice * cfg.max);
     coin.price = price;
@@ -352,7 +362,7 @@ function buyCoin(w: World, coin: CoinId, cashAmount: number): number {
 
 function stepEvents(w: World, input: SimInput, now: number, acc: StepAccumulator): void {
   if (w.event && now >= w.event.endsAt) {
-    acc.messages.push({ text: `Network event ended: ${NETWORK_EVENTS[w.event.id].name}.`, tone: 'info' });
+    acc.messages.push(gameMsg('info', 'Network event ended: {name}.', { name: NETWORK_EVENTS[w.event.id].name }));
     w.event = null;
     w.nextEventAt = now + randRange(EVENT_INTERVAL[0], EVENT_INTERVAL[1]) * 1000;
   }
@@ -363,10 +373,9 @@ function stepEvents(w: World, input: SimInput, now: number, acc: StepAccumulator
     const duration = randRange(def.duration[0], def.duration[1]) * 1000;
     const roomId = id === 'blackout' ? pick(input.ownedRooms) : null;
     w.event = { id, startedAt: now, endsAt: now + duration, roomId };
-    acc.messages.push({
-      text: `NETWORK EVENT: ${def.name}${roomId ? ` (${ROOM_BY_ID[roomId].name})` : ''}. ${def.description}`,
-      tone: def.positive ? 'good' : 'bad',
-    });
+    acc.messages.push(roomId
+      ? gameMsg(def.positive ? 'good' : 'bad', 'NETWORK EVENT: {name} ({room}). {description}', { name: def.name, room: ROOM_BY_ID[roomId].name, description: def.description })
+      : gameMsg(def.positive ? 'good' : 'bad', 'NETWORK EVENT: {name}. {description}', { name: def.name, description: def.description }));
     acc.sounds.push('event');
   }
 }
@@ -477,11 +486,11 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
         if (!g.shutdown && g.temp >= PHYSICS.shutdownTemp) {
           g.shutdown = true;
           acc.overheats += 1;
-          acc.messages.push({ text: `THERMAL SHUTDOWN: ${model.name} hit ${g.temp.toFixed(0)}°C!`, tone: 'bad' });
+          acc.messages.push(gameMsg('bad', 'THERMAL SHUTDOWN: {name} hit {temp}°C!', { name: model.name, temp: g.temp.toFixed(0) }));
           acc.sounds.push('shutdown');
         } else if (g.shutdown && g.temp <= PHYSICS.restartTemp) {
           g.shutdown = false;
-          acc.messages.push({ text: `${model.name} cooled down and restarted.`, tone: 'info' });
+          acc.messages.push(gameMsg('info', '{name} cooled down and restarted.', { name: model.name }));
           acc.sounds.push('restart');
         }
 
@@ -551,7 +560,9 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
       acc.blocks += 1;
       const gem = Math.random() < 0.3;
       if (gem) acc.gems += 1;
-      acc.messages.push({ text: `BLOCK FOUND! Solo jackpot of ${ccGain.toFixed(2)} $CC${gem ? ' + 1 gem' : ''}!`, tone: 'good' });
+      acc.messages.push(gem
+        ? gameMsg('good', 'BLOCK FOUND! Solo jackpot of {cc} $CC + 1 gem!', { cc: ccGain.toFixed(2) })
+        : gameMsg('good', 'BLOCK FOUND! Solo jackpot of {cc} $CC!', { cc: ccGain.toFixed(2) }));
       acc.sounds.push('block');
     }
   } else {
@@ -564,7 +575,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
       Object.values(w.racks).forEach((r) => {
         if (r.roomId === roomId) r.rebootUntil = now + PHYSICS.inspectionRebootMs;
       });
-      acc.messages.push({ text: `RAID! Electrical inspection in ${ROOM_BY_ID[roomId].name}. Fined $${fine.toFixed(0)}, rigs offline 30s.`, tone: 'bad' });
+      acc.messages.push(gameMsg('bad', 'RAID! Electrical inspection in {room}. Fined ${fine}, rigs offline 30s.', { room: ROOM_BY_ID[roomId].name, fine: fine.toFixed(0) }));
       acc.sounds.push('raid');
     }
   }
@@ -606,7 +617,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
     }
     w.botFires[bot.id] = now;
     if (!opts.offline) {
-      acc.messages.push({ text: `BOT #${bot.id.slice(-3)} ${bot.side.toUpperCase()} ${bot.coin} @ ${coin.price.toFixed(4)}`, tone: 'info' });
+      acc.messages.push(gameMsg('info', 'BOT #{id} {side} {coin} @ {price}', { id: bot.id.slice(-3), side: bot.side.toUpperCase(), coin: bot.coin, price: coin.price.toFixed(4) }));
       acc.sounds.push('sell');
     }
   });
