@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { ApiError, cloudApi, type AccountUser, type CloudSaveMeta, type Plan, type PlanId } from '../services/cloudApi';
+import { tr } from '../i18n';
 import { sfxBus } from '../utils/eventBus';
 import { useGameStore } from './useGameStore';
 
@@ -56,7 +57,15 @@ interface AccountState {
   detachLocalSave: () => void;
 }
 
-const message = (err: unknown): string => (err instanceof Error ? err.message : 'Something went wrong.');
+/** Error text shown to the player: the server's English messages are translated here (unknown ones pass through). */
+const message = (err: unknown): string => {
+  if (!(err instanceof Error)) return tr('Something went wrong.');
+  const wait = /^Too many attempts\. Try again in (\d+)s\.$/.exec(err.message);
+  if (wait) return tr('Too many attempts. Try again in {n}s.', { n: wait[1] });
+  const failed = /^Request failed \((\d+)\)\.$/.exec(err.message);
+  if (failed) return tr('Request failed ({n}).', { n: failed[1] });
+  return tr(err.message);
+};
 
 /** A 401 that means "your session is gone" (not "wrong confirmation password"). */
 const sessionExpired = (err: unknown): boolean => err instanceof ApiError && err.status === 401 && err.code !== 'bad_credentials';
@@ -144,7 +153,7 @@ export const useAccountStore = create<AccountState>()(
           if (!res) return false;
           set({ guest: false });
           afterAuth(res.token, res.user);
-          useGameStore.getState().pushLog(`Account created: ${res.user.email}`, 'good');
+          useGameStore.getState().pushLog(tr('Account created: {email}', { email: res.user.email }), 'good');
           sfxBus.emit('success');
           return true;
         },
@@ -155,7 +164,7 @@ export const useAccountStore = create<AccountState>()(
           // New device / account: progress has no known cloud base yet.
           set({ baseRevision: null, pendingChecksum: null, syncState: 'idle', conflict: null, guest: false });
           afterAuth(res.token, res.user);
-          useGameStore.getState().pushLog(`Logged in as ${res.user.email}`, 'good');
+          useGameStore.getState().pushLog(tr('Logged in as {email}', { email: res.user.email }), 'good');
           sfxBus.emit('success');
           return true;
         },
@@ -163,7 +172,7 @@ export const useAccountStore = create<AccountState>()(
         logout: async () => {
           const { token } = get();
           if (token) await cloudApi.logout(token).catch(() => undefined);
-          set({ ...SIGNED_OUT, notice: 'Logged out. Local progress stays on this device.' });
+          set({ ...SIGNED_OUT, notice: tr('Logged out. Local progress stays on this device.') });
         },
 
         deleteAccount: async (password) => {
@@ -171,7 +180,7 @@ export const useAccountStore = create<AccountState>()(
           if (!token) return false;
           const res = await run(() => cloudApi.deleteAccount(token, password));
           if (!res) return false;
-          set({ ...SIGNED_OUT, notice: 'Account and cloud save deleted.' });
+          set({ ...SIGNED_OUT, notice: tr('Account and cloud save deleted.') });
           return true;
         },
 
@@ -184,8 +193,8 @@ export const useAccountStore = create<AccountState>()(
             window.location.assign(res.url); // Stripe Checkout
             return;
           }
-          set({ user: res.user, notice: res.reactivated ? 'Miner Pass resumed: it will renew normally.' : 'Miner Pass activated (demo billing — no real charge).' });
-          useGameStore.getState().pushLog('Miner Pass active: cloud saves unlocked!', 'good');
+          set({ user: res.user, notice: res.reactivated ? tr('Miner Pass resumed: it will renew normally.') : tr('Miner Pass activated (demo billing — no real charge).') });
+          useGameStore.getState().pushLog(tr('Miner Pass active: cloud saves unlocked!'), 'good');
           sfxBus.emit('unlock');
           await get().uploadSave({ silent: true });
         },
@@ -195,7 +204,7 @@ export const useAccountStore = create<AccountState>()(
           if (!token) return;
           if (devBilling) {
             const res = await run(() => cloudApi.demoCancel(token));
-            if (res) set({ user: res.user, notice: 'Subscription will end at the close of the current period.' });
+            if (res) set({ user: res.user, notice: tr('Subscription will end at the close of the current period.') });
             return;
           }
           const res = await run(() => cloudApi.portal(token));
@@ -229,12 +238,12 @@ export const useAccountStore = create<AccountState>()(
               ({ save } = await attempt(blob, remote.revision, false, keepalive));
             }
             set({ baseRevision: save.revision, cloud: save, lastSyncAt: Date.now(), syncState: 'ok', conflict: null, pendingChecksum: null });
-            if (!opts.silent) set({ notice: `Saved to the cloud (revision ${save.revision}).` });
+            if (!opts.silent) set({ notice: tr('Saved to the cloud (revision {n}).', { n: save.revision }) });
             return true;
           } catch (err) {
             if (err instanceof ApiError && err.code === 'save_conflict') {
               set({ syncState: 'conflict', conflict: err.details as CloudSaveMeta });
-              useGameStore.getState().pushLog('Cloud save conflict: choose which progress to keep in the Account tab.', 'warn');
+              useGameStore.getState().pushLog(tr('Cloud save conflict: choose which progress to keep in the Account tab.'), 'warn');
             } else {
               if (err instanceof ApiError && err.status === 402) await get().refresh();
               if (sessionExpired(err)) set({ ...SIGNED_OUT });
@@ -251,11 +260,11 @@ export const useAccountStore = create<AccountState>()(
           if (!res) return false;
           const result = await useGameStore.getState().importSave(res.blob);
           if (!result.ok) {
-            set({ error: result.message });
+            set({ error: tr(result.message) });
             return false;
           }
           useGameStore.getState().setSideTab('account');
-          set({ baseRevision: res.revision, cloud: res, lastSyncAt: Date.now(), syncState: 'ok', conflict: null, notice: `Cloud progress loaded (revision ${res.revision}).` });
+          set({ baseRevision: res.revision, cloud: res, lastSyncAt: Date.now(), syncState: 'ok', conflict: null, notice: tr('Cloud progress loaded (revision {n}).', { n: res.revision }) });
           return true;
         },
 
