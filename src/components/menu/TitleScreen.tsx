@@ -6,6 +6,7 @@ import { loadCloudAndPlay, shouldOfferCloudLoad, startFreshRun } from '../../sto
 import { useAccountStore } from '../../store/useAccountStore';
 import { hasProgress, useGameShallow, useGameStore } from '../../store/useGameStore';
 import { bnToNumber } from '../../utils/bignum';
+import { useT } from '../../i18n';
 import { cn } from '../../utils/cn';
 import { formatAgo, formatCash, formatDuration } from '../../utils/formatters';
 import { AccountPanel } from '../account/AccountPanel';
@@ -46,6 +47,7 @@ function onMenuArrows(e: KeyboardEvent<HTMLElement>) {
  * is credited until the player presses Continue.
  */
 export function TitleScreen() {
+  const t = useT();
   const save = useGameShallow((s) => ({
     cash: s.cash,
     playTimeSec: s.stats.playTimeSec,
@@ -105,20 +107,20 @@ export function TitleScreen() {
       <div className="relative z-10 mx-auto flex min-h-full w-full max-w-lg flex-col items-center gap-4 px-3 pb-6 pt-[max(37vh,150px)]">
         <h1 className="sr-only">Hash Harvest Tycoon</h1>
 
-        <section className="pixel-box w-full p-3 sm:p-4" aria-label="Main menu" onKeyDown={onMenuArrows}>
+        <section className="pixel-box w-full p-3 sm:p-4" aria-label={t('Main menu')} onKeyDown={onMenuArrows}>
           {needsIdentity ? (
             <div className="flex flex-col gap-2" data-testid="menu-identity">
-              <h2 className="text-center font-pixel text-[10px] text-neon">WHO&apos;S MINING?</h2>
+              <h2 className="text-center font-pixel text-[10px] text-neon">{t("WHO'S MINING?")}</h2>
               <PixelButton size="lg" variant="primary" icon={<LogIn size={14} />} onClick={() => setDialog('account')} autoFocus className="w-full">
-                Sign in / Create account
+                {t('Sign in / Create account')}
               </PixelButton>
               <PixelButton size="lg" variant="secondary" icon={<UserRound size={14} />} onClick={playAsGuest} className="w-full">
-                Play as guest
+                {t('Play as guest')}
               </PixelButton>
-              <p className="text-center text-[16px] leading-tight text-dim">Guest progress is saved only in this browser.</p>
+              <p className="text-center text-[16px] leading-tight text-dim">{t('Guest progress is saved only in this browser.')}</p>
               {account.serverUp === false && (
                 <p className="flex items-center justify-center gap-1 text-center text-[15px] leading-tight text-amber">
-                  <AlertTriangle size={12} className="shrink-0" /> Account server offline: guest play still works.
+                  <AlertTriangle size={12} className="shrink-0" /> {t('Account server offline: guest play still works.')}
                 </p>
               )}
             </div>
@@ -127,13 +129,13 @@ export function TitleScreen() {
               {save.progress && (
                 <div className="flex flex-col gap-2 bg-panel-2 p-2 shadow-[inset_0_0_0_2px_#3f6212]">
                   <PixelButton size="lg" variant="success" icon={<Play size={14} />} onClick={continueGame} autoFocus className="w-full">
-                    Continue
+                    {t('Continue')}
                   </PixelButton>
                   <div className="grid grid-cols-1 gap-x-3 gap-y-1 px-1 min-[360px]:grid-cols-2" data-testid="continue-summary">
-                    <SummaryRow label="Cash" value={formatCash(save.cash)} color="#facc15" />
-                    <SummaryRow label="Level" value={`LV ${level}`} color="#fbbf24" />
-                    <SummaryRow label="Played" value={formatDuration(save.playTimeSec)} />
-                    <SummaryRow label="Last played" value={formatAgo(save.lastTick, now)} color="#8f89c4" />
+                    <SummaryRow label={t('Cash')} value={formatCash(save.cash)} color="#facc15" />
+                    <SummaryRow label={t('Level')} value={`LV ${level}`} color="#fbbf24" />
+                    <SummaryRow label={t('Played')} value={formatDuration(save.playTimeSec)} />
+                    <SummaryRow label={t('Last played')} value={formatAgo(save.lastTick, now)} color="#8f89c4" />
                   </div>
                 </div>
               )}
@@ -146,17 +148,20 @@ export function TitleScreen() {
                 autoFocus={!save.progress}
                 className="w-full"
               >
-                New game
+                {t('New game')}
               </PixelButton>
 
               {account.cloudOffer && account.cloud && (
                 <div className="flex flex-col gap-1 bg-panel-2 p-2 shadow-[inset_0_0_0_2px_#0e7490]" data-testid="cloud-offer">
                   <div className="flex items-center gap-2 font-pixel text-[8px] text-neon">
-                    <CloudDownload size={12} /> CLOUD SAVE FOUND
+                    <CloudDownload size={12} /> {t('CLOUD SAVE FOUND')}
                   </div>
                   <p className="text-[16px] leading-tight text-ink/85">
-                    {formatCash(account.cloud.summary.lifetimeEarnings)} lifetime · {formatDuration(account.cloud.summary.playTimeSec)} played · saved{' '}
-                    {formatAgo(account.cloud.updatedAt, now)}
+                    {t('{cash} lifetime · {time} played · saved {ago}', {
+                      cash: formatCash(account.cloud.summary.lifetimeEarnings),
+                      time: formatDuration(account.cloud.summary.playTimeSec),
+                      ago: formatAgo(account.cloud.updatedAt, now),
+                    })}
                   </p>
                   <PixelButton
                     size="md"
@@ -166,7 +171,7 @@ export function TitleScreen() {
                     onClick={() => (save.progress ? setDialog('confirm-cloud') : void loadCloud())}
                     className="w-full"
                   >
-                    {cloudBusy ? 'Loading…' : 'Load cloud save'}
+                    {cloudBusy ? t('Loading…') : t('Load cloud save')}
                   </PixelButton>
                   {account.error && <p className="text-[15px] leading-tight text-hot">{account.error}</p>}
                 </div>
@@ -176,14 +181,14 @@ export function TitleScreen() {
 
           <div className={cn('mt-3 grid grid-cols-1 gap-1 border-t-2 border-[#1b1838] pt-3', needsIdentity ? 'min-[400px]:grid-cols-2' : 'min-[400px]:grid-cols-3')}>
             <PixelButton size="sm" icon={<Settings size={12} />} onClick={() => setDialog('settings')}>
-              Settings
+              {t('Settings')}
             </PixelButton>
             <PixelButton size="sm" icon={<BookOpen size={12} />} onClick={() => setWikiOpen(true)}>
-              How to play
+              {t('How to play')}
             </PixelButton>
             {!needsIdentity && (
               <PixelButton size="sm" icon={account.signedIn ? <UserRound size={12} /> : <LogIn size={12} />} onClick={() => setDialog('account')}>
-                {account.signedIn ? 'Account' : 'Sign in'}
+                {account.signedIn ? t('Account') : t('Sign in')}
               </PixelButton>
             )}
           </div>
@@ -192,43 +197,47 @@ export function TitleScreen() {
             <p className="mt-2 truncate text-center text-[15px] leading-tight text-dim" data-testid="menu-identity-status">
               {account.signedIn ? (
                 <>
-                  Signed in as <span className="text-neon">{account.email ?? '…'}</span>
+                  {t('Signed in as')} <span className="text-neon">{account.email ?? '…'}</span>
                 </>
               ) : (
-                'Playing as guest: progress is saved only in this browser.'
+                t('Playing as guest: progress is saved only in this browser.')
               )}
             </p>
           )}
         </section>
 
         <footer className="bg-void/75 px-2 py-1 text-center font-silk text-[9px] leading-relaxed text-dim">
-          <div className="blink text-lime">▶ PRESS ENTER TO SELECT</div>
-          <div>↑ ↓ OR TAB TO MOVE · SAVE V{SAVE_VERSION}</div>
+          <div className="blink text-lime">▶ {t('PRESS ENTER TO SELECT')}</div>
+          <div>{t('↑ ↓ OR TAB TO MOVE')} · {t('SAVE')} V{SAVE_VERSION}</div>
         </footer>
       </div>
 
       {dialog === 'settings' && (
-        <PixelModal title="Settings" onClose={close} className="max-w-xl" accent="#a5b4fc">
+        <PixelModal title={t('Settings')} onClose={close} className="max-w-xl" accent="#a5b4fc">
           <SettingsPanel loopMode={null} inMenu />
         </PixelModal>
       )}
       {dialog === 'account' && (
-        <PixelModal title="Account" onClose={close} className="max-w-xl" accent="#38bdf8">
+        <PixelModal title={t('Account')} onClose={close} className="max-w-xl" accent="#38bdf8">
           <AccountPanel />
         </PixelModal>
       )}
       {dialog === 'confirm-new' && (
-        <PixelModal title="Start a new game?" onClose={close} className="max-w-md" accent="#f43f5e">
+        <PixelModal title={t('Start a new game?')} onClose={close} className="max-w-md" accent="#f43f5e">
           <div className="flex flex-col gap-3 text-[18px] leading-tight">
             <p className="flex gap-2 text-hot">
               <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-              Your local progress will be overwritten: {formatCash(save.cash)} cash, LV {level}, {formatDuration(save.playTimeSec)} played. This cannot be undone.
+              {t('Your local progress will be overwritten: {cash} cash, LV {level}, {time} played. This cannot be undone.', {
+                cash: formatCash(save.cash),
+                level,
+                time: formatDuration(save.playTimeSec),
+              })}
             </p>
-            <p className="text-dim">Want a backup? Export your save from Settings first.</p>
-            <p className="text-dim">A cloud save, if you are signed in, is separate: it is not deleted, and the next sync asks which progress to keep.</p>
+            <p className="text-dim">{t('Want a backup? Export your save from Settings first.')}</p>
+            <p className="text-dim">{t('A cloud save, if you are signed in, is separate: it is not deleted, and the next sync asks which progress to keep.')}</p>
             <div className="flex flex-wrap justify-end gap-2">
               <PixelButton variant="ghost" onClick={close} autoFocus>
-                Cancel
+                {t('Cancel')}
               </PixelButton>
               <PixelButton
                 variant="danger"
@@ -238,22 +247,22 @@ export function TitleScreen() {
                   startFreshRun();
                 }}
               >
-                Overwrite &amp; start
+                {t('Overwrite & start')}
               </PixelButton>
             </div>
           </div>
         </PixelModal>
       )}
       {dialog === 'confirm-cloud' && (
-        <PixelModal title="Load cloud save?" onClose={close} className="max-w-md" accent="#22d3ee">
+        <PixelModal title={t('Load cloud save?')} onClose={close} className="max-w-md" accent="#22d3ee">
           <div className="flex flex-col gap-3 text-[18px] leading-tight">
-            <p className="text-amber">The cloud save replaces the progress stored in this browser ({formatCash(save.cash)} cash, {formatDuration(save.playTimeSec)} played).</p>
+            <p className="text-amber">{t('The cloud save replaces the progress stored in this browser ({cash} cash, {time} played).', { cash: formatCash(save.cash), time: formatDuration(save.playTimeSec) })}</p>
             <div className="flex flex-wrap justify-end gap-2">
               <PixelButton variant="ghost" onClick={close} autoFocus>
-                Cancel
+                {t('Cancel')}
               </PixelButton>
               <PixelButton variant="primary" icon={<CloudDownload size={12} />} onClick={() => void loadCloud()}>
-                Replace &amp; play
+                {t('Replace & play')}
               </PixelButton>
             </div>
           </div>

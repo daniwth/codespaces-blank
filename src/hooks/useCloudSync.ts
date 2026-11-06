@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { tr } from '../i18n';
 import { useAccountStore } from '../store/useAccountStore';
 import { useGameStore } from '../store/useGameStore';
 
@@ -20,8 +21,8 @@ export function useCloudSync(): void {
         // Coming back from Stripe is a deliberate action: go straight to the Account tab
         // instead of leaving the confirmation hidden behind the title menu.
         if (game.screen === 'menu') game.continueGame();
-        if (checkout === 'success') game.pushLog('Back from checkout. Confirming your Miner Pass with the server…', 'info');
-        if (checkout === 'cancel') game.pushLog('Checkout cancelled. No charge was made.', 'info');
+        if (checkout === 'success') game.pushLog(tr('Back from checkout. Confirming your Miner Pass with the server…'), 'info');
+        if (checkout === 'cancel') game.pushLog(tr('Checkout cancelled. No charge was made.'), 'info');
         // The webhook may land a moment after the redirect: poll briefly.
         let tries = 0;
         const poll = setInterval(() => {

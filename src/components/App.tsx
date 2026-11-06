@@ -1,6 +1,7 @@
 import confetti from 'canvas-confetti';
 import { Award, ClipboardList, Cloud, Coins, Crown, LineChart, Network, Server, Settings, ShoppingCart } from 'lucide-react';
 import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
+import { useT } from '../i18n';
 import { useSfxBridge } from '../hooks/useAudioFx';
 import { useCloudSync } from '../hooks/useCloudSync';
 import { AccountPanel } from './account/AccountPanel';
@@ -85,11 +86,12 @@ export function App() {
 
 /** The running farm: HUD, world canvas, side panels and in-game modals. */
 function GameScreen({ loopMode }: { loopMode: LoopMode | null }) {
+  const t = useT();
   const ui = useGameShallow((s) => ({ sideTab: s.sideTab, selectedRack: s.selectedRack, biosGpu: s.biosGpu }));
   const setSideTab = useGameStore((s) => s.setSideTab);
   const contractsReady = useGameStore((s) => s.contracts.slots.filter((c) => c.completedAt !== null).length);
 
-  const tab = TABS.find((t) => t.id === ui.sideTab) ?? TABS[0];
+  const tab = TABS.find((x) => x.id === ui.sideTab) ?? TABS[0];
 
   return (
     <div className="flex min-h-full flex-col">
@@ -100,25 +102,25 @@ function GameScreen({ loopMode }: { loopMode: LoopMode | null }) {
           <EventLog />
         </div>
         <aside className="pixel-box flex min-h-[520px] min-w-0 flex-col xl:max-h-[calc(100vh-150px)]">
-          <nav className="flex flex-wrap gap-0.5 border-b-2 border-[#1b1838] p-1.5" aria-label="Panels">
-            {TABS.map((t) => (
+          <nav className="flex flex-wrap gap-0.5 border-b-2 border-[#1b1838] p-1.5" aria-label={t('Panels')}>
+            {TABS.map((tb) => (
               <button
-                key={t.id}
+                key={tb.id}
                 type="button"
-                onClick={() => setSideTab(t.id)}
-                aria-label={t.id === 'contracts' && contractsReady ? `${t.label} (${contractsReady} ready to claim)` : t.label}
-                aria-current={ui.sideTab === t.id ? 'page' : undefined}
-                title={t.label}
+                onClick={() => setSideTab(tb.id)}
+                aria-label={tb.id === 'contracts' && contractsReady ? t('{tab} ({n} ready to claim)', { tab: t(tb.label), n: contractsReady }) : t(tb.label)}
+                aria-current={ui.sideTab === tb.id ? 'page' : undefined}
+                title={t(tb.label)}
                 className="relative flex items-center gap-1 px-2 py-1.5 font-pixel text-[8px] uppercase transition-colors"
                 style={
-                  ui.sideTab === t.id
-                    ? { color: '#07060f', background: t.color, boxShadow: `0 0 10px ${t.color}66` }
-                    : { color: t.color, background: '#141128' }
+                  ui.sideTab === tb.id
+                    ? { color: '#07060f', background: tb.color, boxShadow: `0 0 10px ${tb.color}66` }
+                    : { color: tb.color, background: '#141128' }
                 }
               >
-                {t.icon}
-                <span className="hidden sm:inline">{t.label}</span>
-                {t.id === 'contracts' && contractsReady > 0 && (
+                {tb.icon}
+                <span className="hidden sm:inline">{t(tb.label)}</span>
+                {tb.id === 'contracts' && contractsReady > 0 && (
                   <span className="blink absolute -right-1 -top-1 grid size-3.5 place-items-center bg-lime font-pixel text-[7px] text-void" aria-hidden="true">
                     {contractsReady}
                   </span>
@@ -127,7 +129,7 @@ function GameScreen({ loopMode }: { loopMode: LoopMode | null }) {
             ))}
           </nav>
           <div className="flex items-center gap-2 px-3 pt-2 font-pixel text-[10px]" style={{ color: tab.color }}>
-            {tab.icon} {tab.label.toUpperCase()}
+            {tab.icon} {t(tab.label).toUpperCase()}
           </div>
           <div className="retro-scroll min-h-0 flex-1 overflow-y-auto p-3">
             {ui.sideTab === 'shop' && <HardwareShop />}

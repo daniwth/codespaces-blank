@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { useDialogFocus } from '../../hooks/useDialogFocus';
+import { useT } from '../../i18n';
 import { cn } from '../../utils/cn';
 import { isTopLayer, popLayer, pushLayer } from '../../utils/modalStack';
 
@@ -19,6 +20,7 @@ interface PixelModalProps {
  * used autoFocus), Tab stays inside it, and focus returns to the opener on close.
  */
 export function PixelModal({ title, onClose, children, className, accent = '#22d3ee', hideClose }: PixelModalProps) {
+  const t = useT();
   const layer = useRef(0);
   const panel = useRef<HTMLDivElement | null>(null);
   const titleId = useId();
@@ -53,7 +55,7 @@ export function PixelModal({ title, onClose, children, className, accent = '#22d
             {title}
           </h2>
           {!hideClose && (
-            <button type="button" onClick={onClose} className="p-1 text-dim hover:text-ink" aria-label="Close">
+            <button type="button" onClick={onClose} className="p-1 text-dim hover:text-ink" aria-label={t('Close')}>
               <X size={18} />
             </button>
           )}
