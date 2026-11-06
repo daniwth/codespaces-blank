@@ -1,6 +1,6 @@
 import confetti from 'canvas-confetti';
 import { Award, ClipboardList, Cloud, Coins, Crown, LineChart, Network, Server, Settings, ShoppingCart } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import { useSfxBridge } from '../hooks/useAudioFx';
 import { useCloudSync } from '../hooks/useCloudSync';
 import { AccountPanel } from './account/AccountPanel';
@@ -23,8 +23,11 @@ import { VipPanel } from './panels/VipPanel';
 import { HalvingTalentTree } from './prestige/HalvingTalentTree';
 import { HardwareShop } from './shop/HardwareShop';
 import { ContractToast } from './ui/ContractToast';
+import { TitleScreen } from './menu/TitleScreen';
 import { LotteryToast } from './ui/LotteryToast';
 import { RetroHUD } from './ui/RetroHUD';
+
+const Wiki = lazy(() => import('./wiki/Wiki'));
 
 const TABS: { id: SideTab; label: string; icon: ReactNode; color: string }[] = [
   { id: 'shop', label: 'Shop', icon: <ShoppingCart size={14} />, color: '#facc15' },
@@ -41,12 +44,13 @@ const TABS: { id: SideTab; label: string; icon: ReactNode; color: string }[] = [
 
 export function App() {
   const [loopMode, setLoopMode] = useState<LoopMode | null>(null);
+  // The loop only runs on the game screen: the title menu keeps the save frozen.
   useGameLoop(setLoopMode);
   useSfxBridge();
   useCloudSync();
-  const ui = useGameShallow((s) => ({ sideTab: s.sideTab, selectedRack: s.selectedRack, biosGpu: s.biosGpu }));
-  const setSideTab = useGameStore((s) => s.setSideTab);
-  const contractsReady = useGameStore((s) => s.contracts.slots.filter((c) => c.completedAt !== null).length);
+  const screen = useGameStore((s) => s.screen);
+  const wikiOpen = useGameStore((s) => s.wikiOpen);
+  const setWikiOpen = useGameStore((s) => s.setWikiOpen);
 
   useEffect(
     () =>
@@ -66,6 +70,24 @@ export function App() {
       }),
     [],
   );
+
+  return (
+    <>
+      {screen === 'menu' ? <TitleScreen /> : <GameScreen loopMode={loopMode} />}
+      {wikiOpen && (
+        <Suspense fallback={null}>
+          <Wiki onClose={() => setWikiOpen(false)} />
+        </Suspense>
+      )}
+    </>
+  );
+}
+
+/** The running farm: HUD, world canvas, side panels and in-game modals. */
+function GameScreen({ loopMode }: { loopMode: LoopMode | null }) {
+  const ui = useGameShallow((s) => ({ sideTab: s.sideTab, selectedRack: s.selectedRack, biosGpu: s.biosGpu }));
+  const setSideTab = useGameStore((s) => s.setSideTab);
+  const contractsReady = useGameStore((s) => s.contracts.slots.filter((c) => c.completedAt !== null).length);
 
   const tab = TABS.find((t) => t.id === ui.sideTab) ?? TABS[0];
 

@@ -88,6 +88,17 @@ export function formatDuration(totalSeconds: number): string {
   return `${sec}s`;
 }
 
+/** "just now", "12 min ago", "3 h ago", "4 days ago"; older dates fall back to the locale date. */
+export function formatAgo(timestamp: number, now = Date.now()): string {
+  const sec = Math.max(0, (now - timestamp) / 1000);
+  if (sec < 60) return 'just now';
+  if (sec < 3600) return `${Math.floor(sec / 60)} min ago`;
+  if (sec < 86_400) return `${Math.floor(sec / 3600)} h ago`;
+  const days = Math.floor(sec / 86_400);
+  if (days < 30) return days === 1 ? 'yesterday' : `${days} days ago`;
+  return new Date(timestamp).toLocaleDateString();
+}
+
 /** Color ramp used by LEDs, bars and text: green → orange → red. */
 export function tempColor(celsius: number): string {
   if (celsius >= 90) return '#ef4444';

@@ -38,6 +38,7 @@ export type SfxCue =
   | 'install'
   | 'unlock'
   | 'boot'
+  | 'start'
   | 'contract'
   | 'claim';
 

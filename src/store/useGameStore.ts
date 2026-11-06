@@ -115,7 +115,28 @@ const initialUi = (): UiState => ({
   sideTab: 'shop',
   lottery: null,
   contractToast: null,
+  screen: 'menu',
+  wikiOpen: false,
 });
+
+/** Navigation state that survives a save import / factory reset (only the data is replaced). */
+const keepNav = (s: GameStore): Pick<UiState, 'screen' | 'wikiOpen'> => ({ screen: s.screen, wikiOpen: s.wikiOpen });
+
+/** Play time (s) after which a fresh save counts as "real progress" worth continuing. */
+export const PROGRESS_MIN_PLAY_SEC = 5;
+
+/**
+ * True when the local save holds progress worth protecting: anything earned,
+ * more than the starter GPU, a past Halving, or more than a few seconds played.
+ */
+export function hasProgress(d: Pick<GameData, 'lifetimeEarnings' | 'gpus' | 'stats'>): boolean {
+  return (
+    bnToNumber(d.lifetimeEarnings) > 0 ||
+    Object.keys(d.gpus).length > 1 ||
+    d.stats.halvings > 0 ||
+    d.stats.playTimeSec > PROGRESS_MIN_PLAY_SEC
+  );
+}
 
 function createCoreActions(set: SetState, get: GetState): CoreActions {
   const mergeTick = (out: SimOutput) => {
@@ -217,7 +238,7 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
         return { ok: false, message: result.error };
       }
       const data = migrateSave(result.data, result.version);
-      set({ ...data, ...initialUi(), sideTab: 'system', lastTick: Date.now() });
+      set({ ...data, ...initialUi(), ...keepNav(get()), sideTab: 'system', lastTick: Date.now() });
       gameStorage.flush();
       sfxBus.emit('success');
       get().pushLog('Save imported and verified (SHA-256 OK).', 'good');
@@ -225,10 +246,31 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
     },
 
     hardReset: () => {
-      set({ ...createInitialData(), ...initialUi(), sideTab: 'system' });
+      set({ ...createInitialData(), ...initialUi(), ...keepNav(get()), sideTab: 'system' });
       gameStorage.flush();
       get().pushLog('Factory reset complete. Welcome back to the bedroom.', 'info');
     },
+
+    continueGame: () => {
+      if (get().screen === 'game') return;
+      set({ screen: 'game', wikiOpen: false });
+      sfxBus.emit('start');
+    },
+
+    startNewGame: () => {
+      // createInitialData stamps lastTick = now, so the loop credits no offline time.
+      set({ ...createInitialData({ settings: get().settings }), ...initialUi(), screen: 'game' });
+      gameStorage.flush();
+      sfxBus.emit('start');
+      get().pushLog('New farm founded: one PX-460 on a bench in your bedroom. Happy hashing!', 'good');
+    },
+
+    returnToMenu: () => {
+      set({ screen: 'menu', selectedRack: null, biosGpu: null, lottery: null, contractToast: null, wikiOpen: false });
+      gameStorage.flush();
+    },
+
+    setWikiOpen: (open) => set({ wikiOpen: open }),
   };
 }
 

@@ -1,4 +1,4 @@
-import { Cloud, CloudOff, Coins, Cpu, Gem, Pickaxe, ScrollText, Thermometer, Volume2, VolumeX, Zap } from 'lucide-react';
+import { CircleHelp, Cloud, CloudOff, Coins, Cpu, Gem, Pickaxe, ScrollText, Thermometer, Volume2, VolumeX, Zap } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { NETWORK_EVENTS, POOLS, earningsForLevel, levelFromEarnings } from '../../config/gameBalance';
 import { talentModifiers } from '../../config/prestigeTree';
@@ -57,6 +57,7 @@ export function RetroHUD() {
   const updateSettings = useGameStore((st) => st.updateSettings);
   const sellCoin = useGameStore((st) => st.sellCoin);
   const setSideTab = useGameStore((st) => st.setSideTab);
+  const setWikiOpen = useGameStore((st) => st.setWikiOpen);
   const account = useAccountStore(useShallow((a) => ({ email: a.user?.email ?? null, active: !!a.user?.subscription.active, sync: a.syncState })));
   const [now, setNow] = useState(() => Date.now());
   const [pops, setPops] = useState<{ id: number; text: string }[]>([]);
@@ -169,6 +170,9 @@ export function RetroHUD() {
           </PixelButton>
           <PixelButton size="sm" variant="primary" disabled={bnToNumber(s.cc) <= 0} onClick={() => sellCoin('CC', bnToNumber(s.cc))} title="Sell every $CC at market price">
             Sell all CC
+          </PixelButton>
+          <PixelButton size="sm" variant="ghost" onClick={() => setWikiOpen(true)} aria-label="How to play" title="How to play (wiki)">
+            <CircleHelp size={14} />
           </PixelButton>
           <PixelButton size="sm" variant="ghost" onClick={() => updateSettings({ muted: !s.muted })} aria-label={s.muted ? 'Unmute' : 'Mute'}>
             {s.muted ? <VolumeX size={14} /> : <Volume2 size={14} />}

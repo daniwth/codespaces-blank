@@ -19,6 +19,8 @@ interface AccountState {
    * it is our own upload, not another device.
    */
   pendingChecksum: string | null;
+  /** The player chose "Play as guest" on the title menu: skip the account step on later launches. */
+  guest: boolean;
   // runtime
   user: AccountUser | null;
   plans: Plan[];
@@ -44,6 +46,14 @@ interface AccountState {
   resolveConflict: (keep: 'local' | 'cloud') => Promise<void>;
   setAutoSync: (on: boolean) => void;
   clearMessages: () => void;
+  /** Remember the guest choice (local-only progress, no account). */
+  playAsGuest: () => void;
+  /**
+   * The local save was replaced by an unrelated one (New game): forget the cloud
+   * revision it was based on, so the next sync asks which progress to keep
+   * instead of silently overwriting the cloud save.
+   */
+  detachLocalSave: () => void;
 }
 
 const message = (err: unknown): string => (err instanceof Error ? err.message : 'Something went wrong.');
@@ -94,6 +104,7 @@ export const useAccountStore = create<AccountState>()(
         autoSync: true,
         lastSyncAt: null,
         pendingChecksum: null,
+        guest: false,
         user: null,
         plans: [],
         devBilling: false,
@@ -131,6 +142,7 @@ export const useAccountStore = create<AccountState>()(
         register: async (email, password) => {
           const res = await run(() => cloudApi.register(email, password));
           if (!res) return false;
+          set({ guest: false });
           afterAuth(res.token, res.user);
           useGameStore.getState().pushLog(`Account created: ${res.user.email}`, 'good');
           sfxBus.emit('success');
@@ -141,7 +153,7 @@ export const useAccountStore = create<AccountState>()(
           const res = await run(() => cloudApi.login(email, password));
           if (!res) return false;
           // New device / account: progress has no known cloud base yet.
-          set({ baseRevision: null, pendingChecksum: null, syncState: 'idle', conflict: null });
+          set({ baseRevision: null, pendingChecksum: null, syncState: 'idle', conflict: null, guest: false });
           afterAuth(res.token, res.user);
           useGameStore.getState().pushLog(`Logged in as ${res.user.email}`, 'good');
           sfxBus.emit('success');
@@ -254,12 +266,16 @@ export const useAccountStore = create<AccountState>()(
 
         setAutoSync: (on) => set({ autoSync: on }),
         clearMessages: () => set({ error: null, notice: null }),
+        playAsGuest: () => set({ guest: true, error: null, notice: null }),
+        detachLocalSave: () => set({ baseRevision: null, pendingChecksum: null, syncState: 'idle', conflict: null }),
       };
     },
     {
       name: 'hash-harvest-account',
       storage: createJSONStorage(() => localStorage),
-      partialize: (s) => ({ token: s.token, baseRevision: s.baseRevision, autoSync: s.autoSync, lastSyncAt: s.lastSyncAt, pendingChecksum: s.pendingChecksum }),
+      partialize: (s) => ({
+        token: s.token, baseRevision: s.baseRevision, autoSync: s.autoSync, lastSyncAt: s.lastSyncAt, pendingChecksum: s.pendingChecksum, guest: s.guest,
+      }),
     },
   ),
 );

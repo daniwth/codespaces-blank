@@ -231,6 +231,12 @@ class AudioEngine {
       case 'boot':
         this.tone({ freq: 1000, type: 'square', dur: 0.14, gain: 0.1 });
         break;
+      case 'start':
+        // Title screen "insert coin": PC speaker beep, then a rising power-on arpeggio.
+        this.tone({ freq: 1000, type: 'square', dur: 0.08, gain: 0.08 });
+        this.arp([262, 392, 523, 784], 0.06, 'square', 0.12);
+        this.tone({ freq: 1047, type: 'triangle', dur: 0.35, gain: 0.16, delay: 0.26 });
+        break;
       default:
         break;
     }
@@ -262,7 +268,8 @@ export function useSfxBridge(): void {
     window.addEventListener('keydown', unlock);
     const humTimer = setInterval(() => {
       const s = useGameStore.getState();
-      const room = s.live.rooms[s.activeRoom];
+      // Rigs are not running behind the title menu: no fan hum there.
+      const room = s.screen === 'game' ? s.live.rooms[s.activeRoom] : undefined;
       const capacity = room?.capacity ?? 1;
       audioEngine.setHumLevel(room ? Math.min(1, 0.25 + (room.load / capacity) * 1.5) * (room.racksOnline > 0 ? 1 : 0) : 0);
     }, 1000);

@@ -1,11 +1,16 @@
-import { Download, FileUp, RotateCcw, Save, ShieldCheck } from 'lucide-react';
+import { Download, FileUp, House, RotateCcw, Save, ShieldCheck } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { SAVE_VERSION } from '../../config/gameBalance';
+import { goToMainMenu } from '../../store/session';
 import { gameStorage, useGameShallow, useGameStore } from '../../store/useGameStore';
 import type { LoopMode } from '../../hooks/useGameLoop';
 import { PixelButton } from '../ui/PixelButton';
 
-export function SettingsPanel({ loopMode }: { loopMode: LoopMode | null }) {
+/**
+ * Audio/video toggles, save export/import and factory reset. Rendered in the
+ * System tab and, with `inMenu`, inside the title screen's Settings window.
+ */
+export function SettingsPanel({ loopMode, inMenu = false }: { loopMode: LoopMode | null; inMenu?: boolean }) {
   const settings = useGameShallow((s) => s.settings);
   const createdAt = useGameStore((s) => s.createdAt);
   const { updateSettings, exportSave, importSave, hardReset, pushLog } = useGameStore.getState();
@@ -43,6 +48,14 @@ export function SettingsPanel({ loopMode }: { loopMode: LoopMode | null }) {
 
   return (
     <div className="flex flex-col gap-3 text-[17px]">
+      {!inMenu && (
+        <section className="flex flex-wrap items-center gap-2 bg-panel-2 p-2">
+          <PixelButton size="sm" variant="primary" icon={<House size={11} />} onClick={goToMainMenu}>
+            Main menu
+          </PixelButton>
+          <span className="min-w-0 flex-1 text-[15px] leading-tight text-dim">Saves and returns to the title screen. Time spent there counts as offline time.</span>
+        </section>
+      )}
       <section className="flex flex-col gap-2 bg-panel-2 p-2">
         <h3 className="font-pixel text-[9px] text-neon">AUDIO & VIDEO</h3>
         <label className="flex items-center gap-2">
@@ -120,7 +133,8 @@ export function SettingsPanel({ loopMode }: { loopMode: LoopMode | null }) {
       </section>
 
       <p className="text-[15px] leading-tight text-dim">
-        Simulation: {loopMode === 'worker' ? 'Web Worker (off-thread)' : loopMode === 'main-thread' ? 'main-thread fallback' : 'starting…'} · Farm founded {new Date(createdAt).toLocaleDateString()}
+        Simulation: {inMenu ? 'paused on the title screen' : loopMode === 'worker' ? 'Web Worker (off-thread)' : loopMode === 'main-thread' ? 'main-thread fallback' : 'starting…'} · Farm founded{' '}
+        {new Date(createdAt).toLocaleDateString()}
       </p>
     </div>
   );
