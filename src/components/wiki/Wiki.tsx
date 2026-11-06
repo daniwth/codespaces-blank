@@ -30,9 +30,10 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { WIKI_SECTIONS } from '../../config/wikiContent';
+import { getWikiSections } from '../../config/wikiContent';
 import type { WikiBlock, WikiEntry, WikiIcon, WikiSection, WikiSectionIcon, WikiTable, WikiTone } from '../../config/wikiTypes';
 import { sprites } from '../../engine/SpriteManager';
+import { useLang, useT } from '../../i18n';
 import type { TalentIcon } from '../../types/player';
 import { cn } from '../../utils/cn';
 import { PixelButton } from '../ui/PixelButton';
@@ -51,8 +52,8 @@ const TALENT_ICONS: Record<TalentIcon, LucideIcon> = {
 };
 
 const TONES: Record<WikiTone, { icon: LucideIcon; color: string; bg: string; label: string }> = {
-  tip: { icon: Lightbulb, color: '#a3e635', bg: '#132008', label: 'CONSEJO' },
-  warn: { icon: AlertTriangle, color: '#fbbf24', bg: '#241603', label: 'OJO' },
+  tip: { icon: Lightbulb, color: '#a3e635', bg: '#132008', label: 'TIP' },
+  warn: { icon: AlertTriangle, color: '#fbbf24', bg: '#241603', label: 'WARNING' },
   info: { icon: Info, color: '#22d3ee', bg: '#071c24', label: 'INFO' },
 };
 
@@ -196,6 +197,7 @@ function TableView({ table, hl }: { table: WikiTable; hl: RegExp | null }) {
 // ───────────────────────── Blocks & entries ─────────────────────────
 
 function Block({ block, hl }: { block: WikiBlock; hl: RegExp | null }) {
+  const t = useT();
   switch (block.type) {
     case 'p':
       return (
@@ -239,7 +241,7 @@ function Block({ block, hl }: { block: WikiBlock; hl: RegExp | null }) {
           <Icon size={16} className="mt-0.5 shrink-0" style={{ color: tone.color }} aria-hidden />
           <p className="min-w-0 text-ink/90">
             <span className="mr-1.5 font-pixel text-[8px]" style={{ color: tone.color }}>
-              {tone.label}
+              {t(tone.label)}
             </span>
             <Inline text={block.text} hl={hl} />
           </p>
@@ -294,13 +296,17 @@ function SectionHeader({ section, hl }: { section: WikiSection; hl: RegExp | nul
 
 /** In-game wiki / how-to-play guide. All tables are generated from the balance config. */
 export default function Wiki({ onClose }: { onClose: () => void }) {
+  const t = useT();
+  const lang = useLang();
+  // Pages (and the search index built from them) are per language and rebuilt when it changes.
+  const WIKI_SECTIONS = useMemo(() => getWikiSections(lang), [lang]);
   const [query, setQuery] = useState('');
   const [activeId, setActiveId] = useState(WIKI_SECTIONS[0].id);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
   const searching = query.trim().length > 0;
-  const result = useMemo(() => searchWiki(WIKI_SECTIONS, query), [query]);
+  const result = useMemo(() => searchWiki(WIKI_SECTIONS, query), [WIKI_SECTIONS, query]);
   const hl = useMemo(() => highlightRegex(query), [query]);
   const active = WIKI_SECTIONS.find((s) => s.id === activeId) ?? WIKI_SECTIONS[0];
   const activeIndex = WIKI_SECTIONS.indexOf(active);
@@ -327,7 +333,7 @@ export default function Wiki({ onClose }: { onClose: () => void }) {
     <PixelModal
       title={
         <span className="flex items-center gap-2">
-          <BookOpen size={14} /> WIKI · MANUAL DEL MINERO
+          <BookOpen size={14} /> {t("WIKI · MINER'S MANUAL")}
         </span>
       }
       onClose={onClose}
@@ -343,7 +349,7 @@ export default function Wiki({ onClose }: { onClose: () => void }) {
               type="text"
               role="searchbox"
               className="retro-input w-full !pl-7"
-              placeholder="Buscar: throttling, Halving, PSU, gemas…"
+              placeholder={t('Search: throttling, Halving, PSU, gems…')}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
@@ -353,18 +359,21 @@ export default function Wiki({ onClose }: { onClose: () => void }) {
                   setQuery('');
                 }
               }}
-              aria-label="Buscar en la wiki"
+              aria-label={t('Search the wiki')}
             />
           </label>
           {searching && (
             <div className="flex items-center justify-between gap-2 sm:justify-start">
               <span className="text-[16px] text-dim" aria-live="polite">
                 {result.entryCount > 0
-                  ? `${result.entryCount} ${result.entryCount === 1 ? 'resultado' : 'resultados'} en ${result.sections.length} ${result.sections.length === 1 ? 'sección' : 'secciones'}`
-                  : 'Sin resultados'}
+                  ? t('{results} in {sections}', {
+                      results: result.entryCount === 1 ? t('1 result') : t('{n} results', { n: result.entryCount }),
+                      sections: result.sections.length === 1 ? t('1 section') : t('{n} sections', { n: result.sections.length }),
+                    })
+                  : t('No results')}
               </span>
               <PixelButton size="xs" variant="ghost" icon={<X size={10} />} onClick={() => { setQuery(''); searchRef.current?.focus(); }}>
-                Limpiar
+                {t('Clear search')}
               </PixelButton>
             </div>
           )}
@@ -375,9 +384,9 @@ export default function Wiki({ onClose }: { onClose: () => void }) {
             className="retro-input w-full md:hidden"
             value={searching ? '' : active.id}
             onChange={(e) => e.target.value && openSection(e.target.value)}
-            aria-label="Sección"
+            aria-label={t('Section')}
           >
-            {searching && <option value="">Ir a una sección…</option>}
+            {searching && <option value="">{t('Go to a section…')}</option>}
             {navSections.map((s) => (
               <option key={s.id} value={s.id}>
                 {`${WIKI_SECTIONS.findIndex((x) => x.id === s.id) + 1}. ${s.title}${searching ? ` (${s.entries.length})` : ''}`}
@@ -387,7 +396,7 @@ export default function Wiki({ onClose }: { onClose: () => void }) {
         )}
 
         <div className="flex min-h-0 flex-1 gap-3">
-          <nav className="retro-scroll hidden w-56 shrink-0 flex-col gap-0.5 overflow-y-auto pr-1 md:flex" aria-label="Secciones de la wiki">
+          <nav className="retro-scroll hidden w-56 shrink-0 flex-col gap-0.5 overflow-y-auto pr-1 md:flex" aria-label={t('Wiki sections')}>
             {navSections.map((s) => {
               const Icon = SECTION_ICONS[s.icon];
               const current = !searching && s.id === active.id;
@@ -407,15 +416,15 @@ export default function Wiki({ onClose }: { onClose: () => void }) {
                 </button>
               );
             })}
-            {searching && navSections.length === 0 && <p className="px-2 text-[16px] text-dim">Nada coincide.</p>}
+            {searching && navSections.length === 0 && <p className="px-2 text-[16px] text-dim">{t('Nothing matches.')}</p>}
           </nav>
 
           <div ref={contentRef} className="retro-scroll min-w-0 flex-1 overflow-y-auto overflow-x-hidden pr-1 text-[17px]" data-testid="wiki-content">
             {shown.length === 0 && (
               <div className="flex flex-col items-start gap-2 p-2 text-dim">
-                <p>No hay nada sobre «{query.trim()}». Prueba con otra palabra (por ejemplo: pasta, brownout, bots, $SC).</p>
+                <p>{t('Nothing about “{query}”. Try another word (for example: paste, brownout, bots, $SC).', { query: query.trim() })}</p>
                 <PixelButton size="sm" variant="primary" onClick={() => setQuery('')}>
-                  Ver toda la wiki
+                  {t('Show the whole wiki')}
                 </PixelButton>
               </div>
             )}
@@ -424,7 +433,7 @@ export default function Wiki({ onClose }: { onClose: () => void }) {
               <article key={section.id} id={anchorId(section.id)} className="mb-5 flex scroll-mt-2 flex-col gap-4" data-wiki-section={section.id}>
                 <SectionHeader section={section} hl={hl} />
                 {!searching && section.entries.length > 1 && (
-                  <div className="flex flex-wrap gap-1" aria-label="En esta sección">
+                  <div className="flex flex-wrap gap-1" aria-label={t('In this section')}>
                     {section.entries.map((e) => (
                       <button
                         key={e.id}
@@ -451,7 +460,7 @@ export default function Wiki({ onClose }: { onClose: () => void }) {
                   disabled={activeIndex <= 0}
                   onClick={() => setActiveId(WIKI_SECTIONS[activeIndex - 1].id)}
                 >
-                  {activeIndex > 0 ? WIKI_SECTIONS[activeIndex - 1].title : 'Inicio'}
+                  {activeIndex > 0 ? WIKI_SECTIONS[activeIndex - 1].title : t('First page')}
                 </PixelButton>
                 <PixelButton
                   size="sm"
@@ -459,7 +468,7 @@ export default function Wiki({ onClose }: { onClose: () => void }) {
                   disabled={activeIndex >= WIKI_SECTIONS.length - 1}
                   onClick={() => setActiveId(WIKI_SECTIONS[activeIndex + 1].id)}
                 >
-                  {activeIndex < WIKI_SECTIONS.length - 1 ? WIKI_SECTIONS[activeIndex + 1].title : 'Fin'}
+                  {activeIndex < WIKI_SECTIONS.length - 1 ? WIKI_SECTIONS[activeIndex + 1].title : t('Last page')}
                   <ChevronRight size={12} />
                 </PixelButton>
               </div>

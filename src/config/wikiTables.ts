@@ -39,6 +39,7 @@ import {
 } from './prestigeTree';
 import { ROOM_BY_ID, ROOM_CATALOG } from './roomsCatalog';
 import type { WikiRow, WikiTable } from './wikiTypes';
+import { tr, useLangStore, type Lang } from '../i18n';
 import { aiAutoTune, gridTariff, ocHashBonus, ocPowerMul } from '../store/gamePhysics';
 import { createGpu } from '../store/initialState';
 import { SELL_REFUND, repairCost, repasteCost } from '../store/slices/hardwareSlice';
@@ -57,6 +58,13 @@ import {
   formatPower,
   formatTemp,
 } from '../utils/formatters';
+
+/** Language of the wiki being built (tables are generated per language; default: the UI language). */
+const curLang = (): Lang => useLangStore.getState().lang;
+/** `x(spanish, english)` picks the text of the wiki language. */
+const pick = (lang: Lang) => (es: string, en: string): string => (lang === 'es' ? es : en);
+/** In-game proper names come from the (English) catalogs and go through the dictionary. */
+const namer = (lang: Lang) => (name: string): string => tr(name, undefined, lang);
 
 const pct = (ratio: number, digits = 0) => formatPercent(ratio, digits);
 const signedPct = (ratio: number) => `${ratio >= 0 ? '+' : ''}${formatPercent(ratio, 1)}`;
@@ -79,20 +87,22 @@ export const gpuPowerShare = (modelId: string, roomId: RoomId = 'bedroom'): numb
 
 // ───────────────────────── Hardware ─────────────────────────
 
-export function gpuTable(): WikiTable {
+export function gpuTable(lang: Lang = curLang()): WikiTable {
+  const x = pick(lang);
+  const nm = namer(lang);
   return {
     id: 'gpus',
-    caption: 'GPUs y ASICs',
+    caption: x('GPUs y ASICs', 'GPUs and ASICs'),
     columns: [
-      { label: 'Modelo' }, { label: 'Tier', align: 'right' }, { label: 'Precio', align: 'right' },
-      { label: 'Hashrate', align: 'right' }, { label: 'Consumo', align: 'right' }, { label: 'Hash/W', align: 'right' },
-      { label: 'Masa térmica', align: 'right' }, { label: 'ROI bruto', align: 'right' },
+      { label: x('Modelo', 'Model') }, { label: 'Tier', align: 'right' }, { label: x('Precio', 'Price'), align: 'right' },
+      { label: 'Hashrate', align: 'right' }, { label: x('Consumo', 'Power'), align: 'right' }, { label: 'Hash/W', align: 'right' },
+      { label: x('Masa térmica', 'Thermal mass'), align: 'right' }, { label: x('ROI bruto', 'Gross ROI'), align: 'right' },
     ],
     rows: GPU_CATALOG.map((g) => ({
       id: g.id,
       icon: { kind: 'gpu', id: g.id },
       cells: [
-        `${g.brand} ${g.name}`,
+        `${g.brand} ${nm(g.name)}`,
         `T${g.tier}`,
         formatCash(g.price),
         formatHashrate(g.hashrate),
@@ -102,7 +112,10 @@ export function gpuTable(): WikiTable {
         formatDuration(grossPaybackSec(g.id)),
       ],
     })),
-    note: 'ROI bruto: tiempo de minado (a $1 por $CC, sin factura eléctrica) para recuperar el precio, como en la tienda. La masa térmica marca lo rápido que se calienta y se enfría el chip.',
+    note: x(
+      'ROI bruto: tiempo de minado (a $1 por $CC, sin factura eléctrica) para recuperar el precio, como en la tienda. La masa térmica marca lo rápido que se calienta y se enfría el chip.',
+      'Gross ROI: mining time (at $1 per $CC, ignoring the power bill) to earn back the price, as in the shop. Thermal mass sets how fast the chip heats up and cools down.',
+    ),
   };
 }
 
@@ -127,7 +140,9 @@ export function autoTuneRange(quality: SiliconQuality): [number, number] {
   return [ocHashBonus(lo), ocHashBonus(hi)];
 }
 
-export function qualityTable(): WikiTable {
+export function qualityTable(lang: Lang = curLang()): WikiTable {
+  const x = pick(lang);
+  const nm = namer(lang);
   const whisperer = TALENT_BY_ID.silicon_luck;
   const levels = Array.from({ length: whisperer.maxLevel }, (_, i) => i + 1);
   const odds = [0, ...levels].map((l) => qualityOdds(l));
@@ -135,12 +150,12 @@ export function qualityTable(): WikiTable {
     id: 'qualities',
     caption: 'Silicon lottery',
     columns: [
-      { label: 'Calidad' },
-      { label: 'Probabilidad', align: 'right' },
-      ...levels.map((l) => ({ label: `${whisperer.name} Lv.${l}`, align: 'right' as const })),
-      { label: 'Margen core', align: 'right' },
-      { label: 'Margen memoria', align: 'right' },
-      { label: 'MHz por +10 mV', align: 'right' },
+      { label: x('Calidad', 'Quality') },
+      { label: x('Probabilidad', 'Chance'), align: 'right' },
+      ...levels.map((l) => ({ label: `${nm(whisperer.name)} Lv.${l}`, align: 'right' as const })),
+      { label: x('Margen core', 'Core headroom'), align: 'right' },
+      { label: x('Margen memoria', 'Memory headroom'), align: 'right' },
+      { label: x('MHz por +10 mV', 'MHz per +10 mV'), align: 'right' },
       { label: 'Auto-Tune', align: 'right' },
     ],
     rows: QUALITY_ORDER.map((id) => {
@@ -151,7 +166,7 @@ export function qualityTable(): WikiTable {
         color: q.color,
         icon: { kind: 'swatch', color: q.color },
         cells: [
-          q.label,
+          nm(q.label),
           ...odds.map((o) => pct(o[id], 1)),
           `+${q.coreHeadroom[0]}…${q.coreHeadroom[1]} MHz`,
           `+${q.memHeadroom[0]}…${q.memHeadroom[1]} MHz`,
@@ -160,86 +175,105 @@ export function qualityTable(): WikiTable {
         ],
       };
     }),
-    note: `${whisperer.name} multiplica el peso de Gold y Silicon God. Auto-Tune: bonus de hashrate del perfil seguro de AI Self-Diagnostics con el peor y el mejor chip de cada calidad.`,
+    note: x(
+      `${nm(whisperer.name)} multiplica el peso de Gold y Silicon God. Auto-Tune: bonus de hashrate del perfil seguro de AI Self-Diagnostics con el peor y el mejor chip de cada calidad.`,
+      `${nm(whisperer.name)} multiplies the weight of Gold and Silicon God. Auto-Tune: hashrate bonus of the safe AI Self-Diagnostics profile on the worst and the best chip of each quality.`,
+    ),
   };
 }
 
-export function psuTable(): WikiTable {
+export function psuTable(lang: Lang = curLang()): WikiTable {
+  const x = pick(lang);
+  const nm = namer(lang);
   return {
     id: 'psus',
-    caption: 'Fuentes de alimentación (PSU)',
+    caption: x('Fuentes de alimentación (PSU)', 'Power supplies (PSU)'),
     columns: [
-      { label: 'Modelo' }, { label: 'Tier', align: 'right' }, { label: 'Precio', align: 'right' },
-      { label: 'Carga máx.', align: 'right' }, { label: 'Eficiencia', align: 'right' }, { label: 'Calor a plena carga', align: 'right' },
+      { label: x('Modelo', 'Model') }, { label: 'Tier', align: 'right' }, { label: x('Precio', 'Price'), align: 'right' },
+      { label: x('Carga máx.', 'Max load'), align: 'right' }, { label: x('Eficiencia', 'Efficiency'), align: 'right' }, { label: x('Calor a plena carga', 'Heat at full load'), align: 'right' },
     ],
     rows: PSU_CATALOG.map((p) => ({
       id: p.id,
       icon: { kind: 'psu', id: p.id },
-      cells: [p.name, `T${p.tier}`, formatCash(p.price), formatPower(p.capacity), pct(p.efficiency), formatPower(p.capacity * (1 / p.efficiency - 1))],
+      cells: [nm(p.name), `T${p.tier}`, formatCash(p.price), formatPower(p.capacity), pct(p.efficiency), formatPower(p.capacity * (1 / p.efficiency - 1))],
     })),
-    note: 'Consumo de pared = carga / eficiencia. Lo que se pierde en la PSU se paga y además calienta la sala.',
+    note: x('Consumo de pared = carga / eficiencia. Lo que se pierde en la PSU se paga y además calienta la sala.', 'Wall draw = load / efficiency. What the PSU loses is paid for and also heats the room.'),
   };
 }
 
-const COOLER_KIND_ES: Record<CoolerKind, string> = { air: 'Aire', liquid: 'Líquida', immersion: 'Inmersión', cryo: 'Criogénica' };
+const COOLER_KIND: Record<CoolerKind, readonly [string, string]> = {
+  air: ['Aire', 'Air'], liquid: ['Líquida', 'Liquid'], immersion: ['Inmersión', 'Immersion'], cryo: ['Criogénica', 'Cryogenic'],
+};
 
 /** Cooler slots per GPU slot in a rack (the same 1:2 ratio on every model). */
 const fanRatio = (rackId: string): number => RACK_BY_ID[rackId].fanSlots / RACK_BY_ID[rackId].slots;
 
-export function coolerTable(): WikiTable {
+export function coolerTable(lang: Lang = curLang()): WikiTable {
+  const x = pick(lang);
+  const nm = namer(lang);
   const ratio = fanRatio('cabinet');
   return {
     id: 'coolers',
-    caption: 'Refrigeración',
+    caption: x('Refrigeración', 'Cooling'),
     columns: [
-      { label: 'Modelo' }, { label: 'Tier', align: 'right' }, { label: 'Precio', align: 'right' }, { label: 'Tipo' },
-      { label: 'Transferencia', align: 'right' }, { label: 'Consumo', align: 'right' }, { label: 'k por GPU (rack lleno)', align: 'right' },
+      { label: x('Modelo', 'Model') }, { label: 'Tier', align: 'right' }, { label: x('Precio', 'Price'), align: 'right' }, { label: x('Tipo', 'Type') },
+      { label: x('Transferencia', 'Heat transfer'), align: 'right' }, { label: x('Consumo', 'Power'), align: 'right' }, { label: x('k por GPU (rack lleno)', 'k per GPU (full rack)'), align: 'right' },
     ],
     rows: COOLER_CATALOG.map((c) => ({
       id: c.id,
       icon: { kind: 'cooler', id: c.id },
       cells: [
-        c.name, `T${c.tier}`, formatCash(c.price), COOLER_KIND_ES[c.kind], `${c.cooling} W/°C`, formatPower(c.power),
+        nm(c.name), `T${c.tier}`, formatCash(c.price), x(...COOLER_KIND[c.kind]), `${c.cooling} W/°C`, formatPower(c.power),
         `${formatNumber(PHYSICS.baseCooling + c.cooling * ratio, 1)} W/°C`,
       ],
     })),
-    note: `Cada GPU disipa ${PHYSICS.baseCooling} W/°C por su cuenta más su parte de los coolers del rack (la suma de los coolers repartida entre las GPUs montadas). El consumo del cooler cuenta como carga de la PSU.`,
+    note: x(
+      `Cada GPU disipa ${PHYSICS.baseCooling} W/°C por su cuenta más su parte de los coolers del rack (la suma de los coolers repartida entre las GPUs montadas). El consumo del cooler cuenta como carga de la PSU.`,
+      `Each GPU dissipates ${PHYSICS.baseCooling} W/°C on its own plus its share of the rack's coolers (the sum of the coolers split among the mounted GPUs). A cooler's power draw counts as PSU load.`,
+    ),
   };
 }
 
-export function rackTable(): WikiTable {
+export function rackTable(lang: Lang = curLang()): WikiTable {
+  const x = pick(lang);
+  const nm = namer(lang);
   return {
     id: 'racks',
     caption: 'Racks',
     columns: [
-      { label: 'Modelo' }, { label: 'Precio', align: 'right' }, { label: 'Slots GPU', align: 'right' },
-      { label: 'Slots cooler', align: 'right' }, { label: 'Calor', align: 'right' }, { label: 'Energía' },
+      { label: x('Modelo', 'Model') }, { label: x('Precio', 'Price'), align: 'right' }, { label: x('Slots GPU', 'GPU slots'), align: 'right' },
+      { label: x('Slots cooler', 'Cooler slots'), align: 'right' }, { label: x('Calor', 'Heat'), align: 'right' }, { label: x('Energía', 'Power') },
     ],
     rows: RACK_CATALOG.map((r) => ({
       id: r.id,
       icon: { kind: 'rack', id: r.id },
       cells: [
-        r.name,
-        r.vip ? `${r.gemPrice} gemas` : formatCash(r.price),
+        nm(r.name),
+        r.vip ? `${r.gemPrice} ${x('gemas', 'gems')}` : formatCash(r.price),
         String(r.slots),
         String(r.fanSlots),
-        r.heatMul === 1 ? 'x1' : `${formatMultiplier(r.heatMul)} (${pct(1 - r.heatMul)} menos)`,
-        r.selfPowered ? 'Reactor propio: sin PSU, sin factura y sin usar la línea' : '1 PSU',
+        r.heatMul === 1 ? 'x1' : `${formatMultiplier(r.heatMul)} (${pct(1 - r.heatMul)} ${x('menos', 'less')})`,
+        r.selfPowered ? x('Reactor propio: sin PSU, sin factura y sin usar la línea', 'Own reactor: no PSU, no bill and no use of the power line') : '1 PSU',
       ],
     })),
-    note: `El ${RACK_BY_ID.gold.name} es VIP (máximo ${VIP_COSTS.maxGoldRacks}), no se puede vender y sobrevive a The Halving.`,
+    note: x(
+      `El ${nm(RACK_BY_ID.gold.name)} es VIP (máximo ${VIP_COSTS.maxGoldRacks}), no se puede vender y sobrevive a The Halving.`,
+      `The ${nm(RACK_BY_ID.gold.name)} is VIP (max ${VIP_COSTS.maxGoldRacks}), cannot be sold and survives The Halving.`,
+    ),
   };
 }
 
 // ───────────────────────── Thermal & power ─────────────────────────
 
-export function gridTariffTable(): WikiTable {
+export function gridTariffTable(lang: Lang = curLang()): WikiTable {
+  const x = pick(lang);
+  const nm = namer(lang);
   return {
     id: 'grid-tariff',
-    caption: 'Tarifa de red por modelo',
+    caption: x('Tarifa de red por modelo', 'Grid tariff by model'),
     columns: [
-      { label: 'Modelo' }, { label: 'Tarifa', align: 'right' }, { label: 'Luz por hora', align: 'right' },
-      { label: 'Luz / ingresos', align: 'right' }, { label: 'En la sala más barata', align: 'right' },
+      { label: x('Modelo', 'Model') }, { label: x('Tarifa', 'Tariff'), align: 'right' }, { label: x('Luz por hora', 'Power per hour'), align: 'right' },
+      { label: x('Luz / ingresos', 'Power / revenue'), align: 'right' }, { label: x('En la sala más barata', 'In the cheapest room'), align: 'right' },
     ],
     rows: GPU_CATALOG.map((g) => {
       const cheapest = ROOM_CATALOG.reduce((a, r) => (r.priceMul < a.priceMul ? r : a));
@@ -247,15 +281,18 @@ export function gridTariffTable(): WikiTable {
         id: g.id,
         icon: { kind: 'gpu', id: g.id },
         cells: [
-          g.name,
+          nm(g.name),
           formatMultiplier(gridTariff(g.id)),
           formatCash(gpuPowerCostPerSec(g.id) * 3600),
           pct(gpuPowerShare(g.id)),
-          `${pct(gpuPowerShare(g.id, cheapest.id))} (${cheapest.name})`,
+          `${pct(gpuPowerShare(g.id, cheapest.id))} (${nm(cheapest.name)})`,
         ],
       };
     }),
-    note: 'Una GPU sin overclock en el Bedroom, con una PSU ideal al 100%, sin talentos y con $CC a $1 en el pool público. Divide por la eficiencia de tu PSU para el coste real.',
+    note: x(
+      'Una GPU sin overclock en el Bedroom, con una PSU ideal al 100%, sin talentos y con $CC a $1 en el pool público. Divide por la eficiencia de tu PSU para el coste real.',
+      'One stock GPU in the Bedroom, with an ideal 100% PSU, no talents and $CC at $1 on the public pool. Divide by your PSU efficiency for the real cost.',
+    ),
   };
 }
 
@@ -314,25 +351,30 @@ export function minimumCooler(modelId: string, roomId: RoomId): CoolerAdvice {
   return anyPowered ? { kind: 'too-hot' } : { kind: 'no-power' };
 }
 
-export function coolingGuideTable(): WikiTable {
+export function coolingGuideTable(lang: Lang = curLang()): WikiTable {
+  const x = pick(lang);
+  const nm = namer(lang);
   return {
     id: 'cooling-guide',
-    caption: `Cooler mínimo para no pasar de ${PHYSICS.throttleTemp} °C con la sala a tope`,
-    columns: [{ label: 'GPU' }, ...ROOM_CATALOG.map((r) => ({ label: r.name }))],
+    caption: x(`Cooler mínimo para no pasar de ${PHYSICS.throttleTemp} °C con la sala a tope`, `Minimum cooler to stay under ${PHYSICS.throttleTemp} °C with a packed room`),
+    columns: [{ label: 'GPU' }, ...ROOM_CATALOG.map((r) => ({ label: nm(r.name) }))],
     rows: GPU_CATALOG.map((g) => ({
       id: g.id,
       icon: { kind: 'gpu', id: g.id },
       cells: [
-        g.name,
+        nm(g.name),
         ...ROOM_CATALOG.map((r) => {
           const a = minimumCooler(g.id, r.id);
-          if (a.kind === 'no-power') return 'Sin línea';
-          if (a.kind === 'too-hot') return 'Demasiado calor';
-          return `${COOLER_BY_ID[a.coolerId].name}\n${formatTemp(a.temp)} · ${a.gpus} GPU${a.gpus === 1 ? '' : 's'}`;
+          if (a.kind === 'no-power') return x('Sin línea', 'No power line');
+          if (a.kind === 'too-hot') return x('Demasiado calor', 'Too hot');
+          return `${nm(COOLER_BY_ID[a.coolerId].name)}\n${formatTemp(a.temp)} · ${a.gpus} GPU${a.gpus === 1 ? '' : 's'}`;
         }),
       ],
     })),
-    note: 'Sala a tope: tantas GPUs como caben en los pads y aguanta la línea sin brownout, un cooler por cada dos GPUs, la mejor PSU, pasta nueva, sin overclock ni talentos. Se indica la temperatura estable del chip y cuántas GPUs caben. «Sin línea»: la línea de la sala no alimenta ni una. Con menos GPUs la sala se calienta menos y puede bastar algo más barato.',
+    note: x(
+      'Sala a tope: tantas GPUs como caben en los pads y aguanta la línea sin brownout, un cooler por cada dos GPUs, la mejor PSU, pasta nueva, sin overclock ni talentos. Se indica la temperatura estable del chip y cuántas GPUs caben. «Sin línea»: la línea de la sala no alimenta ni una. Con menos GPUs la sala se calienta menos y puede bastar algo más barato.',
+      'Packed room: as many GPUs as the pads hold and the line feeds without a brownout, one cooler per two GPUs, the best PSU, fresh paste, no overclock and no talents. Shows the steady chip temperature and how many GPUs fit. "No power line": the room line cannot feed even one. With fewer GPUs the room runs cooler and something cheaper may do.',
+    ),
   };
 }
 
@@ -342,47 +384,54 @@ export const repasteShare = (): number => {
   return repasteCost({ ...createGpu(top.id, 'bronze'), wear: 0 }) / top.price;
 };
 
-export function maintenanceTable(): WikiTable {
+export function maintenanceTable(lang: Lang = curLang()): WikiTable {
+  const x = pick(lang);
+  const nm = namer(lang);
   const at = (modelId: string, wear: number): GpuInstance => ({ ...createGpu(modelId, 'bronze'), wear });
   return {
     id: 'maintenance',
-    caption: 'Mantenimiento y reventa',
+    caption: x('Mantenimiento y reventa', 'Maintenance and resale'),
     columns: [
-      { label: 'Modelo' }, { label: 'Repaste', align: 'right' }, { label: 'Reparar 10%', align: 'right' },
-      { label: `Reparar ${pct(PHYSICS.maxWear)}`, align: 'right' }, { label: 'Venta (sin desgaste)', align: 'right' },
+      { label: x('Modelo', 'Model') }, { label: 'Repaste', align: 'right' }, { label: x('Reparar 10%', 'Repair 10%'), align: 'right' },
+      { label: `${x('Reparar', 'Repair')} ${pct(PHYSICS.maxWear)}`, align: 'right' }, { label: x('Venta (sin desgaste)', 'Sale (no wear)'), align: 'right' },
     ],
     rows: GPU_CATALOG.map((g) => ({
       id: g.id,
       icon: { kind: 'gpu', id: g.id },
       cells: [
-        g.name,
+        nm(g.name),
         formatCash(repasteCost(at(g.id, 0))),
         formatCash(repairCost(at(g.id, 0.1))),
         formatCash(repairCost(at(g.id, PHYSICS.maxWear))),
         formatCash(g.price * SELL_REFUND),
       ],
     })),
-    note: `Reparar cuesta en proporción al desgaste. Al vender recuperas el ${pct(SELL_REFUND)} del precio, menos el desgaste del chip.`,
+    note: x(
+      `Reparar cuesta en proporción al desgaste. Al vender recuperas el ${pct(SELL_REFUND)} del precio, menos el desgaste del chip.`,
+      `Repairs cost in proportion to the wear. Selling returns ${pct(SELL_REFUND)} of the price, minus the chip's wear.`,
+    ),
   };
 }
 
 // ───────────────────────── Rooms & crew ─────────────────────────
 
-export function roomTable(): WikiTable {
+export function roomTable(lang: Lang = curLang()): WikiTable {
+  const x = pick(lang);
+  const nm = namer(lang);
   return {
     id: 'rooms',
-    caption: 'Salas',
+    caption: x('Salas', 'Rooms'),
     columns: [
-      { label: 'Sala' }, { label: 'Precio', align: 'right' }, { label: 'Ambiente', align: 'right' }, { label: 'Línea', align: 'right' },
-      { label: 'Pads', align: 'right' }, { label: 'Precio luz', align: 'right' }, { label: 'Refrigeración', align: 'right' },
-      { label: 'Calentamiento', align: 'right' },
+      { label: x('Sala', 'Room') }, { label: x('Precio', 'Price'), align: 'right' }, { label: x('Ambiente', 'Ambient'), align: 'right' }, { label: x('Línea', 'Line'), align: 'right' },
+      { label: 'Pads', align: 'right' }, { label: x('Precio luz', 'Power price'), align: 'right' }, { label: x('Refrigeración', 'Cooling'), align: 'right' },
+      { label: x('Calentamiento', 'Heating'), align: 'right' },
     ],
     rows: ROOM_CATALOG.map((r) => ({
       id: r.id,
       icon: { kind: 'room', id: r.id },
       cells: [
-        r.name,
-        r.price > 0 ? formatCash(r.price) : 'Inicial',
+        nm(r.name),
+        r.price > 0 ? formatCash(r.price) : x('Inicial', 'Starter'),
         formatTemp(r.ambient),
         formatPower(r.maxPowerW),
         String(r.pads),
@@ -391,86 +440,111 @@ export function roomTable(): WikiTable {
         `+${formatNumber(r.heatPerWatt * 1000, 2)} °C/kW`,
       ],
     })),
-    note: 'Línea: potencia de pared contratada. Precio luz multiplica la tarifa eléctrica; Refrigeración multiplica la transferencia de calor de todos los racks; Calentamiento: grados que sube el aire por cada kW de calor residual.',
+    note: x(
+      'Línea: potencia de pared contratada. Precio luz multiplica la tarifa eléctrica; Refrigeración multiplica la transferencia de calor de todos los racks; Calentamiento: grados que sube el aire por cada kW de calor residual.',
+      'Line: contracted wall power. Power price multiplies the electricity tariff; Cooling multiplies the heat transfer of every rack; Heating: degrees the air rises per kW of waste heat.',
+    ),
   };
 }
 
-export function technicianTable(): WikiTable {
+export function technicianTable(lang: Lang = curLang()): WikiTable {
+  const x = pick(lang);
   return {
     id: 'technicians',
-    caption: 'Coste de los técnicos',
-    columns: [{ label: 'Técnico' }, { label: 'Coste', align: 'right' }],
+    caption: x('Coste de los técnicos', 'Technician costs'),
+    columns: [{ label: x('Técnico', 'Technician') }, { label: x('Coste', 'Cost'), align: 'right' }],
     rows: Array.from({ length: MAX_TECHNICIANS }, (_, i) => ({
       id: `tech-${i + 1}`,
       cells: [`#${i + 1}`, formatCash(technicianCost(i, 0))],
     })),
-    note: `Sin Tech Union. Cada nivel de Tech Union regala un técnico al empezar la run y esos no cuentan para el precio. Máximo ${MAX_TECHNICIANS}.`,
+    note: x(
+      `Sin Tech Union. Cada nivel de Tech Union regala un técnico al empezar la run y esos no cuentan para el precio. Máximo ${MAX_TECHNICIANS}.`,
+      `Without Tech Union. Each Tech Union level gives a free technician at the start of the run and those do not count toward the price. Maximum ${MAX_TECHNICIANS}.`,
+    ),
   };
 }
 
 // ───────────────────────── Pools & network ─────────────────────────
 
-const POOL_RISK_ES: Record<PoolMode, string> = {
-  public: 'Ninguno: cobras cada share de forma continua.',
-  solo: `Nada entre bloques. Un bloque cada ${formatDuration(PHYSICS.soloBlockMeanSec)} de media paga ${formatDuration(PHYSICS.soloBlockMeanSec)} de minado x${PHYSICS.soloEvMul} y puede dar 1 gema.`,
-  darknet: `Redadas cada ~${formatDuration(PHYSICS.darknetRaidMeanSec)} de media: multa y racks de una sala apagados ${formatDuration(PHYSICS.inspectionRebootMs / 1000)}.`,
+const POOL_RISK: Record<PoolMode, readonly [string, string]> = {
+  public: ['Ninguno: cobras cada share de forma continua.', 'None: you are paid for every share continuously.'],
+  solo: [
+    `Nada entre bloques. Un bloque cada ${formatDuration(PHYSICS.soloBlockMeanSec)} de media paga ${formatDuration(PHYSICS.soloBlockMeanSec)} de minado x${PHYSICS.soloEvMul} y puede dar 1 gema.`,
+    `Nothing between blocks. One block every ${formatDuration(PHYSICS.soloBlockMeanSec)} on average pays ${formatDuration(PHYSICS.soloBlockMeanSec)} of mining x${PHYSICS.soloEvMul} and may drop 1 gem.`,
+  ],
+  darknet: [
+    `Redadas cada ~${formatDuration(PHYSICS.darknetRaidMeanSec)} de media: multa y racks de una sala apagados ${formatDuration(PHYSICS.inspectionRebootMs / 1000)}.`,
+    `Raids every ~${formatDuration(PHYSICS.darknetRaidMeanSec)} on average: a fine, and the racks of one room are off for ${formatDuration(PHYSICS.inspectionRebootMs / 1000)}.`,
+  ],
 };
 
-export function poolTable(): WikiTable {
+export function poolTable(lang: Lang = curLang()): WikiTable {
+  const x = pick(lang);
+  const nm = namer(lang);
   return {
     id: 'pools',
-    caption: 'Pools de minado',
-    columns: [{ label: 'Pool' }, { label: 'Rendimiento', align: 'right' }, { label: 'Comisión', align: 'right' }, { label: 'Nivel', align: 'right' }, { label: 'Riesgo' }],
+    caption: x('Pools de minado', 'Mining pools'),
+    columns: [{ label: 'Pool' }, { label: x('Rendimiento', 'Payout'), align: 'right' }, { label: x('Comisión', 'Fee'), align: 'right' }, { label: x('Nivel', 'Level'), align: 'right' }, { label: x('Riesgo', 'Risk') }],
     rows: POOL_ORDER.map((id) => {
       const p = POOLS[id];
       return {
         id,
         color: p.color,
         icon: { kind: 'swatch', color: p.color },
-        cells: [p.name, `x${p.payoutMul}`, p.fee > 0 ? pct(p.fee) : '0%', `LV ${p.unlockLevel}`, POOL_RISK_ES[id]],
+        cells: [nm(p.name), `x${p.payoutMul}`, p.fee > 0 ? pct(p.fee) : '0%', `LV ${p.unlockLevel}`, x(...POOL_RISK[id])],
       };
     }),
   };
 }
 
-const EVENT_EFFECT_ES: Record<NetworkEventId, string> = {
-  difficulty_spike: `Dificultad x${EVENT_EFFECTS.difficultyMul}: minas un ${pct(1 - 1 / EVENT_EFFECTS.difficultyMul)} menos.`,
-  blackout: 'Una de tus salas, al azar, se queda sin luz: sus racks se apagan (los Gold Edition siguen).',
-  heatwave: `+${EVENT_EFFECTS.heatwaveDelta} °C de ambiente en todas las salas.`,
-  cold_snap: `${EVENT_EFFECTS.coldSnapDelta} °C de ambiente en todas las salas.`,
-  bull_run: `El precio medio de $CC tiende a x${EVENT_EFFECTS.bullMeanMul}.`,
-  meme_mania: `La volatilidad de $MEME se multiplica por ${EVENT_EFFECTS.memeVolMul}.`,
+const EVENT_EFFECT: Record<NetworkEventId, readonly [string, string]> = {
+  difficulty_spike: [
+    `Dificultad x${EVENT_EFFECTS.difficultyMul}: minas un ${pct(1 - 1 / EVENT_EFFECTS.difficultyMul)} menos.`,
+    `Difficulty x${EVENT_EFFECTS.difficultyMul}: you mine ${pct(1 - 1 / EVENT_EFFECTS.difficultyMul)} less.`,
+  ],
+  blackout: [
+    'Una de tus salas, al azar, se queda sin luz: sus racks se apagan (los Gold Edition siguen).',
+    'One of your rooms, at random, loses power: its racks shut down (Gold Edition racks keep running).',
+  ],
+  heatwave: [`+${EVENT_EFFECTS.heatwaveDelta} °C de ambiente en todas las salas.`, `+${EVENT_EFFECTS.heatwaveDelta} °C ambient in every room.`],
+  cold_snap: [`${EVENT_EFFECTS.coldSnapDelta} °C de ambiente en todas las salas.`, `${EVENT_EFFECTS.coldSnapDelta} °C ambient in every room.`],
+  bull_run: [`El precio medio de $CC tiende a x${EVENT_EFFECTS.bullMeanMul}.`, `The average $CC price drifts toward x${EVENT_EFFECTS.bullMeanMul}.`],
+  meme_mania: [`La volatilidad de $MEME se multiplica por ${EVENT_EFFECTS.memeVolMul}.`, `$MEME volatility is multiplied by ${EVENT_EFFECTS.memeVolMul}.`],
 };
 
-export function eventTable(): WikiTable {
+export function eventTable(lang: Lang = curLang()): WikiTable {
+  const x = pick(lang);
+  const nm = namer(lang);
   return {
     id: 'events',
-    caption: 'Eventos de red',
-    columns: [{ label: 'Evento' }, { label: 'Tipo' }, { label: 'Efecto' }, { label: 'Duración', align: 'right' }],
+    caption: x('Eventos de red', 'Network events'),
+    columns: [{ label: x('Evento', 'Event') }, { label: x('Tipo', 'Type') }, { label: x('Efecto', 'Effect') }, { label: x('Duración', 'Duration'), align: 'right' }],
     rows: (Object.keys(NETWORK_EVENTS) as NetworkEventId[]).map((id) => {
       const e = NETWORK_EVENTS[id];
       return {
         id,
         color: e.color,
         icon: { kind: 'swatch', color: e.color },
-        cells: [e.name, e.positive ? 'Bueno' : 'Malo', EVENT_EFFECT_ES[id], `${e.duration[0]}–${e.duration[1]} s`],
+        cells: [nm(e.name), e.positive ? x('Bueno', 'Good') : x('Malo', 'Bad'), x(...EVENT_EFFECT[id]), `${e.duration[0]}–${e.duration[1]} s`],
       };
     }),
   };
 }
 
 /** Player levels with what each one unlocks (pools, bots, contract types). */
-export function levelTable(maxLevel = 10): WikiTable {
+export function levelTable(maxLevel = 10, lang: Lang = curLang()): WikiTable {
+  const x = pick(lang);
+  const nm = namer(lang);
   const unlocks = (level: number): string[] => [
-    ...POOL_ORDER.filter((id) => POOLS[id].unlockLevel === level).map((id) => POOLS[id].name),
+    ...POOL_ORDER.filter((id) => POOLS[id].unlockLevel === level).map((id) => nm(POOLS[id].name)),
     ...(level === BOT_UNLOCK_LEVEL ? ['Trading bots'] : []),
-    ...CONTRACT_KINDS.filter((k) => level > 1 && CONTRACT_DEFS[k].minLevel === level).map((k) => `Contrato ${CONTRACT_DEFS[k].name}`),
+    ...CONTRACT_KINDS.filter((k) => level > 1 && CONTRACT_DEFS[k].minLevel === level).map((k) => `${x('Contrato', 'Contract')} ${nm(CONTRACT_DEFS[k].name)}`),
   ];
   const top = Math.max(maxLevel, ...POOL_ORDER.map((id) => POOLS[id].unlockLevel), BOT_UNLOCK_LEVEL);
   return {
     id: 'levels',
-    caption: 'Niveles de jugador',
-    columns: [{ label: 'Nivel' }, { label: 'Ganancias totales', align: 'right' }, { label: 'Desbloquea' }],
+    caption: x('Niveles de jugador', 'Player levels'),
+    columns: [{ label: x('Nivel', 'Level') }, { label: x('Ganancias totales', 'Total earnings'), align: 'right' }, { label: x('Desbloquea', 'Unlocks') }],
     rows: Array.from({ length: top }, (_, i) => {
       const level = i + 1;
       return {
@@ -478,61 +552,80 @@ export function levelTable(maxLevel = 10): WikiTable {
         cells: [`LV ${level}`, level === 1 ? '$0' : formatCash(earningsForLevel(level)), unlocks(level).join(', ') || '—'],
       };
     }),
-    note: 'El nivel sale de las ganancias de toda la vida (lifetime): solo beneficio realizado al vender, nunca se pierde con The Halving.',
+    note: x(
+      'El nivel sale de las ganancias de toda la vida (lifetime): solo beneficio realizado al vender, nunca se pierde con The Halving.',
+      'Your level comes from lifetime earnings: only profit realized by selling, and it is never lost to The Halving.',
+    ),
   };
 }
 
 // ───────────────────────── Contracts ─────────────────────────
 
-const CONTRACT_GOAL_ES: Record<ContractKind, string> = {
-  deliver_cc: 'Minar una cantidad de $CC (vendidos o guardados; los comprados no cuentan).',
-  earn_profit: 'Realizar beneficio vendiendo monedas por encima de su coste.',
-  reach_hash: `Llegar a un hashrate total (${CONTRACT_DEFS.reach_hash.scale.map((x) => `x${x}`).join(' / ')} el actual).`,
-  keep_cool: `Mantener todos los chips por debajo de X °C durante ${KEEP_COOL_STREAK_MIN.join(' / ')} min seguidos.`,
-  gpu_tier: 'Tener funcionando a la vez N GPUs de tier T o superior.',
-  solo_block: 'Encontrar bloques minando en Solo.',
-  survive_event: 'Aguantar eventos de red sin ningún apagado térmico.',
-  bot_profit: 'Ganar beneficio con las ventas de tus trading bots.',
+const CONTRACT_GOAL: Record<ContractKind, readonly [string, string]> = {
+  deliver_cc: ['Minar una cantidad de $CC (vendidos o guardados; los comprados no cuentan).', 'Mine an amount of $CC (sold or kept; bought coins do not count).'],
+  earn_profit: ['Realizar beneficio vendiendo monedas por encima de su coste.', 'Realize profit by selling coins above their cost.'],
+  reach_hash: [
+    `Llegar a un hashrate total (${CONTRACT_DEFS.reach_hash.scale.map((m) => `x${m}`).join(' / ')} el actual).`,
+    `Reach a total hashrate (${CONTRACT_DEFS.reach_hash.scale.map((m) => `x${m}`).join(' / ')} your current one).`,
+  ],
+  keep_cool: [
+    `Mantener todos los chips por debajo de X °C durante ${KEEP_COOL_STREAK_MIN.join(' / ')} min seguidos.`,
+    `Keep every chip below X °C for ${KEEP_COOL_STREAK_MIN.join(' / ')} min in a row.`,
+  ],
+  gpu_tier: ['Tener funcionando a la vez N GPUs de tier T o superior.', 'Run N GPUs of tier T or higher at the same time.'],
+  solo_block: ['Encontrar bloques minando en Solo.', 'Find blocks mining Solo.'],
+  survive_event: ['Aguantar eventos de red sin ningún apagado térmico.', 'Get through network events without any thermal shutdown.'],
+  bot_profit: ['Ganar beneficio con las ventas de tus trading bots.', "Earn profit from your trading bots' sales."],
 };
 
 const triple = (v: readonly [number, number, number], fmt: (n: number) => string) => v.map(fmt).join(' / ');
 
-export function contractKindTable(): WikiTable {
+export function contractKindTable(lang: Lang = curLang()): WikiTable {
+  const x = pick(lang);
+  const nm = namer(lang);
   return {
     id: 'contract-kinds',
-    caption: 'Tipos de contrato',
-    columns: [{ label: 'Contrato' }, { label: 'Objetivo' }, { label: 'Plazo', align: 'right' }, { label: 'Pago', align: 'right' }, { label: 'Nivel', align: 'right' }],
+    caption: x('Tipos de contrato', 'Contract types'),
+    columns: [{ label: x('Contrato', 'Contract') }, { label: x('Objetivo', 'Goal') }, { label: x('Plazo', 'Deadline'), align: 'right' }, { label: x('Pago', 'Payout'), align: 'right' }, { label: x('Nivel', 'Level'), align: 'right' }],
     rows: CONTRACT_KINDS.map((k) => {
       const d = CONTRACT_DEFS[k];
       return {
         id: k,
         color: d.color,
         icon: { kind: 'swatch', color: d.color },
-        cells: [d.name, CONTRACT_GOAL_ES[k], triple(d.minutes, (m) => `${m}`) + ' min', triple(d.rewardShare, (s) => pct(s)), `LV ${d.minLevel}`],
+        cells: [nm(d.name), x(...CONTRACT_GOAL[k]), triple(d.minutes, (m) => `${m}`) + ' min', triple(d.rewardShare, (s) => pct(s)), `LV ${d.minLevel}`],
       };
     }),
-    note: 'Plazo y pago por dificultad (Easy / Medium / Hard). Pago: porcentaje de los ingresos netos estimados de tu granja durante el plazo.',
+    note: x(
+      'Plazo y pago por dificultad (Easy / Medium / Hard). Pago: porcentaje de los ingresos netos estimados de tu granja durante el plazo.',
+      "Deadline and payout by difficulty (Easy / Medium / Hard). Payout: percentage of your farm's estimated net income over the deadline.",
+    ),
   };
 }
 
-export function contractDifficultyTable(): WikiTable {
+export function contractDifficultyTable(lang: Lang = curLang()): WikiTable {
+  const x = pick(lang);
+  const nm = namer(lang);
   const levels = [1, 2, 3] as const;
   const total = levels.reduce((a, d) => a + CONTRACT_DIFFICULTY[d].weight, 0);
   return {
     id: 'contract-difficulty',
-    caption: 'Dificultades',
-    columns: [{ label: 'Dificultad' }, { label: 'Probabilidad', align: 'right' }, { label: 'Gemas' }, { label: 'GPU gratis' }],
+    caption: x('Dificultades', 'Difficulties'),
+    columns: [{ label: x('Dificultad', 'Difficulty') }, { label: x('Probabilidad', 'Chance'), align: 'right' }, { label: x('Gemas', 'Gems') }, { label: x('GPU gratis', 'Free GPU') }],
     rows: levels.map((d) => {
       const def = CONTRACT_DIFFICULTY[d];
       const gems = def.gemChance > 0
-        ? `${pct(def.gemChance)} de ${def.gems}${def.bonusGemChance > 0 ? ` (+1 extra al ${pct(def.bonusGemChance)})` : ''}`
+        ? `${pct(def.gemChance)} ${x('de', 'for')} ${def.gems}${def.bonusGemChance > 0 ? ` (${x('+1 extra al', '+1 extra at')} ${pct(def.bonusGemChance)})` : ''}`
         : 'No';
       const gpu = def.gpuChance > 0
-        ? `${pct(def.gpuChance)}, ${def.gpuTierOffset === 0 ? 'de tu mejor tier' : `${Math.abs(def.gpuTierOffset)} tier por debajo de tu mejor`}`
+        ? `${pct(def.gpuChance)}, ${def.gpuTierOffset === 0 ? x('de tu mejor tier', 'of your best tier') : x(`${Math.abs(def.gpuTierOffset)} tier por debajo de tu mejor`, `${Math.abs(def.gpuTierOffset)} tier below your best`)}`
         : 'No';
-      return { id: `d${d}`, color: def.color, icon: { kind: 'swatch', color: def.color }, cells: [def.label, pct(def.weight / total), gems, gpu] };
+      return { id: `d${d}`, color: def.color, icon: { kind: 'swatch', color: def.color }, cells: [nm(def.label), pct(def.weight / total), gems, gpu] };
     }),
-    note: `Si toca GPU, el premio en efectivo se reduce a la mitad. El efectivo nunca baja de ${formatCash(CONTRACTS.minCashReward)}.`,
+    note: x(
+      `Si toca GPU, el premio en efectivo se reduce a la mitad. El efectivo nunca baja de ${formatCash(CONTRACTS.minCashReward)}.`,
+      `When a GPU drops, the cash prize is halved. Cash never goes below ${formatCash(CONTRACTS.minCashReward)}.`,
+    ),
   };
 }
 
@@ -563,43 +656,47 @@ export function scMilestones(count = 8): ScMilestone[] {
   });
 }
 
-export function scMilestoneTable(count = 8): WikiTable {
+export function scMilestoneTable(count = 8, lang: Lang = curLang()): WikiTable {
+  const x = pick(lang);
   const ms = scMilestones(count);
   const best = ms.reduce((a, b) => (b.scPerHour > a.scPerHour ? b : a));
   return {
     id: 'sc-milestones',
-    caption: 'Recompensa de The Halving',
+    caption: x('Recompensa de The Halving', 'The Halving reward'),
     columns: [
-      { label: '$SC' }, { label: 'Ganancias de la run', align: 'right' }, { label: 'Salto', align: 'right' },
-      { label: 'Llegada (ejemplo)', align: 'right' }, { label: '$SC/h (ejemplo)', align: 'right' },
+      { label: '$SC' }, { label: x('Ganancias de la run', 'Run earnings'), align: 'right' }, { label: x('Salto', 'Step'), align: 'right' },
+      { label: x('Llegada (ejemplo)', 'Reached at (example)'), align: 'right' }, { label: x('$SC/h (ejemplo)', '$SC/h (example)'), align: 'right' },
     ],
     rows: ms.map((m): WikiRow => ({
       id: `sc-${m.sc}`,
       color: m === best ? '#facc15' : undefined,
       cells: [
-        `${m.sc} $SC${m === best ? ' (pico)' : ''}`,
+        `${m.sc} $SC${m === best ? x(' (pico)', ' (peak)') : ''}`,
         formatCash(m.earnings),
-        m.step === 1 ? 'umbral' : `x${formatNumber(m.step, 0)}`,
+        m.step === 1 ? x('umbral', 'threshold') : `x${formatNumber(m.step, 0)}`,
         formatDuration(m.hours * 3600),
         m.scPerHour.toFixed(2),
       ],
     })),
-    note: `Ejemplo ilustrativo: una run cuyas ganancias crecen como t^${EXAMPLE_RUN.exponent} y llegan al umbral en ${EXAMPLE_RUN.thresholdHours} h. Tu ritmo real lo ves en la pestaña Halving ($SC / HOUR).`,
+    note: x(
+      `Ejemplo ilustrativo: una run cuyas ganancias crecen como t^${EXAMPLE_RUN.exponent} y llegan al umbral en ${EXAMPLE_RUN.thresholdHours} h. Tu ritmo real lo ves en la pestaña Halving ($SC / HOUR).`,
+      `Illustrative example: a run whose earnings grow like t^${EXAMPLE_RUN.exponent} and reach the threshold in ${EXAMPLE_RUN.thresholdHours} h. You can see your real pace in the Halving tab ($SC / HOUR).`,
+    ),
   };
 }
 
-const TALENT_ES: Record<TalentId, string> = {
-  hash_core: 'Bonus de hashrate global en todos los dispositivos.',
-  power_discount: 'Contrato de energía renovable: factura eléctrica más barata.',
-  thermal_mastery: 'Firmware eficiente: los dispositivos generan menos calor.',
-  quick_start: 'Empiezas cada run con más efectivo.',
-  offline_ext: 'Amplía el límite de horas del progreso offline.',
-  silicon_luck: 'Mejores probabilidades Gold y Silicon God en la silicon lottery.',
-  market_insight: 'Vendes monedas con prima sobre el precio de mercado.',
-  tech_union: 'Técnico gratis al empezar cada run y mantenimiento más rápido.',
-  vip_slots: 'Un pad extra para racks en cada sala.',
-  quantum_entanglement: 'Multiplicador de hashrate de fin de partida (se multiplica con Hash Amplifier).',
-  room_keeper: 'Conservas las salas compradas en cada Halving.',
+const TALENT_TEXT: Record<TalentId, readonly [string, string]> = {
+  hash_core: ['Bonus de hashrate global en todos los dispositivos.', 'Global hashrate bonus on every device.'],
+  power_discount: ['Contrato de energía renovable: factura eléctrica más barata.', 'Renewable energy contract: cheaper electricity bill.'],
+  thermal_mastery: ['Firmware eficiente: los dispositivos generan menos calor.', 'Efficient firmware: devices produce less heat.'],
+  quick_start: ['Empiezas cada run con más efectivo.', 'You start every run with more cash.'],
+  offline_ext: ['Amplía el límite de horas del progreso offline.', 'Raises the hour cap of offline progress.'],
+  silicon_luck: ['Mejores probabilidades Gold y Silicon God en la silicon lottery.', 'Better Gold and Silicon God odds in the silicon lottery.'],
+  market_insight: ['Vendes monedas con prima sobre el precio de mercado.', 'You sell coins at a premium over the market price.'],
+  tech_union: ['Técnico gratis al empezar cada run y mantenimiento más rápido.', 'A free technician at the start of every run and faster maintenance.'],
+  vip_slots: ['Un pad extra para racks en cada sala.', 'One extra rack pad in every room.'],
+  quantum_entanglement: ['Multiplicador de hashrate de fin de partida (se multiplica con Hash Amplifier).', 'Endgame hashrate multiplier (stacks multiplicatively with Hash Amplifier).'],
+  room_keeper: ['Conservas las salas compradas en cada Halving.', 'You keep your purchased rooms through every Halving.'],
 };
 
 export const talentTotalCost = (id: TalentId): number => {
@@ -607,53 +704,78 @@ export const talentTotalCost = (id: TalentId): number => {
   return Array.from({ length: node.maxLevel }, (_, l) => talentCost(node, l)).reduce((a, b) => a + b, 0);
 };
 
-export function talentTable(): WikiTable {
+export function talentTable(lang: Lang = curLang()): WikiTable {
+  const x = pick(lang);
+  const nm = namer(lang);
   return {
     id: 'talents',
-    caption: 'Árbol de Smart Contracts',
+    caption: x('Árbol de Smart Contracts', 'Smart Contract tree'),
     columns: [
-      { label: 'Talento' }, { label: 'Qué hace' }, { label: 'Niv.', align: 'right' }, { label: 'Efecto máx.' },
-      { label: 'Coste por nivel ($SC)' }, { label: 'Total', align: 'right' }, { label: 'Requiere' },
+      { label: x('Talento', 'Talent') }, { label: x('Qué hace', 'What it does') }, { label: x('Niv.', 'Lv.'), align: 'right' }, { label: x('Efecto máx.', 'Max effect') },
+      { label: x('Coste por nivel ($SC)', 'Cost per level ($SC)') }, { label: 'Total', align: 'right' }, { label: x('Requiere', 'Requires') },
     ],
     rows: PRESTIGE_TREE.map((n) => ({
       id: n.id,
       icon: { kind: 'talent', icon: n.icon },
       cells: [
-        n.name,
-        TALENT_ES[n.id],
+        nm(n.name),
+        x(...TALENT_TEXT[n.id]),
         String(n.maxLevel),
         n.format(n.maxLevel),
         Array.from({ length: n.maxLevel }, (_, l) => talentCost(n, l)).join(' · '),
         String(talentTotalCost(n.id)),
-        n.requires.length ? n.requires.map((r) => TALENT_BY_ID[r].name).join(' + ') : '—',
+        n.requires.length ? n.requires.map((r) => nm(TALENT_BY_ID[r].name)).join(' + ') : '—',
       ],
     })),
-    note: `Árbol completo: ${PRESTIGE_TREE.reduce((a, n) => a + talentTotalCost(n.id), 0)} $SC. Un talento se desbloquea cuando todos sus requisitos tienen al menos un nivel.`,
+    note: x(
+      `Árbol completo: ${PRESTIGE_TREE.reduce((a, n) => a + talentTotalCost(n.id), 0)} $SC. Un talento se desbloquea cuando todos sus requisitos tienen al menos un nivel.`,
+      `Full tree: ${PRESTIGE_TREE.reduce((a, n) => a + talentTotalCost(n.id), 0)} $SC. A talent unlocks when all its requirements have at least one level.`,
+    ),
   };
 }
 
 // ───────────────────────── VIP, gems & achievements ─────────────────────────
 
-export function vipTable(): WikiTable {
+export function vipTable(lang: Lang = curLang()): WikiTable {
+  const x = pick(lang);
+  const nm = namer(lang);
   return {
     id: 'vip',
-    caption: 'Tienda VIP',
-    columns: [{ label: 'Mejora' }, { label: 'Coste', align: 'right' }, { label: 'Qué hace' }],
+    caption: x('Tienda VIP', 'VIP shop'),
+    columns: [{ label: x('Mejora', 'Upgrade') }, { label: x('Coste', 'Cost'), align: 'right' }, { label: x('Qué hace', 'What it does') }],
     rows: [
       {
         id: 'goldRack',
         icon: { kind: 'rack', id: 'gold' },
-        cells: [RACK_BY_ID.gold.name, `${VIP_COSTS.goldRack} gemas`, `${RACK_BY_ID.gold.slots} slots, sin PSU ni factura, ${pct(1 - RACK_BY_ID.gold.heatMul)} menos calor, no usa la línea de la sala. Máximo ${VIP_COSTS.maxGoldRacks}. Sobrevive a The Halving.`],
+        cells: [
+          nm(RACK_BY_ID.gold.name),
+          `${VIP_COSTS.goldRack} ${x('gemas', 'gems')}`,
+          x(
+            `${RACK_BY_ID.gold.slots} slots, sin PSU ni factura, ${pct(1 - RACK_BY_ID.gold.heatMul)} menos calor, no usa la línea de la sala. Máximo ${VIP_COSTS.maxGoldRacks}. Sobrevive a The Halving.`,
+            `${RACK_BY_ID.gold.slots} slots, no PSU and no bill, ${pct(1 - RACK_BY_ID.gold.heatMul)} less heat, does not use the room line. Max ${VIP_COSTS.maxGoldRacks}. Survives The Halving.`,
+          ),
+        ],
       },
       {
         id: 'aiDiagnostics',
         icon: { kind: 'swatch', color: '#22d3ee' },
-        cells: ['AI Self-Diagnostics', `${VIP_COSTS.aiDiagnostics} gemas`, 'Añade F9 Auto-Tune a todas las BIOS: overclock seguro, sin riesgo de BSOD.'],
+        cells: [
+          nm('AI Self-Diagnostics'),
+          `${VIP_COSTS.aiDiagnostics} ${x('gemas', 'gems')}`,
+          x('Añade F9 Auto-Tune a todas las BIOS: overclock seguro, sin riesgo de BSOD.', 'Adds F9 Auto-Tune to every BIOS: safe overclock with no BSOD risk.'),
+        ],
       },
       {
         id: 'autoSellPeaks',
         icon: { kind: 'swatch', color: '#facc15' },
-        cells: ['Peak Auto-Seller', `${VIP_COSTS.autoSellPeaks} gemas`, `Vende todos tus $CC en cuanto el precio supera x${MARKET.vipPeakThreshold} su base. Se puede apagar.`],
+        cells: [
+          nm('Peak Auto-Seller'),
+          `${VIP_COSTS.autoSellPeaks} ${x('gemas', 'gems')}`,
+          x(
+            `Vende todos tus $CC en cuanto el precio supera x${MARKET.vipPeakThreshold} su base. Se puede apagar.`,
+            `Sells all your $CC as soon as the price goes above x${MARKET.vipPeakThreshold} its base. Can be switched off.`,
+          ),
+        ],
       },
     ],
   };
@@ -682,14 +804,19 @@ const ACHIEVEMENT_ES: Record<string, string> = {
   contracts10: 'Reclamar 10 contratos.',
 };
 
-export function achievementTable(): WikiTable {
+export function achievementTable(lang: Lang = curLang()): WikiTable {
+  const x = pick(lang);
+  const nm = namer(lang);
   const total = ACHIEVEMENTS.reduce((a, x) => a + x.gems, 0);
   return {
     id: 'achievements',
-    caption: 'Logros',
-    columns: [{ label: 'Logro' }, { label: 'Objetivo' }, { label: 'Gemas', align: 'right' }],
-    rows: ACHIEVEMENTS.map((a) => ({ id: a.id, cells: [a.name, ACHIEVEMENT_ES[a.id] ?? a.description, String(a.gems)] })),
-    note: `${ACHIEVEMENTS.length} logros, ${total} gemas en total. Se conservan para siempre (también tras The Halving).`,
+    caption: x('Logros', 'Achievements'),
+    columns: [{ label: x('Logro', 'Achievement') }, { label: x('Objetivo', 'Goal') }, { label: x('Gemas', 'Gems'), align: 'right' }],
+    rows: ACHIEVEMENTS.map((a) => ({ id: a.id, cells: [nm(a.name), lang === 'es' ? ACHIEVEMENT_ES[a.id] ?? a.description : a.description, String(a.gems)] })),
+    note: x(
+      `${ACHIEVEMENTS.length} logros, ${total} gemas en total. Se conservan para siempre (también tras The Halving).`,
+      `${ACHIEVEMENTS.length} achievements, ${total} gems in total. They are kept forever (also after The Halving).`,
+    ),
   };
 }
 
@@ -697,30 +824,34 @@ export const achievementGems = (): number => ACHIEVEMENTS.reduce((a, x) => a + x
 
 // ───────────────────────── BIOS ─────────────────────────
 
-export function ocLimitsTable(): WikiTable {
+export function ocLimitsTable(lang: Lang = curLang()): WikiTable {
+  const x = pick(lang);
   const stock = OC_LIMITS.voltage.stock;
   const coreMax = { core: OC_LIMITS.core.max, mem: 0, voltage: stock };
   const memMax = { core: 0, mem: OC_LIMITS.mem.max, voltage: stock };
   const vMax = { core: 0, mem: 0, voltage: OC_LIMITS.voltage.max };
   return {
     id: 'oc-limits',
-    caption: 'Ajustes de la BIOS',
-    columns: [{ label: 'Ajuste' }, { label: 'Rango' }, { label: 'Paso', align: 'right' }, { label: 'Al máximo' }],
+    caption: x('Ajustes de la BIOS', 'BIOS settings'),
+    columns: [{ label: x('Ajuste', 'Setting') }, { label: x('Rango', 'Range') }, { label: x('Paso', 'Step'), align: 'right' }, { label: x('Al máximo', 'At maximum') }],
     rows: [
       {
         id: 'core',
-        cells: ['Core Clock Offset', `${OC_LIMITS.core.min} … +${OC_LIMITS.core.max} MHz`, `${OC_LIMITS.core.step} MHz`, `${signedPct(ocHashBonus(coreMax))} hashrate, ${signedPct(ocPowerMul(coreMax) - 1)} consumo`],
+        cells: ['Core Clock Offset', `${OC_LIMITS.core.min} … +${OC_LIMITS.core.max} MHz`, `${OC_LIMITS.core.step} MHz`, `${signedPct(ocHashBonus(coreMax))} hashrate, ${signedPct(ocPowerMul(coreMax) - 1)} ${x('consumo', 'power')}`],
       },
       {
         id: 'mem',
-        cells: ['Memory Clock Offset', `${OC_LIMITS.mem.min} … +${OC_LIMITS.mem.max} MHz`, `${OC_LIMITS.mem.step} MHz`, `${signedPct(ocHashBonus(memMax))} hashrate, ${signedPct(ocPowerMul(memMax) - 1)} consumo`],
+        cells: ['Memory Clock Offset', `${OC_LIMITS.mem.min} … +${OC_LIMITS.mem.max} MHz`, `${OC_LIMITS.mem.step} MHz`, `${signedPct(ocHashBonus(memMax))} hashrate, ${signedPct(ocPowerMul(memMax) - 1)} ${x('consumo', 'power')}`],
       },
       {
         id: 'voltage',
-        cells: ['Core Voltage', `${OC_LIMITS.voltage.min} … ${OC_LIMITS.voltage.max} mV (serie ${stock})`, `${OC_LIMITS.voltage.step} mV`, `${signedPct(ocPowerMul(vMax) - 1)} consumo y calor; más margen de core`],
+        cells: ['Core Voltage', `${OC_LIMITS.voltage.min} … ${OC_LIMITS.voltage.max} mV (${x('serie', 'stock')} ${stock})`, `${OC_LIMITS.voltage.step} mV`, x(`${signedPct(ocPowerMul(vMax) - 1)} consumo y calor; más margen de core`, `${signedPct(ocPowerMul(vMax) - 1)} power and heat; more core headroom`)],
       },
     ],
-    note: `El bonus total de hashrate está limitado a ${signedPct(-0.2)} … ${signedPct(OC_LIMITS.maxBonus)}. Más consumo es más calor, más carga en la PSU y más factura.`,
+    note: x(
+      `El bonus total de hashrate está limitado a ${signedPct(-0.2)} … ${signedPct(OC_LIMITS.maxBonus)}. Más consumo es más calor, más carga en la PSU y más factura.`,
+      `The total hashrate bonus is capped at ${signedPct(-0.2)} … ${signedPct(OC_LIMITS.maxBonus)}. More power means more heat, more PSU load and a bigger bill.`,
+    ),
   };
 }
 
@@ -730,21 +861,26 @@ export function ocLimitsTable(): WikiTable {
 export const HALVING_GEMS = 5;
 export const SOLO_BLOCK_GEM_CHANCE = 0.3;
 
-export function gemSourceTable(): WikiTable {
+export function gemSourceTable(lang: Lang = curLang()): WikiTable {
+  const x = pick(lang);
+  const nm = namer(lang);
   const levels = [2, 3] as const;
   return {
     id: 'gem-sources',
-    caption: 'De dónde salen las gemas',
-    columns: [{ label: 'Fuente' }, { label: 'Gemas' }],
+    caption: x('De dónde salen las gemas', 'Where gems come from'),
+    columns: [{ label: x('Fuente', 'Source') }, { label: x('Gemas', 'Gems') }],
     rows: [
-      { id: 'achievements', cells: ['Logros', `${achievementGems()} en total (${ACHIEVEMENTS.length} logros, una sola vez)`] },
-      { id: 'solo', cells: ['Bloques en Solo Mining', `${pct(SOLO_BLOCK_GEM_CHANCE)} de probabilidad de 1 gema por bloque`] },
-      { id: 'halving', cells: ['The Halving', `+${HALVING_GEMS} por cada Halving`] },
+      { id: 'achievements', cells: [x('Logros', 'Achievements'), x(`${achievementGems()} en total (${ACHIEVEMENTS.length} logros, una sola vez)`, `${achievementGems()} in total (${ACHIEVEMENTS.length} achievements, once each)`)] },
+      { id: 'solo', cells: [x('Bloques en Solo Mining', 'Blocks in Solo Mining'), x(`${pct(SOLO_BLOCK_GEM_CHANCE)} de probabilidad de 1 gema por bloque`, `${pct(SOLO_BLOCK_GEM_CHANCE)} chance of 1 gem per block`)] },
+      { id: 'halving', cells: ['The Halving', x(`+${HALVING_GEMS} por cada Halving`, `+${HALVING_GEMS} per Halving`)] },
       ...levels.map((d) => {
         const def = CONTRACT_DIFFICULTY[d];
         return {
           id: `contract-${d}`,
-          cells: [`Contratos ${def.label}`, `${pct(def.gemChance)} de ${def.gems}${def.bonusGemChance > 0 ? `, +1 extra al ${pct(def.bonusGemChance)}` : ''}`],
+          cells: [
+            `${x('Contratos', 'Contracts')} ${nm(def.label)}`,
+            `${pct(def.gemChance)} ${x('de', 'for')} ${def.gems}${def.bonusGemChance > 0 ? `, ${x('+1 extra al', '+1 extra at')} ${pct(def.bonusGemChance)}` : ''}`,
+          ],
         };
       }),
     ],
