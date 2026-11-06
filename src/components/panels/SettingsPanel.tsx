@@ -5,12 +5,16 @@ import { factoryReset, goToMainMenu } from '../../store/session';
 import { gameStorage, useGameShallow, useGameStore } from '../../store/useGameStore';
 import type { LoopMode } from '../../hooks/useGameLoop';
 import { PixelButton } from '../ui/PixelButton';
+import { LANGS, useLangStore, useT } from '../../i18n';
 
 /**
  * Audio/video toggles, save export/import and factory reset. Rendered in the
  * System tab and, with `inMenu`, inside the title screen's Settings window.
  */
 export function SettingsPanel({ loopMode, inMenu = false }: { loopMode: LoopMode | null; inMenu?: boolean }) {
+  const t = useT();
+  const lang = useLangStore((s) => s.lang);
+  const setLang = useLangStore((s) => s.setLang);
   const settings = useGameShallow((s) => s.settings);
   const createdAt = useGameStore((s) => s.createdAt);
   const { updateSettings, exportSave, importSave, pushLog } = useGameStore.getState();
@@ -56,6 +60,16 @@ export function SettingsPanel({ loopMode, inMenu = false }: { loopMode: LoopMode
           <span className="min-w-0 flex-1 text-[15px] leading-tight text-dim">Saves and returns to the title screen. Time spent there counts as offline time.</span>
         </section>
       )}
+      <section className="flex flex-col gap-2 bg-panel-2 p-2">
+        <h3 className="font-pixel text-[9px] text-neon">{t('LANGUAGE')}</h3>
+        <div className="flex gap-2" role="radiogroup" aria-label={t('Language')}>
+          {LANGS.map((l) => (
+            <PixelButton key={l.id} size="sm" variant={lang === l.id ? 'primary' : 'ghost'} aria-pressed={lang === l.id} onClick={() => setLang(l.id)}>
+              {l.label}
+            </PixelButton>
+          ))}
+        </div>
+      </section>
       <section className="flex flex-col gap-2 bg-panel-2 p-2">
         <h3 className="font-pixel text-[9px] text-neon">AUDIO & VIDEO</h3>
         <label className="flex items-center gap-2">
