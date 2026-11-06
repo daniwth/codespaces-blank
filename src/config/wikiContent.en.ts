@@ -356,7 +356,7 @@ export function sectionsEn(): WikiSection[] {
               'Click an empty pad and pick a rack from storage.',
               'To move it to another room: open it, press **Move to storage** (everything mounted is kept), switch rooms and place it on a free pad.',
             ),
-            p(`The Floor Plans VIP talent adds one pad to every room per level, up to a maximum of ${MAX_PADS} pads per room. The Halving sends the rooms back to the ${n(bedroom.name)}, unless you have Real Estate Trust.`),
+            p(`The VIP Floor Plans talent adds one pad to every room per level, up to a maximum of ${MAX_PADS} pads per room. The Halving sends the rooms back to the ${n(bedroom.name)}, unless you have Real Estate Trust.`),
           ],
         },
       ],
