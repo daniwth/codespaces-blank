@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useDialogFocus } from '../../hooks/useDialogFocus';
 import { isTopLayer, popLayer, pushLayer } from '../../utils/modalStack';
 import { GPU_BY_ID, OC_LIMITS, QUALITY_DEFS } from '../../config/hardwareCatalog';
 import { PHYSICS } from '../../config/gameBalance';
@@ -115,6 +116,9 @@ export function BiosOverclockModal({ gpuUid }: { gpuUid: string }) {
     const id = layer.current;
     return () => popLayer(id);
   }, []);
+  // Focus lives inside the BIOS (or its BSOD) so Tab / Enter can't reach the rack modal underneath.
+  const root = useRef<HTMLDivElement | null>(null);
+  useDialogFocus(root, layer, phase === 'bsod');
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -167,7 +171,7 @@ export function BiosOverclockModal({ gpuUid }: { gpuUid: string }) {
 
   if (phase === 'bsod') {
     return (
-      <div className="fixed inset-0 z-[60] flex flex-col items-start justify-center gap-6 bg-[#0078d7] p-8 font-term text-white sm:p-20" role="alertdialog">
+      <div ref={root} tabIndex={-1} className="fixed inset-0 z-[60] flex flex-col items-start justify-center gap-6 bg-[#0078d7] p-8 font-term text-white outline-none sm:p-20" role="alertdialog" aria-modal="true">
         <div className="font-pixel text-6xl sm:text-8xl">:(</div>
         <p className="max-w-2xl text-2xl leading-tight sm:text-3xl">
           Your rig ran into a problem and needs to restart. We're just collecting some error info, and then we'll restart for you.
@@ -192,7 +196,7 @@ export function BiosOverclockModal({ gpuUid }: { gpuUid: string }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[55] flex items-center justify-center bg-black/80 p-2" role="dialog" aria-modal="true">
+    <div ref={root} tabIndex={-1} className="fixed inset-0 z-[55] flex items-center justify-center bg-black/80 p-2 outline-none" role="dialog" aria-modal="true" aria-label="GPU BIOS setup">
       <div className="pop-in w-full max-w-3xl bg-[#0000aa] font-term text-[19px] text-[#aaaaaa] shadow-[0_0_0_4px_#aaaaaa,0_0_0_6px_#000]">
         <div className="bg-[#aaaaaa] py-1 text-center text-[#0000aa]">PhoenixBits CMOS Setup Utility — Copyright (C) 1996 HashHarvest Inc.</div>
         <div className="text-center text-[#ffffff]">GPU Frequency / Voltage Control</div>

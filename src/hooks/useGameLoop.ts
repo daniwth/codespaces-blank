@@ -51,7 +51,9 @@ export function useGameLoop(onMode?: (mode: LoopMode) => void): void {
     };
 
     // Boot: anything shorter than the threshold is simply simulated by the first tick.
-    resolveLongGap(OFFLINE_THRESHOLD_SEC);
+    // With offline earnings off, time spent away (or on the title menu) earns nothing.
+    if (inGame() && !useGameStore.getState().settings.offlineProgress) useGameStore.setState({ lastTick: Date.now() });
+    else resolveLongGap(OFFLINE_THRESHOLD_SEC);
 
     const apply = (res: WorkerResponse) => {
       // A tick still in flight when the player left for the menu must not land.

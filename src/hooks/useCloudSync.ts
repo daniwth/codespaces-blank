@@ -17,6 +17,9 @@ export function useCloudSync(): void {
       if (checkout || params.has('billing')) {
         const game = useGameStore.getState();
         game.setSideTab('account');
+        // Coming back from Stripe is a deliberate action: go straight to the Account tab
+        // instead of leaving the confirmation hidden behind the title menu.
+        if (game.screen === 'menu') game.continueGame();
         if (checkout === 'success') game.pushLog('Back from checkout. Confirming your Miner Pass with the server…', 'info');
         if (checkout === 'cancel') game.pushLog('Checkout cancelled. No charge was made.', 'info');
         // The webhook may land a moment after the redirect: poll briefly.

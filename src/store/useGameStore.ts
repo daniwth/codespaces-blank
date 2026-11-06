@@ -266,7 +266,7 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
     },
 
     returnToMenu: () => {
-      set({ screen: 'menu', selectedRack: null, biosGpu: null, lottery: null, contractToast: null, wikiOpen: false });
+      set({ screen: 'menu', selectedRack: null, biosGpu: null, lottery: null, contractToast: null, offlineReport: null, wikiOpen: false });
       gameStorage.flush();
     },
 

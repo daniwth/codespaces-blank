@@ -13,6 +13,12 @@ export function startFreshRun(): void {
   useGameStore.getState().startNewGame();
 }
 
+/** Factory reset: like a new game, the wiped run must not silently overwrite the cloud save. */
+export function factoryReset(): void {
+  useAccountStore.getState().detachLocalSave();
+  useGameStore.getState().hardReset();
+}
+
 /** Back to the title screen: flush the local save, stop the loop, and push it to the cloud when auto-sync is on. */
 export function goToMainMenu(): void {
   useGameStore.getState().returnToMenu();

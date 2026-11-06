@@ -1,7 +1,7 @@
 import { Download, FileUp, House, RotateCcw, Save, ShieldCheck } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { SAVE_VERSION } from '../../config/gameBalance';
-import { goToMainMenu } from '../../store/session';
+import { factoryReset, goToMainMenu } from '../../store/session';
 import { gameStorage, useGameShallow, useGameStore } from '../../store/useGameStore';
 import type { LoopMode } from '../../hooks/useGameLoop';
 import { PixelButton } from '../ui/PixelButton';
@@ -13,7 +13,7 @@ import { PixelButton } from '../ui/PixelButton';
 export function SettingsPanel({ loopMode, inMenu = false }: { loopMode: LoopMode | null; inMenu?: boolean }) {
   const settings = useGameShallow((s) => s.settings);
   const createdAt = useGameStore((s) => s.createdAt);
-  const { updateSettings, exportSave, importSave, hardReset, pushLog } = useGameStore.getState();
+  const { updateSettings, exportSave, importSave, pushLog } = useGameStore.getState();
   const [text, setText] = useState('');
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
@@ -122,7 +122,7 @@ export function SettingsPanel({ loopMode, inMenu = false }: { loopMode: LoopMode
         ) : (
           <div className="flex flex-wrap items-center gap-1">
             <span className="text-hot">Erase everything, including talents?</span>
-            <PixelButton size="xs" variant="danger" onClick={() => { hardReset(); setConfirmReset(false); }}>
+            <PixelButton size="xs" variant="danger" onClick={() => { factoryReset(); setConfirmReset(false); }}>
               Yes, wipe
             </PixelButton>
             <PixelButton size="xs" variant="ghost" onClick={() => setConfirmReset(false)}>
