@@ -550,6 +550,132 @@ try {
       await context.close();
     }
   });
+
+  // ───────────── QA regressions: title screen / modals (see the QA report) ─────────────
+
+  await check('regression: with "Offline earnings" off, Continue credits no time spent away or on the menu', async () => {
+    const { context, p } = await fresh();
+    try {
+      await bootPatched(p, 'state.settings.offlineProgress = false; state.lastTick = Date.now() - 9 * 60 * 1000;', { enter: false });
+      const before = await saveOf(p);
+      await enterGame(p, 'continue');
+      await p.waitForTimeout(2600);
+      const after = await saveOf(p);
+      const credited = after.stats.playTimeSec - before.stats.playTimeSec;
+      assert(credited < 30, `${Math.round(credited)}s were simulated for a ~3 s session (the 9 min away were credited at the online rate)`);
+    } finally {
+      await context.close();
+    }
+  });
+
+  await check('regression: Factory reset while synced does not silently overwrite the cloud save', async () => {
+    const { context, p } = await fresh();
+    const me = () =>
+      p.evaluate(async () => {
+        const { token } = JSON.parse(localStorage.getItem('hash-harvest-account')).state;
+        return (await fetch('/api/me', { headers: { Authorization: `Bearer ${token}` } })).json();
+      });
+    try {
+      await p.goto(URL);
+      await enterGame(p, 'new');
+      await p.waitForTimeout(6000);
+      await p.locator('nav[aria-label="Panels"] button:has-text("Account")').click();
+      await p.click('button:has-text("Create account")');
+      await p.fill('input[autocomplete="email"]', `e2e-reset${Date.now()}@example.com`);
+      await p.locator('input[autocomplete="new-password"]').nth(0).fill('e2e-password');
+      await p.locator('input[autocomplete="new-password"]').nth(1).fill('e2e-password');
+      await p.locator('form button:has-text("Create account")').last().click();
+      await p.locator('button:has-text("Subscribe")').first().click();
+      await p.getByText('ACTIVE ·').waitFor({ timeout: 8000 });
+      await p.getByText(/synced/).first().waitFor({ timeout: 8000 });
+      const cloudBefore = (await me()).save.summary;
+      await p.locator('nav[aria-label="Panels"] button:has-text("System")').click();
+      await p.click('button:has-text("Factory reset")');
+      await p.click('button:has-text("Yes, wipe")');
+      await p.click('button:has-text("Main menu")'); // auto-sync uploads on the way out
+      await menuOf(p).waitFor({ timeout: 5000 });
+      await p.waitForTimeout(2000);
+      const cloudAfter = (await me()).save.summary;
+      assert(
+        cloudAfter.playTimeSec >= cloudBefore.playTimeSec,
+        `the wiped local save replaced the cloud save without a conflict prompt (cloud play time ${cloudBefore.playTimeSec}s -> ${cloudAfter.playTimeSec}s)`,
+      );
+    } finally {
+      await context.close();
+    }
+  });
+
+  await check('regression: keyboard focus moves into the BIOS and Tab cannot reach the rack modal behind it', async () => {
+    const { context, p } = await fresh();
+    try {
+      await p.goto(URL);
+      await enterGame(p, 'new');
+      const box = await roomCanvas(p).boundingBox();
+      await p.mouse.click(box.x + (212 / 480) * box.width, box.y + (180 / 270) * box.height);
+      await p.getByText('PCIE SLOTS').waitFor({ timeout: 3000 });
+      await p.locator('button[title="Overclock in the BIOS"]').first().click();
+      await p.getByText('PhoenixBits CMOS Setup Utility').waitFor({ timeout: 3000 });
+      const focusInRack = () =>
+        p.evaluate(() => {
+          const rack = Array.from(document.querySelectorAll('[role="dialog"]')).find((d) => d.textContent.includes('PCIE SLOTS'));
+          const a = document.activeElement;
+          return { inRack: !!rack && rack.contains(a), label: (a?.getAttribute('aria-label') || a?.getAttribute('title') || a?.textContent || a?.tagName || '').trim().slice(0, 40) };
+        });
+      const open = await focusInRack();
+      assert(!open.inRack, `focus stayed on "${open.label}" in the rack modal behind the BIOS`);
+      await p.keyboard.press('Tab');
+      const tabbed = await focusInRack();
+      assert(!tabbed.inRack, `Tab inside the BIOS focused "${tabbed.label}" in the rack modal behind it (Enter would act on it)`);
+    } finally {
+      await context.close();
+    }
+  });
+
+  await check('regression: Tab stays inside an open dialog on the title screen', async () => {
+    const { context, p } = await fresh();
+    try {
+      await p.goto(URL);
+      await p.click('[data-testid="menu-identity"] button:has-text("Play as guest")');
+      await menuOf(p).locator('button:has-text("Settings")').click();
+      const dialog = p.locator('[role="dialog"]', { hasText: 'AUDIO & VIDEO' });
+      await dialog.waitFor({ timeout: 3000 });
+      for (let i = 0; i < 20; i += 1) {
+        await p.keyboard.press('Tab');
+        const inside = await dialog.evaluate((d) => d.contains(document.activeElement));
+        if (!inside) {
+          const at = await p.evaluate(() => (document.activeElement?.textContent || document.activeElement?.tagName || '').trim().slice(0, 30));
+          throw new Error(`Tab #${i + 1} left the Settings dialog (focus on "${at}" behind the aria-modal window)`);
+        }
+      }
+    } finally {
+      await context.close();
+    }
+  });
+
+  await check('regression: returning from Stripe Checkout (?checkout=success) gives visible feedback', async () => {
+    const { context, p } = await fresh();
+    try {
+      await p.goto(URL);
+      await p.click('[data-testid="menu-identity"] button:has-text("Sign in")');
+      const dlg = p.locator('[role="dialog"]', { hasText: 'Account' });
+      await dlg.locator('button:has-text("Create account")').first().click();
+      await dlg.locator('input[autocomplete="email"]').fill(`e2e-stripe-return${Date.now()}@example.com`);
+      await dlg.locator('input[autocomplete="new-password"]').nth(0).fill('e2e-password');
+      await dlg.locator('input[autocomplete="new-password"]').nth(1).fill('e2e-password');
+      await dlg.locator('form button:has-text("Create account")').last().click();
+      await p.getByTestId('menu-main').waitFor({ timeout: 8000 });
+      await p.goto(`${URL}?checkout=success`);
+      await p.waitForTimeout(2500);
+      const inGameOnAccount =
+        (await roomCanvas(p).count()) > 0 &&
+        /account/i.test((await p.locator('nav[aria-label="Panels"] button[aria-current="page"]').textContent().catch(() => '')) ?? '');
+      const menuFeedback = (await menuOf(p).count()) > 0 && (await menuOf(p).getByText(/checkout|miner pass/i).count()) > 0;
+      await p.screenshot({ path: join(ART, 'checkout-return.png') });
+      assert(inGameOnAccount || menuFeedback, 'back from checkout on the plain title screen: no confirmation, the Account-tab switch and log line are hidden behind the menu');
+    } finally {
+      await context.close();
+    }
+  });
 } catch (err) {
   results.push({ name: 'harness', ok: false, err: err.message });
   console.error(err);
