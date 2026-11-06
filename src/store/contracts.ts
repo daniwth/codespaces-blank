@@ -25,6 +25,7 @@
  * - Completed contracts never expire; active ones expire at their deadline and
  *   the slot is refilled after CONTRACTS.refillSec.
  */
+import { tr } from '../i18n';
 import {
   CONTRACT_DEFS,
   CONTRACT_DIFFICULTY,
@@ -401,26 +402,28 @@ export function creditProfit(board: ContractBoard, amount: number, now: number):
 
 // ───────────────────────── Text ─────────────────────────
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
-
 export function contractGoal(c: Contract): string {
   switch (c.kind) {
     case 'deliver_cc':
-      return `Mine ${formatNumber(c.target)} $CC (sold or held)`;
+      return tr('Mine {n} $CC (sold or held)', { n: formatNumber(c.target) });
     case 'earn_profit':
-      return `Realize ${formatCash(c.target)} of trading profit`;
+      return tr('Realize {amount} of trading profit', { amount: formatCash(c.target) });
     case 'bot_profit':
-      return `Earn ${formatCash(c.target)} profit from trading bots`;
+      return tr('Earn {amount} profit from trading bots', { amount: formatCash(c.target) });
     case 'reach_hash':
-      return `Reach ${formatHashrate(c.target)} of hashrate`;
+      return tr('Reach {hash} of hashrate', { hash: formatHashrate(c.target) });
     case 'keep_cool':
-      return `Keep every die under ${c.param}°C for ${formatDuration(c.target)}`;
+      return tr('Keep every die under {temp}°C for {time}', { temp: c.param, time: formatDuration(c.target) });
     case 'gpu_tier':
-      return `Run ${plural(c.target, 'GPU')} of tier ${c.param}+ at once`;
+      return c.target === 1
+        ? tr('Run 1 GPU of tier {tier}+ at once', { tier: c.param })
+        : tr('Run {n} GPUs of tier {tier}+ at once', { n: c.target, tier: c.param });
     case 'solo_block':
-      return `Find ${plural(c.target, 'solo block')}`;
+      return c.target === 1 ? tr('Find 1 solo block') : tr('Find {n} solo blocks', { n: c.target });
     case 'survive_event':
-      return `Survive ${plural(c.target, 'network event')} with no thermal shutdown`;
+      return c.target === 1
+        ? tr('Survive 1 network event with no thermal shutdown')
+        : tr('Survive {n} network events with no thermal shutdown', { n: c.target });
     default:
       return '';
   }
@@ -429,21 +432,21 @@ export function contractGoal(c: Contract): string {
 export function contractHint(c: Contract): string {
   switch (c.kind) {
     case 'deliver_cc':
-      return 'Only mined coins count; bought $CC does not.';
+      return tr('Only mined coins count; bought $CC does not.');
     case 'earn_profit':
-      return 'Only profit over what you paid for the coins counts.';
+      return tr('Only profit over what you paid for the coins counts.');
     case 'bot_profit':
-      return 'Realized profit from bot sells (Market tab).';
+      return tr('Realized profit from bot sells (Market tab).');
     case 'reach_hash':
-      return 'Live hashrate, measured every tick.';
+      return tr('Live hashrate, measured every tick.');
     case 'keep_cool':
-      return `Streak needs ${formatHashrate(c.minHash)}+ running. Offline time resets it.`;
+      return tr('Streak needs {hash}+ running. Offline time resets it.', { hash: formatHashrate(c.minHash) });
     case 'gpu_tier':
-      return `Tier ${c.param}: ${gpuOfTier(c.param).name} or better, mounted and hashing.`;
+      return tr('Tier {tier}: {name} or better, mounted and hashing.', { tier: c.param, name: tr(gpuOfTier(c.param).name) });
     case 'solo_block':
-      return 'Switch to the Solo pool (Pools tab).';
+      return tr('Switch to the Solo pool (Pools tab).');
     case 'survive_event':
-      return 'From the start of an event to its end. Offline time voids it.';
+      return tr('From the start of an event to its end. Offline time voids it.');
     default:
       return '';
   }

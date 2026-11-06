@@ -1,3 +1,4 @@
+import { tr } from '../../i18n';
 import { ACHIEVEMENTS, VIP_COSTS } from '../../config/gameBalance';
 import { MAX_TECHNICIANS, RACK_BY_ID } from '../../config/hardwareCatalog';
 import { PRESTIGE_TREE, TALENT_BY_ID, scForEarnings, talentCost, talentLevel } from '../../config/prestigeTree';
@@ -65,7 +66,7 @@ export function createEconomySlice(set: SetState, get: GetState): EconomySlice {
         settings: s.settings,
       });
       set({ ...fresh, selectedRack: null, biosGpu: null, sideTab: 'halving' });
-      get().pushLog(`THE HALVING! Your run is cashed out — you minted ${reward} Smart Contracts ($SC) and +5 gems.`, 'good');
+      get().pushLog(tr('THE HALVING! Your run is cashed out — you minted {reward} Smart Contracts ($SC) and +5 gems.', { reward }), 'good');
       sfxBus.emit('halving');
       fxBus.emit({ kind: 'confetti', intensity: 1 });
       return true;
@@ -87,7 +88,7 @@ export function createEconomySlice(set: SetState, get: GetState): EconomySlice {
       // Immediate effects for talents that alter the current run.
       if (id === 'tech_union') patch.technicians = Math.min(MAX_TECHNICIANS, s.technicians + 1);
       set(patch);
-      s.pushLog(`Smart Contract deployed: ${node.name} Lv.${level + 1}.`, 'good');
+      s.pushLog(tr('Smart Contract deployed: {name} Lv.{level}.', { name: tr(node.name), level: level + 1 }), 'good');
       sfxBus.emit('unlock');
       return true;
     },
@@ -97,7 +98,7 @@ export function createEconomySlice(set: SetState, get: GetState): EconomySlice {
       const cost = item === 'goldRack' ? VIP_COSTS.goldRack : item === 'aiDiagnostics' ? VIP_COSTS.aiDiagnostics : VIP_COSTS.autoSellPeaks;
       if (s.gems < cost) {
         sfxBus.emit('error');
-        s.pushLog(`Need ${cost} gems.`, 'warn');
+        s.pushLog(tr('Need {cost} gems.', { cost }), 'warn');
         return false;
       }
       if (item === 'goldRack') {
@@ -105,16 +106,16 @@ export function createEconomySlice(set: SetState, get: GetState): EconomySlice {
         const model = RACK_BY_ID.gold;
         const rack = createRack('gold', model.slots, model.fanSlots);
         set({ gems: s.gems - cost, racks: { ...s.racks, [rack.uid]: rack }, vip: { ...s.vip, goldRacksBought: s.vip.goldRacksBought + 1 } });
-        s.pushLog('Gold Edition Rack delivered! Zero electricity, half the heat. Place it on a pad.', 'good');
+        s.pushLog(tr('Gold Edition Rack delivered! Zero electricity, half the heat. Place it on a pad.'), 'good');
         fxBus.emit({ kind: 'confetti', intensity: 0.7 });
       } else if (item === 'aiDiagnostics') {
         if (s.vip.aiDiagnostics) return false;
         set({ gems: s.gems - cost, vip: { ...s.vip, aiDiagnostics: true } });
-        s.pushLog('AI Diagnostics online: safe auto-overclock available in every BIOS.', 'good');
+        s.pushLog(tr('AI Diagnostics online: safe auto-overclock available in every BIOS.'), 'good');
       } else {
         if (s.vip.autoSellPeaks) return false;
         set({ gems: s.gems - cost, vip: { ...s.vip, autoSellPeaks: true, autoSellEnabled: true } });
-        s.pushLog('Peak Auto-Seller armed: all $CC sells automatically above 1.3x.', 'good');
+        s.pushLog(tr('Peak Auto-Seller armed: all $CC sells automatically above 1.3x.'), 'good');
       }
       sfxBus.emit('unlock');
       return true;
@@ -132,7 +133,7 @@ export function createEconomySlice(set: SetState, get: GetState): EconomySlice {
       if (!unlocked.length) return;
       const gems = unlocked.reduce((acc, a) => acc + a.gems, 0);
       set({ achievements: [...s.achievements, ...unlocked.map((a) => a.id)], gems: s.gems + gems });
-      unlocked.forEach((a) => s.pushLog(`ACHIEVEMENT: ${a.name} (+${a.gems} gems)`, 'good'));
+      unlocked.forEach((a) => s.pushLog(tr('ACHIEVEMENT: {name} (+{gems} gems)', { name: tr(a.name), gems: a.gems }), 'good'));
       sfxBus.emit('unlock');
       fxBus.emit({ kind: 'confetti', intensity: 0.4 });
     },
