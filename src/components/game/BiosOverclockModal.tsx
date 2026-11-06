@@ -7,6 +7,7 @@ import { hash01 } from '../../engine/SpriteManager';
 import { effectiveCoreHeadroom, ocHashBonus, ocPowerMul, STOCK_OC } from '../../store/gamePhysics';
 import { useGameStore } from '../../store/useGameStore';
 import type { OverclockSettings } from '../../types/hardware';
+import { useT } from '../../i18n';
 import { sfxBus } from '../../utils/eventBus';
 import { clamp } from '../../utils/random';
 import { formatHashrate, formatPower } from '../../utils/formatters';
@@ -58,6 +59,7 @@ function BiosSlider({ label, value, min, max, step, unit, base, onChange, focus 
 }
 
 export function BiosOverclockModal({ gpuUid }: { gpuUid: string }) {
+  const t = useT();
   const gpu = useGameStore((s) => s.gpus[gpuUid]);
   const aiUnlocked = useGameStore((s) => s.vip.aiDiagnostics);
   const { openBios, applyOverclock, autoTuneGpu } = useGameStore.getState();
@@ -70,7 +72,7 @@ export function BiosOverclockModal({ gpuUid }: { gpuUid: string }) {
   const timers = useRef<number[]>([]);
 
   const close = useCallback(() => {
-    timers.current.forEach((t) => window.clearInterval(t));
+    timers.current.forEach((id) => window.clearInterval(id));
     openBios(null);
   }, [openBios]);
 
@@ -108,7 +110,7 @@ export function BiosOverclockModal({ gpuUid }: { gpuUid: string }) {
     timers.current.push(id);
   }, [phase, applyOverclock, gpuUid, oc]);
 
-  useEffect(() => () => timers.current.forEach((t) => window.clearInterval(t)), []);
+  useEffect(() => () => timers.current.forEach((id) => window.clearInterval(id)), []);
 
   const layer = useRef(0);
   useEffect(() => {
@@ -174,9 +176,9 @@ export function BiosOverclockModal({ gpuUid }: { gpuUid: string }) {
       <div ref={root} tabIndex={-1} className="fixed inset-0 z-[60] flex flex-col items-start justify-center gap-6 bg-[#0078d7] p-8 font-term text-white outline-none sm:p-20" role="alertdialog" aria-modal="true">
         <div className="font-pixel text-6xl sm:text-8xl">:(</div>
         <p className="max-w-2xl text-2xl leading-tight sm:text-3xl">
-          Your rig ran into a problem and needs to restart. We're just collecting some error info, and then we'll restart for you.
+          {t("Your rig ran into a problem and needs to restart. We're just collecting some error info, and then we'll restart for you.")}
         </p>
-        <p className="font-pixel text-sm">{Math.round(rebootPct * 100)}% complete</p>
+        <p className="font-pixel text-sm">{t('{pct}% complete', { pct: Math.round(rebootPct * 100) })}</p>
         <div className="flex items-center gap-4">
           <div className="grid size-20 grid-cols-5 grid-rows-5 bg-white p-1">
             {Array.from({ length: 25 }, (_, i) => (
@@ -184,11 +186,11 @@ export function BiosOverclockModal({ gpuUid }: { gpuUid: string }) {
             ))}
           </div>
           <div className="text-xl leading-tight">
-            For more information about this issue, ask your local silicon whisperer.
+            {t('For more information about this issue, ask your local silicon whisperer.')}
             <br />
-            Stop code: <span className="font-pixel text-xs">OVERCLOCK_WATCHDOG_TIMEOUT</span>
+            {t('Stop code:')} <span className="font-pixel text-xs">OVERCLOCK_WATCHDOG_TIMEOUT</span>
             <br />
-            What failed: {model.name.replace(/\s/g, '_').toLowerCase()}.sys
+            {t('What failed: {file}.sys', { file: model.name.replace(/\s/g, '_').toLowerCase() })}
           </div>
         </div>
       </div>
@@ -196,45 +198,45 @@ export function BiosOverclockModal({ gpuUid }: { gpuUid: string }) {
   }
 
   return (
-    <div ref={root} tabIndex={-1} className="fixed inset-0 z-[55] flex items-center justify-center bg-black/80 p-2 outline-none" role="dialog" aria-modal="true" aria-label="GPU BIOS setup">
+    <div ref={root} tabIndex={-1} className="fixed inset-0 z-[55] flex items-center justify-center bg-black/80 p-2 outline-none" role="dialog" aria-modal="true" aria-label={t('GPU BIOS setup')}>
       <div className="pop-in w-full max-w-3xl bg-[#0000aa] font-term text-[19px] text-[#aaaaaa] shadow-[0_0_0_4px_#aaaaaa,0_0_0_6px_#000]">
         <div className="bg-[#aaaaaa] py-1 text-center text-[#0000aa]">PhoenixBits CMOS Setup Utility — Copyright (C) 1996 HashHarvest Inc.</div>
-        <div className="text-center text-[#ffffff]">GPU Frequency / Voltage Control</div>
+        <div className="text-center text-[#ffffff]">{t('GPU Frequency / Voltage Control')}</div>
         <div className="grid border-y-2 border-[#aaaaaa] sm:grid-cols-[1.5fr_1fr]">
           <div className="border-[#aaaaaa] p-3 sm:border-r-2">
             <div className="grid grid-cols-[auto_1fr] gap-x-3 pb-2">
-              <span>Device</span>
-              <span className="text-[#ffffff]">{model.brand} {model.name}</span>
-              <span>Silicon Grade</span>
-              <span style={{ color: q.color }}>{q.label.toUpperCase()}</span>
-              <span>Serial No.</span>
+              <span>{t('Device')}</span>
+              <span className="text-[#ffffff]">{model.brand} {t(model.name)}</span>
+              <span>{t('Silicon Grade')}</span>
+              <span style={{ color: q.color }}>{t(q.label).toUpperCase()}</span>
+              <span>{t('Serial No.')}</span>
               <span className="text-[#55ffff]">{gpu.uid.toUpperCase().slice(-12)}</span>
-              <span>Die Temp</span>
+              <span>{t('Die Temp')}</span>
               <span className={gpu.temp > PHYSICS.throttleTemp ? 'text-[#ff5555]' : 'text-[#55ff55]'}>{gpu.temp.toFixed(1)} °C</span>
             </div>
-            <BiosSlider label="Core Clock Offset" unit="MHz" base={coreBase} value={oc.core} {...OC_LIMITS.core} focus={focus === 0} onChange={(v) => setOc({ ...oc, core: v })} />
-            <BiosSlider label="Memory Clock Offset" unit="MHz" base={memBase} value={oc.mem} {...OC_LIMITS.mem} focus={focus === 1} onChange={(v) => setOc({ ...oc, mem: v })} />
-            <BiosSlider label="Core Voltage" unit="mV" value={oc.voltage} min={OC_LIMITS.voltage.min} max={OC_LIMITS.voltage.max} step={OC_LIMITS.voltage.step} focus={focus === 2} onChange={(v) => setOc({ ...oc, voltage: v })} />
+            <BiosSlider label={t('Core Clock Offset')} unit="MHz" base={coreBase} value={oc.core} {...OC_LIMITS.core} focus={focus === 0} onChange={(v) => setOc({ ...oc, core: v })} />
+            <BiosSlider label={t('Memory Clock Offset')} unit="MHz" base={memBase} value={oc.mem} {...OC_LIMITS.mem} focus={focus === 1} onChange={(v) => setOc({ ...oc, mem: v })} />
+            <BiosSlider label={t('Core Voltage')} unit="mV" value={oc.voltage} min={OC_LIMITS.voltage.min} max={OC_LIMITS.voltage.max} step={OC_LIMITS.voltage.step} focus={focus === 2} onChange={(v) => setOc({ ...oc, voltage: v })} />
           </div>
           <div className="flex flex-col gap-1 p-3">
-            <div className="text-center text-[#ffffff]">Item Help</div>
+            <div className="text-center text-[#ffffff]">{t('Item Help')}</div>
             <div className="grid grid-cols-[1fr_auto] gap-x-2">
-              <span>Hash bonus</span>
+              <span>{t('Hash bonus')}</span>
               <span className={bonus >= 0 ? 'text-[#55ff55]' : 'text-[#ff5555]'}>{bonus >= 0 ? '+' : ''}{(bonus * 100).toFixed(1)}%</span>
-              <span>Hashrate</span>
+              <span>{t('Hashrate')}</span>
               <span className="text-[#ffffff]">{formatHashrate(model.hashrate * (1 + bonus))}</span>
-              <span>Board power</span>
+              <span>{t('Board power')}</span>
               <span className={power > model.power * 1.2 ? 'text-[#ffaa00]' : 'text-[#ffffff]'}>{formatPower(power)}</span>
-              <span>Heat output</span>
+              <span>{t('Heat output')}</span>
               <span className="text-[#ffffff]">x{(power / model.power).toFixed(2)}</span>
-              <span>Crash risk (est.)</span>
-              <span style={{ color: rl.color }}>{rl.text}</span>
+              <span>{t('Crash risk (est.)')}</span>
+              <span style={{ color: rl.color }}>{t(rl.text)}</span>
             </div>
             <div className="mt-1 h-3 w-full bg-[#000055]">
               <div className="h-full" style={{ width: `${risk * 100}%`, background: rl.color }} />
             </div>
             <p className="mt-2 text-[16px] leading-tight">
-              More voltage unlocks core headroom but adds heat (∝V²). Undervolting runs cooler. Unstable settings trigger a BSOD and a 10s reboot.
+              {t('More voltage unlocks core headroom but adds heat (∝V²). Undervolting runs cooler. Unstable settings trigger a BSOD and a 10s reboot.')}
             </p>
             {phase === 'testing' && (
               <div className="mt-2 bg-black p-1 text-[14px] leading-tight text-[#55ff55]">
@@ -242,23 +244,23 @@ export function BiosOverclockModal({ gpuUid }: { gpuUid: string }) {
                   <div key={i} className="truncate">{l}</div>
                 ))}
                 <div className="mt-1 text-[#ffff55]">
-                  STRESS TEST {'█'.repeat(Math.round(progress * 16)).padEnd(16, '░')} {Math.round(progress * 100)}%
+                  {t('STRESS TEST')} {'█'.repeat(Math.round(progress * 16)).padEnd(16, '░')} {Math.round(progress * 100)}%
                 </div>
               </div>
             )}
             {phase === 'stable' && (
               <div className="mt-2 bg-black p-2 text-center text-[#55ff55]">
-                ✓ SYSTEM STABLE — profile saved ({(gpu.ocBonus * 100).toFixed(1)}% bonus)
+                {t('✓ SYSTEM STABLE — profile saved ({pct}% bonus)', { pct: (gpu.ocBonus * 100).toFixed(1) })}
               </div>
             )}
           </div>
         </div>
         <div className="flex flex-wrap justify-center gap-x-5 gap-y-1 px-2 py-2 text-[#ffffff]">
           <button type="button" disabled={phase !== 'edit'} onClick={runTest} className="hover:text-[#ffff55] disabled:opacity-50">
-            F10: Save &amp; Stress Test
+            {t('F10: Save & Stress Test')}
           </button>
           <button type="button" disabled={phase !== 'edit'} onClick={() => { setOc({ ...STOCK_OC }); sfxBus.emit('switch'); }} className="hover:text-[#ffff55] disabled:opacity-50">
-            F5: Load Defaults
+            {t('F5: Load Defaults')}
           </button>
           <button
             type="button"
@@ -267,20 +269,20 @@ export function BiosOverclockModal({ gpuUid }: { gpuUid: string }) {
               if (autoTuneGpu(gpuUid)) setOc(useGameStore.getState().gpus[gpuUid]?.oc ?? oc);
             }}
             className="hover:text-[#ffff55] disabled:opacity-40"
-            title={aiUnlocked ? 'Safe auto-overclock' : 'Unlock AI Diagnostics in the VIP zone'}
+            title={aiUnlocked ? t('Safe auto-overclock') : t('Unlock AI Diagnostics in the VIP zone')}
           >
-            F9: AI Auto-Tune {aiUnlocked ? '' : '(VIP)'}
+            {t('F9: AI Auto-Tune')} {aiUnlocked ? '' : '(VIP)'}
           </button>
           {phase === 'stable' && (
             <button type="button" onClick={() => setPhase('edit')} className="hover:text-[#ffff55]">
-              ENTER: Keep tuning
+              {t('ENTER: Keep tuning')}
             </button>
           )}
           <button type="button" disabled={phase === 'testing'} onClick={close} className="hover:text-[#ffff55] disabled:opacity-50">
-            ESC: Exit
+            {t('ESC: Exit')}
           </button>
         </div>
-        <div className="bg-[#aaaaaa] px-2 text-center text-[16px] text-[#0000aa]">↑↓: Select item · ←→: Adjust · Drag sliders with the mouse</div>
+        <div className="bg-[#aaaaaa] px-2 text-center text-[16px] text-[#0000aa]">{t('↑↓: Select item · ←→: Adjust · Drag sliders with the mouse')}</div>
       </div>
     </div>
   );

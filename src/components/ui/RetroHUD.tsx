@@ -7,6 +7,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { wattPrice } from '../../store/gamePhysics';
 import { useAccountStore } from '../../store/useAccountStore';
 import { useGameShallow, useGameStore } from '../../store/useGameStore';
+import { useT } from '../../i18n';
 import { bnToNumber } from '../../utils/bignum';
 import { fxBus } from '../../utils/eventBus';
 import { formatCash, formatHashrate, formatMultiplier, formatNumber, formatPower, formatPrice, formatTemp, tempColor } from '../../utils/formatters';
@@ -32,6 +33,7 @@ function Stat({ icon, label, value, sub, color, glow }: { icon: ReactNode; label
 
 /** Top status bar: wallets, hashrate, power & thermals of the active room, events. */
 export function RetroHUD() {
+  const t = useT();
   const s = useGameShallow((st) => ({
     cash: st.cash,
     cc: st.cc,
@@ -64,7 +66,7 @@ export function RetroHUD() {
   const popId = useRef(0);
 
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 500);
+    const timer = setInterval(() => setNow(Date.now()), 500);
     const off = fxBus.on((fx) => {
       if (fx.kind !== 'sell') return;
       popId.current += 1;
@@ -73,7 +75,7 @@ export function RetroHUD() {
       setTimeout(() => setPops((p) => p.filter((x) => x.id !== id)), 1200);
     });
     return () => {
-      clearInterval(t);
+      clearInterval(timer);
       off();
     };
   }, []);
@@ -90,7 +92,11 @@ export function RetroHUD() {
   const pool = POOLS[s.pool];
   // $ per kWh actually billed in the active room at the farm's current grid demand.
   const kwhPrice = wattPrice(s.activeRoom, { electricityMul: s.elecMul }) * s.grid * 3.6e6;
-  const gridTitle = `Grid demand x${s.grid.toFixed(s.grid < 10 ? 2 : 0)}: dense, high-hash rigs pay industrial demand rates. ${room.name}: ${formatCash(kwhPrice)}/kWh. Better PSUs, cheaper rooms and Green PPA cut the bill.`;
+  const gridTitle = t('Grid demand x{grid}: dense, high-hash rigs pay industrial demand rates. {room}: {price}/kWh. Better PSUs, cheaper rooms and Green PPA cut the bill.', {
+    grid: s.grid.toFixed(s.grid < 10 ? 2 : 0),
+    room: t(room.name),
+    price: formatCash(kwhPrice),
+  });
 
   return (
     <header className="pixel-box mx-2 mt-2 flex flex-col gap-2 px-3 py-2 sm:mx-3">
@@ -115,13 +121,13 @@ export function RetroHUD() {
         <div className="relative">
           <Stat
             icon={<Coins size={16} />}
-            label="Cash"
+            label={t('Cash')}
             value={formatCash(s.cash)}
             color="#facc15"
             glow
             sub={
               <span title={gridTitle} data-testid="hud-grid">
-                {s.elec > 0 ? `-${formatCash(s.elec)}/s power` : 'no power bill'} · <span className={s.grid >= 10 ? 'text-amber' : ''}>grid {formatMultiplier(s.grid)}</span>
+                {s.elec > 0 ? t('-{cost}/s power', { cost: formatCash(s.elec) }) : t('no power bill')} · <span className={s.grid >= 10 ? 'text-amber' : ''}>{t('grid {mult}', { mult: formatMultiplier(s.grid) })}</span>
               </span>
             }
           />
@@ -133,7 +139,7 @@ export function RetroHUD() {
         </div>
         <Stat
           icon={<Pickaxe size={16} />}
-          label="$CC Wallet"
+          label={t('$CC Wallet')}
           value={formatNumber(s.cc)}
           color="#22d3ee"
           sub={
@@ -148,12 +154,12 @@ export function RetroHUD() {
           }
         />
         <Stat icon={<ScrollText size={16} />} label="$MEME" value={formatNumber(s.meme)} color="#e879f9" sub={formatPrice(s.memePrice)} />
-        <Stat icon={<Cpu size={16} />} label="Hashrate" value={formatHashrate(s.totalHash)} color="#a3e635" glow sub={`${formatNumber(s.ccPerSec, 3)} CC/s · ${pool.name.split(' ')[0]}`} />
+        <Stat icon={<Cpu size={16} />} label={t('Hashrate')} value={formatHashrate(s.totalHash)} color="#a3e635" glow sub={`${formatNumber(s.ccPerSec, 3)} CC/s · ${t(pool.name).split(' ')[0]}`} />
         <div className="flex items-center gap-3">
-          <span className="flex items-center gap-1 font-pixel text-[10px] text-magenta" title="Gems">
+          <span className="flex items-center gap-1 font-pixel text-[10px] text-magenta" title={t('Gems')}>
             <Gem size={14} /> {s.gems}
           </span>
-          <span className="font-pixel text-[10px] text-amber" title="Smart Contracts">
+          <span className="font-pixel text-[10px] text-amber" title={t('Smart Contracts')}>
             {s.sc} $SC
           </span>
         </div>
@@ -163,18 +169,18 @@ export function RetroHUD() {
             size="sm"
             variant={account.active ? 'gold' : 'ghost'}
             onClick={() => setSideTab('account')}
-            title={account.email ? `${account.email} · cloud ${account.sync}` : 'Log in to save your progress in the cloud'}
+            title={account.email ? t('{email} · cloud {sync}', { email: account.email, sync: account.sync }) : t('Log in to save your progress in the cloud')}
             icon={account.active ? <Cloud size={13} className={account.sync === 'syncing' ? 'blink' : ''} /> : <CloudOff size={13} />}
           >
-            <span className="hidden sm:inline">{account.email ? (account.active ? 'Miner Pass' : 'Account') : 'Log in'}</span>
+            <span className="hidden sm:inline">{account.email ? (account.active ? t('Miner Pass') : t('Account')) : t('Log in')}</span>
           </PixelButton>
-          <PixelButton size="sm" variant="primary" disabled={bnToNumber(s.cc) <= 0} onClick={() => sellCoin('CC', bnToNumber(s.cc))} title="Sell every $CC at market price">
-            Sell all CC
+          <PixelButton size="sm" variant="primary" disabled={bnToNumber(s.cc) <= 0} onClick={() => sellCoin('CC', bnToNumber(s.cc))} title={t('Sell every $CC at market price')}>
+            {t('Sell all CC')}
           </PixelButton>
-          <PixelButton size="sm" variant="ghost" onClick={() => setWikiOpen(true)} aria-label="How to play" title="How to play (wiki)">
+          <PixelButton size="sm" variant="ghost" onClick={() => setWikiOpen(true)} aria-label={t('How to play')} title={t('How to play (wiki)')}>
             <CircleHelp size={14} />
           </PixelButton>
-          <PixelButton size="sm" variant="ghost" onClick={() => updateSettings({ muted: !s.muted })} aria-label={s.muted ? 'Unmute' : 'Mute'}>
+          <PixelButton size="sm" variant="ghost" onClick={() => updateSettings({ muted: !s.muted })} aria-label={s.muted ? t('Unmute') : t('Mute')}>
             {s.muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
           </PixelButton>
         </div>
@@ -183,7 +189,7 @@ export function RetroHUD() {
       <div className="grid grid-cols-1 gap-x-5 gap-y-2 border-t-2 border-[#1b1838] pt-2 md:grid-cols-2 2xl:grid-cols-[1fr_1fr_1.2fr]">
         <div className="flex items-center gap-2">
           <Zap size={14} className="shrink-0 text-amber" />
-          <span className="w-24 shrink-0 font-silk text-[10px] uppercase text-dim">{room.name.split(' ')[0]} line</span>
+          <span className="w-24 shrink-0 font-silk text-[10px] uppercase text-dim">{t('{room} line', { room: t(room.name).split(' ')[0] })}</span>
           <Meter value={s.room?.wall ?? 0} max={room.maxPowerW} color="#fbbf24" className="flex-1" />
           <span className="shrink-0 whitespace-nowrap text-right text-[16px] leading-none" style={{ color: (s.room?.brownout ?? 1) < 1 ? '#f43f5e' : '#e9e6ff' }}>
             {formatPower(s.room?.wall ?? 0)}/{formatPower(room.maxPowerW)}
@@ -191,19 +197,19 @@ export function RetroHUD() {
         </div>
         <div className="flex items-center gap-2">
           <Thermometer size={14} className="shrink-0" style={{ color: tempColor(s.hottest) }} />
-          <span className="w-24 shrink-0 font-silk text-[10px] uppercase text-dim">Hottest die</span>
+          <span className="w-24 shrink-0 font-silk text-[10px] uppercase text-dim">{t('Hottest die')}</span>
           <Meter value={Math.max(0, s.hottest - 20)} max={80} color="#22c55e" warnAt={0.6} dangerAt={0.81} className="flex-1" />
           <span className="shrink-0 whitespace-nowrap text-right text-[16px] leading-none" style={{ color: tempColor(s.hottest) }}>
-            {formatTemp(s.hottest)} · air {formatTemp(s.room?.temp ?? room.ambient)}
+            {t('{temp} · air {air}', { temp: formatTemp(s.hottest), air: formatTemp(s.room?.temp ?? room.ambient) })}
           </span>
         </div>
         <div className="flex min-w-0 items-center gap-2 overflow-hidden md:col-span-2 2xl:col-span-1">
           {event ? (
             <div className="flex min-w-0 flex-1 items-center gap-2 px-2 py-0.5" style={{ background: `${event.color}22`, boxShadow: `inset 0 0 0 2px ${event.color}88` }}>
               <span className="blink font-pixel text-[9px]" style={{ color: event.color }}>
-                ⚠ {event.name}
+                ⚠ {t(event.name)}
               </span>
-              <span className="truncate text-[16px] leading-none text-ink/80">{event.description}</span>
+              <span className="truncate text-[16px] leading-none text-ink/80">{t(event.description)}</span>
               <span className="ml-auto shrink-0 font-pixel text-[9px]" style={{ color: event.color }}>
                 {Math.max(0, Math.ceil(((s.event?.endsAt ?? now) - now) / 1000))}s
               </span>
@@ -211,7 +217,11 @@ export function RetroHUD() {
           ) : (
             <div className="relative h-5 flex-1 overflow-hidden text-[16px] leading-5 text-dim">
               <span className="marquee absolute whitespace-nowrap">
-                NETWORK STABLE · {pool.name.toUpperCase()} · $CC {formatPrice(s.price)} · $MEME {formatPrice(s.memePrice)} · KEEP DIES UNDER 85°C TO AVOID THROTTLING · OVERCLOCK IN THE BIOS FOR UP TO +40% ·
+                {t('NETWORK STABLE · {pool} · $CC {cc} · $MEME {meme} · KEEP DIES UNDER 85°C TO AVOID THROTTLING · OVERCLOCK IN THE BIOS FOR UP TO +40% ·', {
+                  pool: t(pool.name).toUpperCase(),
+                  cc: formatPrice(s.price),
+                  meme: formatPrice(s.memePrice),
+                })}
               </span>
             </div>
           )}

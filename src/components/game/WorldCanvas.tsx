@@ -20,6 +20,7 @@ import type { GameStore } from '../../store/storeTypes';
 import { useGameShallow, useGameStore } from '../../store/useGameStore';
 import type { RackInstance, RackStatus } from '../../types/hardware';
 import type { RoomId } from '../../types/player';
+import { tr, useT } from '../../i18n';
 import { fxBus } from '../../utils/eventBus';
 import { cn } from '../../utils/cn';
 import { formatCash, formatHashrate, formatNumber, formatPower, formatTemp, tempColor } from '../../utils/formatters';
@@ -261,6 +262,7 @@ function drawRoomLife(ctx: CanvasRenderingContext2D, roomId: RoomId, t: number, 
 const shadeTail = (c: string) => (c === '#fb923c' ? '#c2410c' : c === '#facc15' ? '#a16207' : '#4d7c0f');
 
 export function WorldCanvas() {
+  const t = useT();
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const pcRef = useRef<PixelCanvas | null>(null);
@@ -462,13 +464,14 @@ export function WorldCanvas() {
         const icon = STATUS_ICON[status] ?? (anyShutdown && status === 'online' ? 'overheat' : undefined);
         if (lbl) {
           // Icon stays on (so the state reads at a glance); the label blinks next to it.
-          const tw = measurePixelText(lbl.text);
+          const lblText = tr(lbl.text);
+          const tw = measurePixelText(lblText);
           const left = Math.round(x + RACK_W / 2 - (icon ? tw + 11 : tw) / 2);
           if (icon) {
             const bob = icon === 'reboot' ? 0 : Math.floor(t * 4) % 2;
             ctx.drawImage(sprites.statusIcon(icon, Math.floor(t * (icon === 'reboot' ? 12 : 5))), left, y - 10 - bob);
           }
-          if (status === 'empty' || Math.floor(t * 2) % 2 === 0) drawPixelText(ctx, lbl.text, icon ? left + 11 : left, y - 8, lbl.color, { shadow: '#000000' });
+          if (status === 'empty' || Math.floor(t * 2) % 2 === 0) drawPixelText(ctx, lblText, icon ? left + 11 : left, y - 8, lbl.color, { shadow: '#000000' });
         }
         if (live && live.maxTemp > 0) drawPixelText(ctx, `${Math.round(live.maxTemp)}°`, x, y + RACK_H + 1, tempColor(live.maxTemp), { shadow: '#000000' });
         if (live && live.hash > 0) drawPixelText(ctx, shortHash(live.hash), x + RACK_W, y + RACK_H + 1, '#a3e635', { align: 'right', shadow: '#000000' });
@@ -642,9 +645,9 @@ export function WorldCanvas() {
           px(ctx, 6, 6, 6, 4, '#ef4444');
           px(ctx, WORLD_W - 12, 6, 6, 4, '#ef4444');
         }
-        drawPixelText(ctx, 'BLACKOUT - GRID DOWN', WORLD_W / 2, 100, '#f87171', { align: 'center', scale: 2, shadow: '#000000' });
+        drawPixelText(ctx, tr('BLACKOUT - GRID DOWN'), WORLD_W / 2, 100, '#f87171', { align: 'center', scale: 2, shadow: '#000000' });
       } else if (roomLive && roomLive.brownout < 1 && Math.floor(t * 2) % 2 === 0) {
-        drawPixelText(ctx, `BROWNOUT ${Math.round(roomLive.brownout * 100)}% - LINE OVERLOADED`, WORLD_W / 2, WALL_H + 4, '#fbbf24', { align: 'center', shadow: '#000000' });
+        drawPixelText(ctx, tr('BROWNOUT {pct}% - LINE OVERLOADED', { pct: Math.round(roomLive.brownout * 100) }), WORLD_W / 2, WALL_H + 4, '#fbbf24', { align: 'center', shadow: '#000000' });
       }
 
       // Raid strobe: red / blue halves swapping at 2 Hz (low alpha), hazard strip + beacons
@@ -656,7 +659,7 @@ export function WorldCanvas() {
         px(ctx, 0, 0, WORLD_W, WORLD_H, blue ? '#3b82f6' : '#ef4444');
         ctx.globalAlpha = 1;
         ctx.drawImage(sprites.hazardStrip(WORLD_W), 0, 19);
-        const label = `ELECTRICAL INSPECTION ${Math.max(0, Math.ceil((insp.until - Date.now()) / 1000))}S`;
+        const label = tr('ELECTRICAL INSPECTION {s}S', { s: Math.max(0, Math.ceil((insp.until - Date.now()) / 1000)) });
         const bw = measurePixelText(label) + 12;
         const bx = Math.round(WORLD_W / 2 - bw / 2);
         px(ctx, bx, 17, bw, 13, '#07060f');
@@ -729,7 +732,7 @@ export function WorldCanvas() {
             ctx.restore();
           }
           if (e > 0.4 && e < 2.8) {
-            drawPixelText(ctx, 'SOLO JACKPOT!', WORLD_W / 2, by + 36, '#fef08a', { align: 'center', shadow: '#000000' });
+            drawPixelText(ctx, tr('SOLO JACKPOT!'), WORLD_W / 2, by + 36, '#fef08a', { align: 'center', shadow: '#000000' });
           }
           if (s.settings.particles && e < 2.6 && Math.random() < dt * 18) {
             particles.current.sparkle(bxl + Math.random() * banner.width, by + (Math.random() < 0.5 ? 0 : 32), Math.random() < 0.5 ? '#fef08a' : '#67e8f9');
@@ -799,16 +802,16 @@ export function WorldCanvas() {
       <div className="flex flex-wrap items-center gap-1">
         {ROOM_ORDER.filter((id) => ui.ownedRooms.includes(id)).map((id) => (
           <PixelButton key={id} size="sm" variant={id === ui.activeRoom ? 'primary' : 'secondary'} onClick={() => setActiveRoom(id)} silent>
-            <MapPin size={12} /> {ROOM_BY_ID[id].name}
+            <MapPin size={12} /> {t(ROOM_BY_ID[id].name)}
           </PixelButton>
         ))}
         {nextRoom && (
-          <PixelButton size="sm" variant="ghost" onClick={() => setSideTab('shop')} title="Buy it in the Shop → Rooms">
-            <Lock size={12} /> {ROOM_BY_ID[nextRoom].name} · {formatCash(ROOM_BY_ID[nextRoom].price)}
+          <PixelButton size="sm" variant="ghost" onClick={() => setSideTab('shop')} title={t('Buy it in the Shop → Rooms')}>
+            <Lock size={12} /> {t(ROOM_BY_ID[nextRoom].name)} · {formatCash(ROOM_BY_ID[nextRoom].price)}
           </PixelButton>
         )}
         <span className="ml-auto hidden font-silk text-[10px] text-dim sm:inline">
-          {ROOM_BY_ID[ui.activeRoom].subtitle} · {padCount(ui.activeRoom, ui.talents)} pads
+          {t(ROOM_BY_ID[ui.activeRoom].subtitle)} · {t('{n} pads', { n: padCount(ui.activeRoom, ui.talents) })}
         </span>
       </div>
 
@@ -822,7 +825,7 @@ export function WorldCanvas() {
             setHover(null);
           }}
           onClick={onClick}
-          aria-label="Mining room view"
+          aria-label={t('Mining room view')}
         />
 
         {hover && !placing && <HoverCard target={hover.target} left={hover.left} top={hover.top} />}
@@ -833,7 +836,7 @@ export function WorldCanvas() {
             style={{ left: Math.max(8, Math.min(placing.left - 128, (wrapRef.current?.clientWidth ?? 400) - 272)), top: Math.max(8, placing.top - 150) }}
           >
             <div className="mb-2 flex items-center justify-between">
-              <span className="font-pixel text-[9px] text-neon">PAD #{placing.pad + 1}</span>
+              <span className="font-pixel text-[9px] text-neon">{t('PAD #{n}', { n: placing.pad + 1 })}</span>
               <button type="button" className="text-dim hover:text-ink" onClick={() => setPlacing(null)}>
                 ✕
               </button>
@@ -854,8 +857,8 @@ export function WorldCanvas() {
                     >
                       <img src={sprites.rackIcon(r.modelId)} alt="" className="pixelated h-8 w-5" />
                       <span className="text-[17px] leading-none">
-                        {m.name}
-                        <span className="block text-[14px] text-dim">{r.gpuSlots.filter(Boolean).length}/{m.slots} GPUs</span>
+                        {t(m.name)}
+                        <span className="block text-[14px] text-dim">{t('{n}/{max} GPUs', { n: r.gpuSlots.filter(Boolean).length, max: m.slots })}</span>
                       </span>
                     </button>
                   );
@@ -864,10 +867,10 @@ export function WorldCanvas() {
             ) : (
               <div className="flex flex-col gap-2 text-[17px] leading-tight text-dim">
                 <span className="flex items-center gap-1">
-                  <Package size={14} /> No racks in storage.
+                  <Package size={14} /> {t('No racks in storage.')}
                 </span>
                 <PixelButton size="sm" variant="primary" onClick={() => { setSideTab('shop'); setPlacing(null); }}>
-                  Open shop
+                  {t('Open shop')}
                 </PixelButton>
               </div>
             )}
@@ -879,6 +882,7 @@ export function WorldCanvas() {
 }
 
 function HoverCard({ target, left, top }: { target: HoverTarget; left: number; top: number }) {
+  const t = useT();
   const data = useGameShallow((s) => {
     const rack = target.rackUid ? s.racks[target.rackUid] : null;
     return { rack, live: rack ? s.live.racks[rack.uid] : undefined, gpus: s.gpus };
@@ -886,7 +890,7 @@ function HoverCard({ target, left, top }: { target: HoverTarget; left: number; t
   if (target.kind === 'pad') {
     return (
       <div className="pointer-events-none absolute z-10 bg-black/85 px-2 py-1 text-[16px] text-neon shadow-[0_0_0_2px_#22d3ee]" style={{ left, top }}>
-        Empty pad — click to place a rack
+        {t('Empty pad — click to place a rack')}
       </div>
     );
   }
@@ -895,25 +899,25 @@ function HoverCard({ target, left, top }: { target: HoverTarget; left: number; t
   const status = data.live?.status ?? 'empty';
   return (
     <div className={cn('pointer-events-none absolute z-10 w-52 bg-black/90 p-2 shadow-[0_0_0_2px_#3a3470]')} style={{ left, top }}>
-      <div className="font-pixel text-[9px] text-ink">{m.name}</div>
+      <div className="font-pixel text-[9px] text-ink">{t(m.name)}</div>
       <div className="mt-1 grid grid-cols-2 gap-x-2 text-[16px] leading-tight">
-        <span className="text-dim">Status</span>
-        <span style={{ color: status === 'online' ? '#a3e635' : '#fbbf24' }}>{status.replace('_', ' ').toUpperCase()}</span>
-        <span className="text-dim">Hashrate</span>
+        <span className="text-dim">{t('Status')}</span>
+        <span style={{ color: status === 'online' ? '#a3e635' : '#fbbf24' }}>{t(status.replace('_', ' ').toUpperCase())}</span>
+        <span className="text-dim">{t('Hashrate')}</span>
         <span className="text-lime">{formatHashrate(data.live?.hash ?? 0)}</span>
-        <span className="text-dim">Hottest</span>
+        <span className="text-dim">{t('Hottest')}</span>
         <span style={{ color: tempColor(data.live?.maxTemp ?? 0) }}>{formatTemp(data.live?.maxTemp ?? 0)}</span>
-        <span className="text-dim">PSU load</span>
+        <span className="text-dim">{t('PSU load')}</span>
         <span>
           {formatPower(data.live?.load ?? 0)}
           {data.live && Number.isFinite(data.live.capacity) ? ` / ${formatPower(data.live.capacity)}` : ''}
         </span>
-        <span className="text-dim">GPUs</span>
+        <span className="text-dim">{t('GPUs')}</span>
         <span>
           {data.rack.gpuSlots.filter(Boolean).length}/{m.slots}
         </span>
       </div>
-      <div className="mt-1 font-silk text-[9px] text-neon">Click to open rack</div>
+      <div className="mt-1 font-silk text-[9px] text-neon">{t('Click to open rack')}</div>
     </div>
   );
 }

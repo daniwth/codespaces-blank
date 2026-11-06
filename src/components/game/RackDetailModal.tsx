@@ -8,6 +8,7 @@ import { rackNominalLoad } from '../../store/gamePhysics';
 import { repairCost, repasteCost } from '../../store/slices/hardwareSlice';
 import { useGameShallow, useGameStore } from '../../store/useGameStore';
 import type { GpuInstance } from '../../types/hardware';
+import { useT } from '../../i18n';
 import { cn } from '../../utils/cn';
 import { formatCash, formatHashrate, formatMultiplier, formatPercent, formatPower, formatTemp, tempColor } from '../../utils/formatters';
 import { Meter } from '../ui/Meter';
@@ -25,10 +26,11 @@ interface Selection {
 }
 
 export function QualityBadge({ quality }: { quality: GpuInstance['quality'] }) {
+  const t = useT();
   const q = QUALITY_DEFS[quality];
   return (
     <span className="px-1 font-pixel text-[7px] uppercase" style={{ color: q.color, boxShadow: `inset 0 0 0 1px ${q.color}`, background: `${q.glow}55` }}>
-      {q.label}
+      {t(q.label)}
     </span>
   );
 }
@@ -46,6 +48,7 @@ const STATUS_COPY: Record<string, { text: string; color: string }> = {
 
 /** Physical assembly view: PCIe slots, fan bays, PSU and power cabling. */
 export function RackDetailModal({ rackUid }: { rackUid: string }) {
+  const t = useT();
   const s = useGameShallow((st) => ({
     rack: st.racks[rackUid],
     racks: st.racks,
@@ -130,8 +133,8 @@ export function RackDetailModal({ rackUid }: { rackUid: string }) {
     <PixelModal
       title={
         <span className="flex items-center gap-2">
-          <Warehouse size={14} /> {model.name}
-          <span className="font-silk text-[10px] text-dim">{rack.roomId ? `${ROOM_BY_ID[rack.roomId].name} · pad ${(rack.pad ?? 0) + 1}` : 'storage'}</span>
+          <Warehouse size={14} /> {t(model.name)}
+          <span className="font-silk text-[10px] text-dim">{rack.roomId ? t('{room} · pad {n}', { room: t(ROOM_BY_ID[rack.roomId].name), n: (rack.pad ?? 0) + 1 }) : t('storage')}</span>
         </span>
       }
       onClose={() => actions.selectRack(null)}
@@ -143,25 +146,25 @@ export function RackDetailModal({ rackUid }: { rackUid: string }) {
         <div className="flex flex-col gap-3">
           <div className="grid grid-cols-2 gap-2 bg-panel-2 p-2 text-[17px] leading-tight sm:grid-cols-4">
             <div>
-              <div className="font-silk text-[9px] text-dim">STATUS</div>
+              <div className="font-silk text-[9px] text-dim">{t('STATUS')}</div>
               <div className={cn('font-pixel text-[9px]', !powered && 'blink')} style={{ color: statusCopy.color }}>
-                {statusCopy.text}
+                {t(statusCopy.text)}
               </div>
             </div>
             <div>
-              <div className="font-silk text-[9px] text-dim">HASHRATE</div>
+              <div className="font-silk text-[9px] text-dim">{t('HASHRATE')}</div>
               <div className="text-lime">{formatHashrate(rackLive?.hash ?? 0)}</div>
             </div>
             <div>
-              <div className="font-silk text-[9px] text-dim">COOLING / GPU</div>
+              <div className="font-silk text-[9px] text-dim">{t('COOLING / GPU')}</div>
               <div className="text-neon">{perGpuK.toFixed(1)} W/°C</div>
             </div>
             <div>
-              <div className="font-silk text-[9px] text-dim">WALL DRAW</div>
-              <div className="text-amber">{model.selfPowered ? '0 W (gold)' : formatPower(rackLive?.wall ?? 0)}</div>
+              <div className="font-silk text-[9px] text-dim">{t('WALL DRAW')}</div>
+              <div className="text-amber">{model.selfPowered ? t('0 W (gold)') : formatPower(rackLive?.wall ?? 0)}</div>
               {!model.selfPowered && (rackLive?.powerCost ?? 0) > 0 && (
-                <div className="text-[14px] leading-none text-dim" title="Grid demand: dense, high-hash GPUs are billed at a higher rate per watt.">
-                  -{formatCash(rackLive?.powerCost ?? 0)}/s · grid {formatMultiplier(rackLive?.tariff ?? 1)}
+                <div className="text-[14px] leading-none text-dim" title={t('Grid demand: dense, high-hash GPUs are billed at a higher rate per watt.')}>
+                  {t('-{cost}/s · grid {mult}', { cost: formatCash(rackLive?.powerCost ?? 0), mult: formatMultiplier(rackLive?.tariff ?? 1) })}
                 </div>
               )}
             </div>
@@ -169,19 +172,19 @@ export function RackDetailModal({ rackUid }: { rackUid: string }) {
 
           <div className="flex items-center gap-2 text-[16px]">
             <Gauge size={14} className="text-amber" />
-            <span className="w-24 font-silk text-[9px] text-dim">PSU LOAD</span>
+            <span className="w-24 font-silk text-[9px] text-dim">{t('PSU LOAD')}</span>
             <Meter value={nominal} max={Number.isFinite(capacity) ? capacity : nominal * 3 || 1} color="#fbbf24" className="flex-1" />
             <span className={cn('w-36 text-right', loadRatio > 1 && 'text-hot')}>
               {formatPower(nominal)} / {Number.isFinite(capacity) ? formatPower(capacity) : '∞'}
             </span>
           </div>
-          {loadRatio > 1 && <div className="blink font-pixel text-[8px] text-hot">⚠ The PSU can't feed this rack. Install a bigger PSU or remove GPUs.</div>}
+          {loadRatio > 1 && <div className="blink font-pixel text-[8px] text-hot">{t("⚠ The PSU can't feed this rack. Install a bigger PSU or remove GPUs.")}</div>}
 
           {/* GPU slots with power cabling */}
           <div className="relative pl-6">
             <div className="absolute bottom-0 left-2 top-2 w-1" style={{ background: powered ? '#facc15' : '#3f3f46', boxShadow: powered ? '0 0 6px #facc15' : undefined }} />
             <div className="mb-1 flex items-center gap-1 font-silk text-[10px] text-dim">
-              <Cpu size={12} /> PCIE SLOTS ({gpuCount}/{model.slots})
+              <Cpu size={12} /> {t('PCIE SLOTS ({n}/{max})', { n: gpuCount, max: model.slots })}
             </div>
             <div className="flex flex-col gap-1.5">
               {rack.gpuSlots.map((uid, i) => {
@@ -205,7 +208,7 @@ export function RackDetailModal({ rackUid }: { rackUid: string }) {
                           over || waiting('gpu') ? 'border-neon bg-neon/10 text-neon' : 'border-edge text-dim',
                         )}
                       >
-                        <PackageOpen size={14} /> {waiting('gpu') ? 'Click to install selected GPU' : `Empty PCIe x16 slot #${i + 1}`}
+                        <PackageOpen size={14} /> {waiting('gpu') ? t('Click to install selected GPU') : t('Empty PCIe x16 slot #{n}', { n: i + 1 })}
                       </button>
                     )}
                   </div>
@@ -217,7 +220,7 @@ export function RackDetailModal({ rackUid }: { rackUid: string }) {
           {/* Fans */}
           <div>
             <div className="mb-1 flex items-center gap-1 font-silk text-[10px] text-dim">
-              <Fan size={12} /> COOLING BAYS · total {fanK.toFixed(1)} W/°C
+              <Fan size={12} /> {t('COOLING BAYS · total {k} W/°C', { k: fanK.toFixed(1) })}
             </div>
             <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
               {rack.fanSlots.map((uid, i) => {
@@ -228,10 +231,10 @@ export function RackDetailModal({ rackUid }: { rackUid: string }) {
                   <div key={i} className="flex items-center gap-2 bg-panel-2 p-1.5">
                     <CoolerSprite modelId={cm.id} spinning={powered} scale={2} />
                     <div className="min-w-0 flex-1 text-[15px] leading-tight">
-                      <div className="truncate">{cm.name}</div>
+                      <div className="truncate">{t(cm.name)}</div>
                       <div className="text-neon">{cm.cooling} W/°C</div>
                     </div>
-                    <button type="button" className="text-dim hover:text-hot" onClick={() => actions.uninstallSlot(rack.uid, 'cooler', i)} aria-label="Remove cooler">
+                    <button type="button" className="text-dim hover:text-hot" onClick={() => actions.uninstallSlot(rack.uid, 'cooler', i)} aria-label={t('Remove cooler')}>
                       <Trash2 size={13} />
                     </button>
                   </div>
@@ -242,7 +245,7 @@ export function RackDetailModal({ rackUid }: { rackUid: string }) {
                     {...slotHandlers('cooler', i)}
                     className={cn('flex h-12 items-center justify-center border-2 border-dashed text-[15px]', over || waiting('cooler') ? 'border-neon bg-neon/10 text-neon' : 'border-edge text-dim')}
                   >
-                    {waiting('cooler') ? 'Install here' : `Fan bay ${i + 1}`}
+                    {waiting('cooler') ? t('Install here') : t('Fan bay {n}', { n: i + 1 })}
                   </button>
                 );
               })}
@@ -252,21 +255,21 @@ export function RackDetailModal({ rackUid }: { rackUid: string }) {
           {/* PSU */}
           <div>
             <div className="mb-1 flex items-center gap-1 font-silk text-[10px] text-dim">
-              <Plug size={12} /> POWER SUPPLY
+              <Plug size={12} /> {t('POWER SUPPLY')}
             </div>
             {model.selfPowered ? (
-              <div className="gold-shimmer bg-panel-2 p-2 font-pixel text-[9px]">★ BUILT-IN MICRO REACTOR — ZERO ELECTRICITY ★</div>
+              <div className="gold-shimmer bg-panel-2 p-2 font-pixel text-[9px]">{t('★ BUILT-IN MICRO REACTOR — ZERO ELECTRICITY ★')}</div>
             ) : psu && psuModel ? (
               <div className="flex items-center gap-3 bg-panel-2 p-2">
-                <SpriteImg src={sprites.psuIcon(psuModel.id)} width={84} height={30} alt={psuModel.name} />
+                <SpriteImg src={sprites.psuIcon(psuModel.id)} width={84} height={30} alt={t(psuModel.name)} />
                 <div className="flex-1 text-[16px] leading-tight">
-                  <div>{psuModel.name}</div>
+                  <div>{t(psuModel.name)}</div>
                   <div className="text-dim">
-                    {formatPower(psuModel.capacity)} · {formatPercent(psuModel.efficiency)} efficiency
+                    {t('{power} · {pct} efficiency', { power: formatPower(psuModel.capacity), pct: formatPercent(psuModel.efficiency) })}
                   </div>
                 </div>
                 <span className="size-2.5" style={{ background: powered ? '#22c55e' : status === 'overload' ? '#ef4444' : '#3f3f46', boxShadow: powered ? '0 0 6px #22c55e' : undefined }} />
-                <button type="button" className="text-dim hover:text-hot" onClick={() => actions.uninstallSlot(rack.uid, 'psu', 0)} aria-label="Remove PSU">
+                <button type="button" className="text-dim hover:text-hot" onClick={() => actions.uninstallSlot(rack.uid, 'psu', 0)} aria-label={t('Remove PSU')}>
                   <Trash2 size={13} />
                 </button>
               </div>
@@ -276,18 +279,18 @@ export function RackDetailModal({ rackUid }: { rackUid: string }) {
                 {...slotHandlers('psu', 0)}
                 className={cn('blink flex h-12 w-full items-center justify-center gap-2 border-2 border-dashed text-[17px]', dragOver === 'psu:0' || waiting('psu') ? 'border-neon text-neon' : 'border-amber text-amber')}
               >
-                <Cable size={14} /> {waiting('psu') ? 'Click to install PSU' : 'No PSU — the rack has no power!'}
+                <Cable size={14} /> {waiting('psu') ? t('Click to install PSU') : t('No PSU — the rack has no power!')}
               </button>
             )}
           </div>
 
           <div className="flex flex-wrap gap-1 border-t-2 border-[#1b1838] pt-3">
             <PixelButton size="sm" variant="primary" icon={<Wand2 size={12} />} onClick={() => actions.autoFillRack(rack.uid)}>
-              Auto-fill
+              {t('Auto-fill')}
             </PixelButton>
             {rack.roomId && (
               <PixelButton size="sm" onClick={() => { actions.storeRack(rack.uid); actions.selectRack(null); }}>
-                Move to storage
+                {t('Move to storage')}
               </PixelButton>
             )}
             {!model.vip && (
@@ -296,9 +299,9 @@ export function RackDetailModal({ rackUid }: { rackUid: string }) {
                 variant="danger"
                 disabled={gpuCount > 0 || rack.fanSlots.some(Boolean) || !!rack.psuUid}
                 onClick={() => actions.sellItem('rack', rack.uid)}
-                title="Empty the rack to sell it"
+                title={t('Empty the rack to sell it')}
               >
-                Sell rack ({formatCash(model.price / 2)})
+                {t('Sell rack ({price})', { price: formatCash(model.price / 2) })}
               </PixelButton>
             )}
           </div>
@@ -309,59 +312,59 @@ export function RackDetailModal({ rackUid }: { rackUid: string }) {
           <div className="flex gap-1">
             {(['gpu', 'cooler', 'psu'] as const).map((k) => (
               <PixelButton key={k} size="xs" variant={tab === k ? 'primary' : 'secondary'} onClick={() => setTab(k)} silent>
-                {k === 'gpu' ? `GPUs (${freeGpus.length})` : k === 'cooler' ? `Cooling (${freeCoolers.length})` : `PSUs (${freePsus.length})`}
+                {k === 'gpu' ? t('GPUs ({n})', { n: freeGpus.length }) : k === 'cooler' ? t('Cooling ({n})', { n: freeCoolers.length }) : t('PSUs ({n})', { n: freePsus.length })}
               </PixelButton>
             ))}
           </div>
-          <p className="text-[15px] leading-tight text-dim">Drag a part onto a slot, or click it and then click the slot.</p>
+          <p className="text-[15px] leading-tight text-dim">{t('Drag a part onto a slot, or click it and then click the slot.')}</p>
           <div className="retro-scroll flex max-h-[52vh] flex-col gap-1 overflow-y-auto pr-1">
             {tab === 'gpu' &&
               (freeGpus.length ? freeGpus.map((g) => {
                 const gm = GPU_BY_ID[g.modelId];
                 return (
                   <div key={g.uid} {...dragProps('gpu', g.uid)} className={cn('flex cursor-grab items-center gap-2 bg-panel-2 p-1.5 active:cursor-grabbing', sel?.uid === g.uid && 'shadow-[inset_0_0_0_2px_#22d3ee]')}>
-                    <SpriteImg src={sprites.gpuIcon(gm.id)} width={72} alt={gm.name} />
+                    <SpriteImg src={sprites.gpuIcon(gm.id)} width={72} alt={t(gm.name)} />
                     <div className="min-w-0 flex-1 text-[15px] leading-tight">
-                      <div className="truncate">{gm.brand} {gm.name}</div>
+                      <div className="truncate">{gm.brand} {t(gm.name)}</div>
                       <div className="flex items-center gap-1">
                         <QualityBadge quality={g.quality} />
                         <span className="text-lime">{formatHashrate(gm.hashrate * (1 + g.ocBonus))}</span>
                       </div>
-                      <div className="text-dim">{formatPower(gm.power)}{g.wear > 0 ? ` · wear ${formatPercent(g.wear)}` : ''}</div>
+                      <div className="text-dim">{formatPower(gm.power)}{g.wear > 0 ? ` · ${t('wear {pct}', { pct: formatPercent(g.wear) })}` : ''}</div>
                     </div>
                   </div>
                 );
-              }) : <Empty text="No spare GPUs. Buy some in the Shop." />)}
+              }) : <Empty text={t('No spare GPUs. Buy some in the Shop.')} />)}
             {tab === 'cooler' &&
               (freeCoolers.length ? freeCoolers.map((c) => {
                 const cm = COOLER_BY_ID[c.modelId];
                 return (
                   <div key={c.uid} {...dragProps('cooler', c.uid)} className={cn('flex cursor-grab items-center gap-2 bg-panel-2 p-1.5', sel?.uid === c.uid && 'shadow-[inset_0_0_0_2px_#22d3ee]')}>
-                    <SpriteImg src={sprites.coolerIcon(cm.id)} width={36} alt={cm.name} />
+                    <SpriteImg src={sprites.coolerIcon(cm.id)} width={36} alt={t(cm.name)} />
                     <div className="flex-1 text-[15px] leading-tight">
-                      <div>{cm.name}</div>
+                      <div>{t(cm.name)}</div>
                       <div className="text-neon">{cm.cooling} W/°C · {cm.power} W</div>
                     </div>
                   </div>
                 );
-              }) : <Empty text="No spare coolers." />)}
+              }) : <Empty text={t('No spare coolers.')} />)}
             {tab === 'psu' &&
               (freePsus.length ? freePsus.map((p) => {
                 const pm = PSU_BY_ID[p.modelId];
                 return (
                   <div key={p.uid} {...dragProps('psu', p.uid)} className={cn('flex cursor-grab items-center gap-2 bg-panel-2 p-1.5', sel?.uid === p.uid && 'shadow-[inset_0_0_0_2px_#22d3ee]')}>
-                    <SpriteImg src={sprites.psuIcon(pm.id)} width={56} height={20} alt={pm.name} />
+                    <SpriteImg src={sprites.psuIcon(pm.id)} width={56} height={20} alt={t(pm.name)} />
                     <div className="flex-1 text-[15px] leading-tight">
-                      <div>{pm.name}</div>
+                      <div>{t(pm.name)}</div>
                       <div className="text-amber">{formatPower(pm.capacity)} · {formatPercent(pm.efficiency)}</div>
                     </div>
                   </div>
                 );
-              }) : <Empty text="No spare PSUs." />)}
+              }) : <Empty text={t('No spare PSUs.')} />)}
           </div>
           {sel && (
             <PixelButton size="xs" variant="ghost" onClick={() => setSel(null)}>
-              Cancel selection
+              {t('Cancel selection')}
             </PixelButton>
           )}
         </div>
@@ -375,6 +378,7 @@ function Empty({ text }: { text: string }) {
 }
 
 function GpuRow({ gpu, rackUid, slot, live }: { gpu: GpuInstance; rackUid: string; slot: number; live?: { hash: number; throttled: boolean; running: boolean } }) {
+  const t = useT();
   const actions = useGameStore.getState();
   const gm = GPU_BY_ID[gpu.modelId];
   const pasteC = repasteCost(gpu);
@@ -384,37 +388,37 @@ function GpuRow({ gpu, rackUid, slot, live }: { gpu: GpuInstance; rackUid: strin
       <GpuSprite gpuUid={gpu.uid} scale={2} />
       <div className="min-w-0 flex-1 text-[15px] leading-tight">
         <div className="flex items-center gap-1 truncate">
-          <span className="truncate">{gm.brand} {gm.name}</span>
+          <span className="truncate">{gm.brand} {t(gm.name)}</span>
           <QualityBadge quality={gpu.quality} />
         </div>
         <div className="flex flex-wrap gap-x-2">
           <span style={{ color: tempColor(gpu.temp) }}>{formatTemp(gpu.temp)}</span>
           <span className="text-lime">{formatHashrate(live?.hash ?? 0)}</span>
           {gpu.ocBonus !== 0 && <span className="text-magenta">OC {gpu.ocBonus > 0 ? '+' : ''}{(gpu.ocBonus * 100).toFixed(0)}%</span>}
-          {live?.throttled && <span className="blink text-hot">THROTTLED</span>}
-          {gpu.shutdown && <span className="blink text-hot">SHUTDOWN</span>}
+          {live?.throttled && <span className="blink text-hot">{t('THROTTLED')}</span>}
+          {gpu.shutdown && <span className="blink text-hot">{t('SHUTDOWN')}</span>}
         </div>
         <div className="flex items-center gap-2 text-dim">
-          <span>paste</span>
+          <span>{t('paste')}</span>
           <div className="h-1.5 w-12 bg-[#0b0a18]">
             <div className="h-full" style={{ width: `${gpu.paste * 100}%`, background: gpu.paste > 0.5 ? '#a3e635' : gpu.paste > 0.2 ? '#fbbf24' : '#f43f5e' }} />
           </div>
-          {gpu.wear > 0 && <span className="text-hot">wear -{formatPercent(gpu.wear, 1)}</span>}
+          {gpu.wear > 0 && <span className="text-hot">{t('wear -{pct}', { pct: formatPercent(gpu.wear, 1) })}</span>}
         </div>
       </div>
       <div className="flex flex-wrap gap-0.5">
-        <PixelButton size="xs" variant="gold" onClick={() => actions.openBios(gpu.uid)} title="Overclock in the BIOS">
+        <PixelButton size="xs" variant="gold" onClick={() => actions.openBios(gpu.uid)} title={t('Overclock in the BIOS')}>
           BIOS
         </PixelButton>
-        <PixelButton size="xs" onClick={() => actions.repasteGpu(gpu.uid)} disabled={gpu.paste > 0.98} title={`Re-apply thermal paste (${formatCash(pasteC)})`}>
-          Paste
+        <PixelButton size="xs" onClick={() => actions.repasteGpu(gpu.uid)} disabled={gpu.paste > 0.98} title={t('Re-apply thermal paste ({cost})', { cost: formatCash(pasteC) })}>
+          {t('Paste')}
         </PixelButton>
         {gpu.wear > 0 && (
-          <PixelButton size="xs" variant="success" icon={<Wrench size={10} />} onClick={() => actions.repairGpu(gpu.uid)} title={`Repair silicon wear (${formatCash(repairC)})`}>
+          <PixelButton size="xs" variant="success" icon={<Wrench size={10} />} onClick={() => actions.repairGpu(gpu.uid)} title={t('Repair silicon wear ({cost})', { cost: formatCash(repairC) })}>
             {formatCash(repairC, 0)}
           </PixelButton>
         )}
-        <PixelButton size="xs" variant="danger" onClick={() => actions.uninstallSlot(rackUid, 'gpu', slot)} aria-label="Remove GPU">
+        <PixelButton size="xs" variant="danger" onClick={() => actions.uninstallSlot(rackUid, 'gpu', slot)} aria-label={t('Remove GPU')}>
           <Trash2 size={10} />
         </PixelButton>
       </div>
