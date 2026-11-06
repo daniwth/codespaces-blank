@@ -458,7 +458,7 @@ try {
       // How to play, opened with the keyboard.
       await menu.locator('button:has-text("How to play")').focus();
       await p.keyboard.press('Enter');
-      const wiki = p.locator('[role="dialog"]', { hasText: 'How to play' });
+      const wiki = p.locator('[role="dialog"]', { hasText: 'MANUAL DEL MINERO' });
       await wiki.waitFor({ timeout: 5000 });
       await p.keyboard.press('Escape');
       await p.waitForTimeout(150);
