@@ -458,11 +458,44 @@ try {
       // How to play, opened with the keyboard.
       await menu.locator('button:has-text("How to play")').focus();
       await p.keyboard.press('Enter');
-      const wiki = p.locator('[role="dialog"]', { hasText: 'MANUAL DEL MINERO' });
+      const wiki = p.locator('[role="dialog"]', { hasText: "MINER'S MANUAL" });
       await wiki.waitFor({ timeout: 5000 });
+      assert(await wiki.getByRole('searchbox').getAttribute('placeholder').then((v) => /Search/.test(v ?? '')), 'wiki search placeholder is not English');
+      assert(await wiki.locator('nav button', { hasText: 'Getting started' }).isVisible(), 'English wiki page missing');
+      await p.screenshot({ path: join(ART, 'wiki-en.png') });
       await p.keyboard.press('Escape');
       await p.waitForTimeout(150);
       assert(!(await wiki.isVisible()), 'Escape did not close the wiki');
+      // Switch to Spanish in Settings: the wiki is bilingual (buttons are found by position because their labels translate).
+      const buttonIndex = (label) => menu.evaluate((el, l) => [...el.querySelectorAll('button')].findIndex((b) => (b.textContent ?? '').includes(l)), label);
+      const settingsIdx = await buttonIndex('Settings');
+      const wikiIdx = await buttonIndex('How to play');
+      assert(settingsIdx >= 0 && wikiIdx >= 0, 'menu buttons not found');
+      const openSettings = async () => {
+        await menu.locator('button').nth(settingsIdx).click();
+        await p.locator('[role="dialog"]').first().waitFor({ timeout: 3000 });
+      };
+      await openSettings();
+      await p.getByRole('radiogroup').locator('button:has-text("Español")').click();
+      await p.keyboard.press('Escape');
+      await p.waitForTimeout(150);
+      await menu.locator('button').nth(wikiIdx).click();
+      const wikiEs = p.locator('[role="dialog"]', { hasText: 'MANUAL DEL MINERO' });
+      await wikiEs.waitFor({ timeout: 5000 });
+      assert(await wikiEs.locator('nav button', { hasText: 'Primeros pasos' }).isVisible(), 'Spanish wiki page missing');
+      assert(await wikiEs.getByRole('searchbox').getAttribute('placeholder').then((v) => /Buscar/.test(v ?? '')), 'wiki search placeholder is not Spanish');
+      await wikiEs.getByRole('searchbox').fill('pasta');
+      assert(await wikiEs.getByText(/resultado/).first().isVisible(), 'Spanish search count missing');
+      await p.screenshot({ path: join(ART, 'wiki-es.png') });
+      await p.keyboard.press('Escape');
+      await p.keyboard.press('Escape');
+      await p.waitForTimeout(150);
+      assert(!(await wikiEs.isVisible()), 'Escape did not close the Spanish wiki');
+      // Back to English for the rest of the checks.
+      await openSettings();
+      await p.getByRole('radiogroup').locator('button:has-text("English")').click();
+      await p.keyboard.press('Escape');
+      await p.waitForTimeout(150);
       // And from the in-game HUD.
       await enterGame(p, 'new');
       await p.locator('header button[aria-label="How to play"]').click();

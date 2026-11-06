@@ -5,15 +5,19 @@ import { ACHIEVEMENTS, NETWORK_EVENTS, PHYSICS, POOL_ORDER } from '../../src/con
 import { COOLER_CATALOG, GPU_BY_ID, GPU_CATALOG, PSU_CATALOG, QUALITY_ORDER, RACK_BY_ID, RACK_CATALOG } from '../../src/config/hardwareCatalog';
 import { PRESTIGE_TREE, earningsForSc, scForEarnings } from '../../src/config/prestigeTree';
 import { ROOM_CATALOG } from '../../src/config/roomsCatalog';
-import { WIKI_SECTIONS } from '../../src/config/wikiContent';
+import '../../src/i18n/es';
+import { getWikiSections } from '../../src/config/wikiContent';
 import * as T from '../../src/config/wikiTables';
-import type { WikiBlock, WikiTable } from '../../src/config/wikiTypes';
+import type { WikiBlock, WikiSection, WikiTable } from '../../src/config/wikiTypes';
 import { simulate } from '../../src/store/gamePhysics';
 import { createGpu, createInitialData, createRack } from '../../src/store/initialState';
 import { useGameStore } from '../../src/store/useGameStore';
 import { starterWorld } from './helpers';
 
 const NOW = 1_800_000_000_000;
+
+/** The Spanish pages (the original text); the English twin is checked in the bilingual block. */
+const WIKI_SECTIONS = getWikiSections('es');
 
 const allTables = (): WikiTable[] =>
   WIKI_SECTIONS.flatMap((s) => s.entries.flatMap((e) => e.blocks.filter((b): b is Extract<WikiBlock, { type: 'table' }> => b.type === 'table').map((b) => b.table)));
@@ -237,5 +241,104 @@ describe('wiki content and search', () => {
     expect(re).not.toBeNull();
     expect('Temperatura y energía'.split(re as RegExp)).toEqual(['Temperatura y ', 'energía', '']);
     expect(highlightRegex('a')).toBeNull();
+  });
+});
+
+const textOf = (block: WikiBlock): string => {
+  switch (block.type) {
+    case 'p':
+    case 'callout':
+    case 'formula':
+      return block.text;
+    case 'list':
+    case 'steps':
+      return block.items.join(' ');
+    case 'table':
+      return [block.table.caption ?? '', block.table.note ?? '', ...block.table.columns.map((c) => c.label), ...block.table.rows.flatMap((r) => r.cells)].join(' ');
+    default:
+      return '';
+  }
+};
+
+/** Structure of a page set without any text: section / entry ids and the kind and size of every block. */
+const shape = (sections: WikiSection[]) =>
+  sections.map((s) => ({
+    id: s.id,
+    icon: s.icon,
+    entries: s.entries.map((e) => ({
+      id: e.id,
+      blocks: e.blocks.map((b) => (b.type === 'table' ? `table:${b.table.id}:${b.table.rows.length}x${b.table.columns.length}` : `${b.type}:${b.type === 'list' || b.type === 'steps' ? b.items.length : 1}`)),
+    })),
+  }));
+
+describe('wiki is bilingual', () => {
+  const es = getWikiSections('es');
+  const en = getWikiSections('en');
+
+  it('both languages have identical page ids, section counts and block structure', () => {
+    expect(en).toHaveLength(14);
+    expect(shape(en)).toEqual(shape(es));
+  });
+
+  it('every section, entry and block has non-empty text in both languages', () => {
+    for (const [lang, sections] of [['es', es], ['en', en]] as const) {
+      sections.forEach((s) => {
+        expect(s.title.trim(), `${lang}/${s.id}`).not.toBe('');
+        expect(s.summary.trim(), `${lang}/${s.id}`).not.toBe('');
+        s.entries.forEach((e) => {
+          expect(e.title.trim(), `${lang}/${s.id}/${e.id}`).not.toBe('');
+          e.blocks.forEach((b) => expect(textOf(b).trim(), `${lang}/${s.id}/${e.id}`).not.toBe(''));
+        });
+      });
+      expect(JSON.stringify(sections)).not.toMatch(/undefined|NaN|\[object Object\]/);
+    }
+  });
+
+  it('the English pages are really English and the Spanish ones are unchanged', () => {
+    expect(en[0].title).toBe('Getting started');
+    expect(es[0].title).toBe('Primeros pasos');
+    const prose = (sections: WikiSection[]) => sections.flatMap((s) => s.entries.flatMap((e) => e.blocks.filter((b) => b.type === 'p' || b.type === 'callout').map(textOf))).join(' ');
+    expect(prose(en)).not.toMatch(/ de la | para | que el | las GPUs /);
+    expect(prose(es)).toMatch(/ de la /);
+  });
+
+  it('tables follow the language in headers, notes and captions, with the same numbers', () => {
+    const tables = (sections: WikiSection[]) => sections.flatMap((s) => s.entries.flatMap((e) => e.blocks.flatMap((b) => (b.type === 'table' ? [b.table] : []))));
+    const tEs = tables(es);
+    const tEn = tables(en);
+    expect(tEn.map((t) => t.id)).toEqual(tEs.map((t) => t.id));
+    tEn.forEach((t, i) => {
+      expect(t.rows.map((r) => r.id)).toEqual(tEs[i].rows.map((r) => r.id));
+      if (t.note) expect(t.note, t.id).not.toBe(tEs[i].note);
+      expect(t.columns.length).toBe(tEs[i].columns.length);
+    });
+    expect(T.gpuTable('en').columns[0].label).toBe('Model');
+    expect(T.gpuTable('es').columns[0].label).toBe('Modelo');
+    expect(T.gpuTable('en').rows[0].cells[2]).toBe(T.gpuTable('es').rows[0].cells[2]);
+  });
+
+  it('every table builder is complete in both languages', () => {
+    for (const lang of ['es', 'en'] as const) {
+      for (const build of [T.gpuTable, T.qualityTable, T.psuTable, T.coolerTable, T.rackTable, T.gridTariffTable, T.coolingGuideTable, T.maintenanceTable, T.roomTable, T.technicianTable, T.poolTable, T.eventTable, T.contractKindTable, T.contractDifficultyTable, T.talentTable, T.vipTable, T.achievementTable, T.ocLimitsTable, T.gemSourceTable]) {
+        const t = build(lang);
+        t.rows.forEach((r) => {
+          expect(r.cells, `${lang}/${t.id}/${r.id}`).toHaveLength(t.columns.length);
+          r.cells.forEach((c) => expect(c).not.toMatch(/undefined|NaN|Infinity/));
+        });
+      }
+    }
+  });
+
+  it('keeps the thermal numbers in the English prose', () => {
+    const text = en.find((s) => s.id === 'thermal')?.entries.find((e) => e.id === 'thermal-model')?.blocks.map(textOf).join(' ') ?? '';
+    expect(text).toContain(`${PHYSICS.throttleTemp} °C`);
+    expect(text).toContain(`${PHYSICS.shutdownTemp} °C`);
+  });
+
+  it('search works per language on its own index', () => {
+    expect(searchWiki(en, 'throttling').entryCount).toBeGreaterThan(0);
+    expect(searchWiki(en, 'electricity').sections.map((s) => s.id)).toContain('thermal');
+    expect(searchWiki(es, 'electricity').entryCount).toBeLessThan(searchWiki(en, 'electricity').entryCount);
+    expect(searchWiki(en, 'Leviathan').entryCount).toBeGreaterThan(0);
   });
 });
