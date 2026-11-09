@@ -543,6 +543,253 @@ export class SpriteManager {
     });
   }
 
+  // ── Electrical inspector (darknet raid): navy uniform, peaked cap, clipboard ──
+  inspector(frame: number, checking: boolean): HTMLCanvasElement {
+    const f = checking ? 4 + (frame % 2) : ((frame % 4) + 4) % 4;
+    return this.make(`inspector:${f}`, 11, 17, (ctx) => {
+      const skin = '#e8b48a';
+      const navy = '#1e3a8a';
+      const navyDark = '#172554';
+      const shoe = '#0a0a0a';
+      // Peaked cap with a gold badge
+      px(ctx, 2, 0, 6, 2, '#111827');
+      px(ctx, 2, 2, 8, 1, '#030712');
+      px(ctx, 4, 0, 2, 1, '#facc15');
+      px(ctx, 3, 3, 5, 3, skin);
+      px(ctx, 5, 4, 3, 1, '#0b0b0f'); // shades
+      px(ctx, 4, 6, 3, 1, shade(skin, -0.2));
+      // Uniform with hi-vis stripe
+      px(ctx, 2, 7, 7, 5, navy);
+      px(ctx, 2, 7, 7, 1, shade(navy, 0.25));
+      px(ctx, 2, 10, 7, 1, '#facc15');
+      px(ctx, 6, 8, 1, 1, '#facc15');
+      const swing = f < 4 ? [0, 1, 0, -1][f] : 0;
+      if (f >= 4) {
+        // Clipboard held up, pen scribbling
+        px(ctx, 7, 7, 4, 5, '#92400e');
+        px(ctx, 8, 8, 2, 3, '#f8fafc');
+        px(ctx, 8, f === 4 ? 9 : 10, 2, 1, '#64748b');
+        px(ctx, 8, 6, 2, 1, '#9ca3af');
+        px(ctx, 1, 8, 1, 3, navy);
+        px(ctx, 1, 11, 1, 1, skin);
+      } else {
+        px(ctx, 1, 8 + Math.max(0, swing), 1, 3, navy);
+        px(ctx, 1, 11 + Math.max(0, swing), 1, 1, skin);
+        // Clipboard under the arm
+        px(ctx, 8, 8, 3, 4, '#92400e');
+        px(ctx, 9, 9, 1, 2, '#f8fafc');
+      }
+      const leg = f < 4 ? [0, 1, 0, -1][f] : 0;
+      px(ctx, 3, 12, 2, 4 - Math.max(0, leg), navyDark);
+      px(ctx, 6, 12, 2, 4 - Math.max(0, -leg), navyDark);
+      px(ctx, 2 + (leg > 0 ? 1 : 0), 16 - Math.max(0, leg), 3, 1, shoe);
+      px(ctx, 6, 16 - Math.max(0, -leg), 3, 1, shoe);
+    });
+  }
+
+  /** Welder in a dark mask and orange overalls, torch towards -x. */
+  welder(frame: number): HTMLCanvasElement {
+    const f = ((frame % 2) + 2) % 2;
+    return this.make(`welder:${f}`, 12, 16, (ctx) => {
+      const suit = '#ea580c';
+      px(ctx, 3, 0, 6, 5, '#27272a');
+      px(ctx, 3, 0, 6, 1, '#3f3f46');
+      px(ctx, 3, 2, 3, 2, f ? '#22d3ee' : '#0e7490'); // visor glint
+      px(ctx, 3, 5, 7, 6, suit);
+      px(ctx, 3, 5, 7, 1, shade(suit, 0.25));
+      px(ctx, 5, 6, 3, 4, '#9a3412');
+      // Arm + torch
+      px(ctx, 1, 5 + f, 3, 1, suit);
+      px(ctx, 0, 4 + f, 1, 2, '#a1a1aa');
+      px(ctx, 9, 6, 1, 4, suit);
+      px(ctx, 4, 11, 2, 4, '#1f2937');
+      px(ctx, 7, 11, 2, 4, '#1f2937');
+      px(ctx, 3, 15, 3, 1, '#0a0a0a');
+      px(ctx, 7, 15, 3, 1, '#0a0a0a');
+    });
+  }
+
+  /** Warehouse forklift carrying a crate (faces +x). */
+  forklift(frame: number): HTMLCanvasElement {
+    const f = ((frame % 2) + 2) % 2;
+    return this.make(`forklift:${f}`, 34, 22, (ctx) => {
+      const body = '#f59e0b';
+      // Mast + forks
+      px(ctx, 25, 1, 2, 19, '#3f3f46');
+      px(ctx, 27, 18, 7, 2, '#52525b');
+      // Crate on the forks
+      px(ctx, 27, 7, 7, 11, '#92400e');
+      px(ctx, 28, 8, 5, 9, '#b45309');
+      px(ctx, 28, 12, 5, 1, '#78350f');
+      // Cab cage
+      px(ctx, 7, 2, 1, 9, '#27272a');
+      px(ctx, 19, 2, 1, 9, '#27272a');
+      px(ctx, 7, 2, 13, 1, '#27272a');
+      // Driver
+      px(ctx, 12, 4, 4, 3, '#f2c18f');
+      px(ctx, 12, 3, 4, 1, '#facc15');
+      px(ctx, 11, 7, 6, 4, '#2563eb');
+      // Chassis
+      px(ctx, 2, 10, 23, 7, body);
+      px(ctx, 2, 10, 23, 1, shade(body, 0.35));
+      px(ctx, 2, 16, 23, 1, shade(body, -0.35));
+      px(ctx, 0, 11, 4, 5, '#3f3f46'); // counterweight
+      for (let x = 4; x < 24; x += 4) px(ctx, x, 13, 2, 1, '#111827');
+      // Wheels with a turning hub
+      [[4, 15], [18, 15]].forEach(([wx, wy]) => {
+        px(ctx, wx, wy, 6, 6, '#0a0a0a');
+        px(ctx, wx + 1, wy + 1, 4, 4, '#27272a');
+        px(ctx, wx + (f ? 1 : 3), wy + (f ? 1 : 3), 2, 2, '#a1a1aa');
+      });
+    });
+  }
+
+  /** Status icons drawn above racks (9×9, 1-px dark outline). */
+  statusIcon(kind: 'overheat' | 'overload' | 'no_psu' | 'reboot', frame: number): HTMLCanvasElement {
+    const frames = kind === 'reboot' ? 8 : kind === 'overheat' ? 2 : 1;
+    const f = ((frame % frames) + frames) % frames;
+    return this.make(`status:${kind}:${f}`, 9, 9, (ctx) => {
+      const ol = '#0a0a0a';
+      const rows = (shape: string[], colors: Record<string, string>) =>
+        shape.forEach((row, y) => [...row].forEach((ch, x) => colors[ch] && px(ctx, x, y, 1, 1, colors[ch])));
+      if (kind === 'overheat') {
+        rows(
+          f === 0
+            ? ['...o.....', '..oro....', '..orro.o.', '.orrrooro', '.orryrrro', 'orryyyrro', 'orryWyyro', '.oryWWyo.', '..ooooo..']
+            : ['....o....', '...oro...', '.o.orro..', 'oro.orro.', 'orrrryro.', 'orryyyrro', 'oryyWyyro', '.oryWWro.', '..ooooo..'],
+          { o: ol, r: '#ef4444', y: '#facc15', W: '#fef9c3' },
+        );
+      } else if (kind === 'overload') {
+        rows(
+          ['....ooooo', '...oyyyo.', '..oyyyo..', '.oyyyoooo', 'oyyyyyyyo', 'oooooyyo.', '...oyyo..', '..oyyo...', '..ooo....'],
+          { o: ol, y: '#fde047' },
+        );
+      } else if (kind === 'no_psu') {
+        rows(
+          ['.o.o.....', '.g.g.....', 'ogggo....', 'ogggo..rr', '.ogo..rr.', '..c..rr..', '..c.rr...', '..crr....', '...c.....'],
+          { o: ol, g: '#cbd5e1', c: '#71717a', r: '#ef4444' },
+        );
+      } else {
+        // 8-dot spinner, bright head rotating
+        const dots = [[4, 0], [7, 1], [8, 4], [7, 7], [4, 8], [1, 7], [0, 4], [1, 1]];
+        dots.forEach(([dx, dy], k) => {
+          const age = (k - f + 8) % 8;
+          const c = age === 0 ? '#ffffff' : age === 7 ? '#93c5fd' : age === 6 ? '#3b82f6' : '#64748b';
+          px(ctx, dx, dy, 1, 1, c);
+          if (age === 0) px(ctx, dx + (dx < 4 ? 1 : dx > 4 ? -1 : 0), dy + (dy < 4 ? 1 : dy > 4 ? -1 : 0), 1, 1, '#bfdbfe');
+        });
+        px(ctx, 4, 4, 1, 1, '#93c5fd');
+      }
+    });
+  }
+
+  /** Soft pixel glow: solid core, checker-dithered halo (no gradients). */
+  glow(r: number, color: string): HTMLCanvasElement {
+    const d = r * 2 + 1;
+    return this.make(`glow:${r}:${color}`, d, d, (ctx) => {
+      for (let y = 0; y < d; y += 1) for (let x = 0; x < d; x += 1) {
+        const dist = Math.hypot(x - r, y - r);
+        if (dist > r) continue;
+        if (dist <= r * 0.45 || (dist <= r * 0.75 && (x + y) % 2 === 0) || (x % 2 === 0 && y % 2 === 0)) px(ctx, x, y, 1, 1, color);
+      }
+    });
+  }
+
+  /** Diagonal caution tape stuck across an inspected rack. */
+  cautionTape(): HTMLCanvasElement {
+    return this.make('caution-tape', RACK_W, RACK_H, (ctx) => {
+      for (let i = 0; i < RACK_W; i += 1) {
+        const y = 14 + Math.round(i * 0.9);
+        const c = Math.floor(i / 3) % 2 ? '#111827' : '#facc15';
+        px(ctx, i, y, 1, 5, c);
+        px(ctx, i, y + 5, 1, 1, 'rgba(0,0,0,0.45)');
+      }
+      px(ctx, 12, 27, 17, 8, '#f8fafc');
+      px(ctx, 12, 27, 17, 1, '#ef4444');
+      px(ctx, 12, 34, 17, 1, '#94a3b8');
+      drawPixelText(ctx, 'VOID', 13, 29, '#b91c1c');
+    });
+  }
+
+  /** Full-width black/yellow hazard strip for raid banners. */
+  hazardStrip(w: number): HTMLCanvasElement {
+    return this.make(`hazard:${w}`, w, 9, (ctx) => {
+      px(ctx, 0, 0, w, 9, '#facc15');
+      for (let x = -9; x < w; x += 8) for (let y = 1; y < 8; y += 1) px(ctx, x + y, y, 4, 1, '#111827');
+      px(ctx, 0, 0, w, 1, '#713f12');
+      px(ctx, 0, 8, w, 1, '#713f12');
+    });
+  }
+
+  /** "BLOCK FOUND!" ribbon banner. */
+  blockBanner(): HTMLCanvasElement {
+    return this.make('banner:block', 176, 34, (ctx) => {
+      const W = 176;
+      // Folded ribbon tails
+      [0, W - 14].forEach((x0) => {
+        px(ctx, x0, 10, 14, 19, '#a16207');
+        px(ctx, x0, 10, 14, 1, '#ca8a04');
+        px(ctx, x0, 28, 14, 1, '#713f12');
+      });
+      px(ctx, 8, 28, 4, 2, '#713f12');
+      px(ctx, W - 12, 28, 4, 2, '#713f12');
+      for (let k = -4; k <= 4; k += 1) {
+        const d = 5 - Math.abs(k);
+        ctx.clearRect(0, 19 + k, d, 1);
+        ctx.clearRect(W - d, 19 + k, d, 1);
+      }
+      px(ctx, 8, 2, W - 16, 26, '#07060f');
+      px(ctx, 9, 3, W - 18, 24, '#facc15');
+      px(ctx, 10, 4, W - 20, 22, '#1e1b4b');
+      px(ctx, 10, 4, W - 20, 2, '#312e81');
+      px(ctx, 10, 24, W - 20, 2, '#0f0d2e');
+      for (let x = 12; x < W - 12; x += 6) {
+        px(ctx, x, 3, 2, 1, '#fef9c3');
+        px(ctx, x + 3, 26, 2, 1, '#a16207');
+      }
+      drawPixelText(ctx, 'BLOCK FOUND!', W / 2 + 1, 9, '#07060f', { align: 'center', scale: 3 });
+      drawPixelText(ctx, 'BLOCK FOUND!', W / 2, 8, '#a5f3fc', { align: 'center', scale: 3 });
+      // Two-tone lettering: darker lower half
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 16, W, 8);
+      ctx.clip();
+      drawPixelText(ctx, 'BLOCK FOUND!', W / 2, 8, '#22d3ee', { align: 'center', scale: 3 });
+      ctx.restore();
+      px(ctx, 8, 30, W - 16, 2, 'rgba(0,0,0,0.35)');
+    });
+  }
+
+  /** Aurora curtains for the arctic window: cached loop, clipped to the sky above the peaks. */
+  aurora(frame: number): HTMLCanvasElement {
+    const FRAMES = 32;
+    const f = ((frame % FRAMES) + FRAMES) % FRAMES;
+    return this.make(`aurora:${f}`, 174, 40, (ctx) => {
+      const ph = (f / FRAMES) * Math.PI * 2;
+      for (let i = 0; i < 174; i += 1) {
+        const peakTop = 38 - Math.abs(Math.sin(i / 18) * 18) - Math.abs(Math.sin(i / 7) * 5); // matches drawRoom
+        const clipY = Math.floor(peakTop) - 1;
+        const glow = Math.sin(i / 17 + ph) + 0.5 * Math.sin(i / 7 - ph * 2);
+        const taper = Math.min(1, Math.max(0, (glow + 0.7) / 1.1));
+        if (taper <= 0.15) continue;
+        // Lower (brightest) edge of the curtain, rays shooting up from it
+        const base = Math.round(16 + 6 * Math.sin(i / 29 + ph) + 3 * Math.sin(i / 11 - ph * 2));
+        const ray = 0.5 + 0.5 * Math.sin(i * 1.7 + ph * (1 + Math.floor(hash01('aur', i) * 3)) + hash01('aurp', i) * 6);
+        const len = Math.round((5 + ray * 9 + Math.max(0, glow) * 3) * taper);
+        for (let k = 0; k < len; k += 1) {
+          const y = base - k;
+          if (y < 0) break;
+          if (y > clipY) continue;
+          const fade = k / len;
+          if (fade > 0.55 && (i + y) % 2 === 0) continue;
+          if (fade > 0.8 && (i + y) % 3 !== 0) continue;
+          const c = k === 0 ? '#d1fae5' : k < 3 ? (glow > 0.3 ? '#6ee7b7' : '#34d399') : fade < 0.55 ? '#10b981' : fade < 0.8 ? '#0d9488' : '#8b5cf6';
+          px(ctx, i, y, 1, 1, c);
+        }
+      }
+    });
+  }
+
   // ── Room backgrounds (480×270) ──
   roomBackground(roomId: RoomId, w: number, h: number, wallH: number): HTMLCanvasElement {
     return this.make(`room:${roomId}:${w}x${h}`, w, h, (ctx) => drawRoom(ctx, roomId, w, h, wallH));
@@ -682,6 +929,26 @@ function drawRoom(ctx: Ctx, roomId: RoomId, W: number, H: number, wallH: number)
         px(ctx, 424, 213 - dy, 32, 8, '#27272a');
         px(ctx, 432, 215 - dy, 16, 4, '#0a0a0a');
       });
+      // Welding corner: gas bottle, welder unit, low workbench with a clamped bar (welder drawn live)
+      px(ctx, 8, 114, 7, 28, '#15803d');
+      px(ctx, 9, 114, 2, 28, '#22c55e');
+      px(ctx, 9, 111, 5, 3, '#3f3f46');
+      px(ctx, 10, 109, 3, 2, '#a1a1aa');
+      px(ctx, 17, 130, 14, 12, '#1e40af');
+      px(ctx, 17, 130, 14, 1, '#3b82f6');
+      px(ctx, 19, 133, 5, 3, '#0f172a');
+      px(ctx, 20, 134, 2, 1, '#4ade80');
+      px(ctx, 26, 133, 3, 3, '#facc15');
+      px(ctx, 30, 131, 51, 3, '#78350f');
+      px(ctx, 30, 131, 51, 1, '#a16207');
+      px(ctx, 32, 134, 2, 8, '#451a03');
+      px(ctx, 77, 134, 2, 8, '#451a03');
+      px(ctx, 32, 139, 47, 1, '#451a03');
+      px(ctx, 68, 125, 7, 6, '#52525b');
+      px(ctx, 68, 125, 7, 1, '#71717a');
+      px(ctx, 56, 128, 25, 2, '#9ca3af');
+      px(ctx, 56, 128, 25, 1, '#d4d4d8');
+      for (let i = 0; i < 56; i += 1) px(ctx, 30 + i, 141 - Math.round(Math.abs(Math.sin(i / 6))), 1, 1, '#111827');
       break;
     }
     case 'warehouse': {
@@ -766,6 +1033,21 @@ function drawRoom(ctx: Ctx, roomId: RoomId, W: number, H: number, wallH: number)
         }
         [[0, -18], [0, 18], [-18, 0], [18, 0]].forEach(([dx, dy]) => px(ctx, cx + dx, 40 + dy, 1, 1, '#713f12'));
       });
+      // Sonar console (sweep drawn live)
+      px(ctx, 424, 18, 44, 48, '#334155');
+      px(ctx, 424, 18, 44, 1, '#64748b');
+      px(ctx, 425, 65, 43, 1, '#0f172a');
+      for (let y = -15; y <= 15; y += 1) for (let x = -15; x <= 15; x += 1) {
+        const r = Math.hypot(x, y);
+        if (r <= 15) px(ctx, 446 + x, 39 + y, 1, 1, r > 13.5 ? '#94a3b8' : r > 12.5 ? '#0f172a' : '#022c22');
+      }
+      for (let a = 0; a < 48; a += 1) {
+        const ang = (a / 48) * Math.PI * 2;
+        px(ctx, 446 + Math.cos(ang) * 8, 39 + Math.sin(ang) * 8, 1, 1, '#065f46');
+      }
+      px(ctx, 434, 39, 24, 1, '#064e3b');
+      px(ctx, 446, 27, 1, 24, '#064e3b');
+      drawPixelText(ctx, 'SONAR', 446, 57, '#5eead4', { align: 'center' });
       // Grated floor
       for (let y = wallH; y < H; y += 6) px(ctx, 0, y, W, 1, t.floorB);
       for (let x = 0; x < W; x += 6) px(ctx, x, wallH, 1, H - wallH, shade(t.floorA, -0.15));

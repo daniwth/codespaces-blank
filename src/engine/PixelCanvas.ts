@@ -171,8 +171,9 @@ export class ParticleSystem {
     this.spawn({ kind: 'coin', x, y, vx: (Math.random() - 0.5) * 30, vy: -40 - Math.random() * 20, life: 1.6, size: 7, color: '#facc15', tx, ty });
   }
 
-  block(x: number, y: number, tx: number, ty: number): void {
-    this.spawn({ kind: 'block', x, y, vx: (Math.random() - 0.5) * 60, vy: -60 - Math.random() * 30, life: 2, size: 6, color: '#22d3ee', tx, ty });
+  /** Data block that pops out and homes to (tx, ty); `power` scales the initial kick. */
+  block(x: number, y: number, tx: number, ty: number, power = 1): void {
+    this.spawn({ kind: 'block', x, y, vx: (Math.random() - 0.5) * 60 * power * power, vy: (-60 - Math.random() * 30) * power, life: 2, size: 6, color: '#22d3ee', tx, ty });
   }
 
   text(x: number, y: number, text: string, color: string): void {

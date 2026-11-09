@@ -1,7 +1,7 @@
 import type { NetworkEventDef, NetworkEventId, PoolDefinition, PoolMode } from '../types/economy';
 import type { AchievementDef } from '../types/player';
 
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 5;
 export const SAVE_KEY = 'hash-harvest-tycoon';
 export const SAVE_SALT = 'HHT::pixel-rigs::v1';
 
@@ -34,6 +34,19 @@ export const PHYSICS = {
   soloBlockMeanSec: 300,
   soloEvMul: 1.15,
   darknetRaidMeanSec: 420,
+} as const;
+
+/**
+ * Grid demand: dense, high-hash hardware is billed at industrial demand rates.
+ * Each GPU model pays pricePerWattSec × (its hash per watt / PX-460 hash per watt) ^ tariffExponent
+ * for every wall watt it draws. Hash per watt grows ~3x per tier, so a flat tariff
+ * made the power bill vanish after the first hour; with this curve electricity
+ * stays ~10-25% of gross mining revenue on every tier (in its natural room / PSU),
+ * so PSU efficiency, cheaper rooms and Green PPA keep paying off, while no device
+ * is ever net-negative (worst case, the Bedroom on the weakest PSU that carries it: <75%).
+ */
+export const GRID = {
+  tariffExponent: 1.05,
 } as const;
 
 export const POOLS: Record<PoolMode, PoolDefinition> = {
@@ -140,4 +153,5 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'oc5', name: 'Overclock Artisan', description: 'Apply 5 stable overclocks.', gems: 4, check: (c) => c.stableOverclocks >= 5 },
   { id: 'tech3', name: 'Crew Chief', description: 'Hire 3 technicians.', gems: 3, check: (c) => c.technicians >= 3 },
   { id: 'trade', name: 'Diamond Hands', description: 'Profit $1K in a single trade.', gems: 3, check: (c) => c.bestTrade >= 1_000 },
+  { id: 'contracts10', name: 'Reliable Contractor', description: 'Claim 10 contracts.', gems: 3, check: (c) => c.contractsCompleted >= 10 },
 ];

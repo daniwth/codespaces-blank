@@ -1,14 +1,23 @@
-import { Download, FileUp, RotateCcw, Save, ShieldCheck } from 'lucide-react';
+import { Download, FileUp, House, RotateCcw, Save, ShieldCheck } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { SAVE_VERSION } from '../../config/gameBalance';
+import { factoryReset, goToMainMenu } from '../../store/session';
 import { gameStorage, useGameShallow, useGameStore } from '../../store/useGameStore';
 import type { LoopMode } from '../../hooks/useGameLoop';
 import { PixelButton } from '../ui/PixelButton';
+import { LANGS, tr, useLangStore, useT } from '../../i18n';
 
-export function SettingsPanel({ loopMode }: { loopMode: LoopMode | null }) {
+/**
+ * Audio/video toggles, save export/import and factory reset. Rendered in the
+ * System tab and, with `inMenu`, inside the title screen's Settings window.
+ */
+export function SettingsPanel({ loopMode, inMenu = false }: { loopMode: LoopMode | null; inMenu?: boolean }) {
+  const t = useT();
+  const lang = useLangStore((s) => s.lang);
+  const setLang = useLangStore((s) => s.setLang);
   const settings = useGameShallow((s) => s.settings);
   const createdAt = useGameStore((s) => s.createdAt);
-  const { updateSettings, exportSave, importSave, hardReset, pushLog } = useGameStore.getState();
+  const { updateSettings, exportSave, importSave, pushLog } = useGameStore.getState();
   const [text, setText] = useState('');
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
@@ -19,9 +28,9 @@ export function SettingsPanel({ loopMode }: { loopMode: LoopMode | null }) {
     setText(code);
     try {
       await navigator.clipboard.writeText(code);
-      setMsg({ ok: true, text: 'Save exported and copied to the clipboard (SHA-256 signed).' });
+      setMsg({ ok: true, text: t('Save exported and copied to the clipboard (SHA-256 signed).') });
     } catch {
-      setMsg({ ok: true, text: 'Save exported below (SHA-256 signed).' });
+      setMsg({ ok: true, text: t('Save exported below (SHA-256 signed).') });
     }
   };
 
@@ -38,15 +47,33 @@ export function SettingsPanel({ loopMode }: { loopMode: LoopMode | null }) {
 
   const doImport = async (code: string) => {
     const res = await importSave(code);
-    setMsg({ ok: res.ok, text: res.message });
+    setMsg({ ok: res.ok, text: t(res.message) });
   };
 
   return (
     <div className="flex flex-col gap-3 text-[17px]">
+      {!inMenu && (
+        <section className="flex flex-wrap items-center gap-2 bg-panel-2 p-2">
+          <PixelButton size="sm" variant="primary" icon={<House size={11} />} onClick={goToMainMenu}>
+            {t('Main menu')}
+          </PixelButton>
+          <span className="min-w-0 flex-1 text-[15px] leading-tight text-dim">{t('Saves and returns to the title screen. Time spent there counts as offline time.')}</span>
+        </section>
+      )}
       <section className="flex flex-col gap-2 bg-panel-2 p-2">
-        <h3 className="font-pixel text-[9px] text-neon">AUDIO & VIDEO</h3>
+        <h3 className="font-pixel text-[9px] text-neon">{t('LANGUAGE')}</h3>
+        <div className="flex gap-2" role="radiogroup" aria-label={t('Language')}>
+          {LANGS.map((l) => (
+            <PixelButton key={l.id} size="sm" variant={lang === l.id ? 'primary' : 'ghost'} aria-pressed={lang === l.id} onClick={() => setLang(l.id)}>
+              {l.label}
+            </PixelButton>
+          ))}
+        </div>
+      </section>
+      <section className="flex flex-col gap-2 bg-panel-2 p-2">
+        <h3 className="font-pixel text-[9px] text-neon">{t('AUDIO & VIDEO')}</h3>
         <label className="flex items-center gap-2">
-          <span className="w-28 text-dim">Volume</span>
+          <span className="w-28 text-dim">{t('Volume')}</span>
           <input type="range" min={0} max={1} step={0.05} value={settings.volume} onChange={(e) => updateSettings({ volume: Number(e.target.value) })} className="flex-1 accent-cyan-400" />
           <span className="w-10 text-right">{Math.round(settings.volume * 100)}</span>
         </label>
@@ -58,28 +85,28 @@ export function SettingsPanel({ loopMode }: { loopMode: LoopMode | null }) {
         ] as const).map(([key, label]) => (
           <label key={key} className="flex items-center gap-2">
             <input type="checkbox" checked={settings[key]} onChange={(e) => updateSettings({ [key]: e.target.checked })} />
-            {label}
+            {t(label)}
           </label>
         ))}
       </section>
 
       <section className="flex flex-col gap-2 bg-panel-2 p-2">
         <h3 className="flex items-center gap-2 font-pixel text-[9px] text-neon">
-          <ShieldCheck size={12} /> SAVE DATA (v{SAVE_VERSION})
+          <ShieldCheck size={12} /> {t('SAVE DATA')} (v{SAVE_VERSION})
         </h3>
-        <p className="leading-tight text-dim">Autosaves to localStorage every 2s. Exports are Base64 JSON signed with a SHA-256 checksum, so edited or damaged saves are rejected.</p>
+        <p className="leading-tight text-dim">{t('Autosaves to localStorage every 2s. Exports are Base64 JSON signed with a SHA-256 checksum, so edited or damaged saves are rejected.')}</p>
         <div className="flex flex-wrap gap-1">
-          <PixelButton size="xs" variant="primary" icon={<Save size={10} />} onClick={() => { gameStorage.flush(); pushLog('Game saved.', 'info'); setMsg({ ok: true, text: 'Saved to this browser.' }); }}>
-            Save now
+          <PixelButton size="xs" variant="primary" icon={<Save size={10} />} onClick={() => { gameStorage.flush(); pushLog(tr('Game saved.'), 'info'); setMsg({ ok: true, text: t('Saved to this browser.') }); }}>
+            {t('Save now')}
           </PixelButton>
           <PixelButton size="xs" icon={<Download size={10} />} onClick={doExport}>
-            Export
+            {t('Export')}
           </PixelButton>
           <PixelButton size="xs" icon={<Download size={10} />} onClick={doDownload}>
-            Download
+            {t('Download')}
           </PixelButton>
           <PixelButton size="xs" icon={<FileUp size={10} />} onClick={() => fileRef.current?.click()}>
-            Load file
+            {t('Load file')}
           </PixelButton>
           <input
             ref={fileRef}
@@ -93,34 +120,36 @@ export function SettingsPanel({ loopMode }: { loopMode: LoopMode | null }) {
             }}
           />
         </div>
-        <textarea className="retro-input h-24 w-full resize-y text-[14px] leading-tight" placeholder="Paste an exported save here…" value={text} onChange={(e) => setText(e.target.value)} />
+        <textarea className="retro-input h-24 w-full resize-y text-[14px] leading-tight" placeholder={t('Paste an exported save here…')} value={text} onChange={(e) => setText(e.target.value)} />
         <PixelButton size="xs" variant="success" disabled={!text.trim()} onClick={() => doImport(text)}>
-          Import pasted save
+          {t('Import pasted save')}
         </PixelButton>
         {msg && <p className={msg.ok ? 'text-lime' : 'text-hot'}>{msg.text}</p>}
       </section>
 
       <section className="flex flex-col gap-2 bg-panel-2 p-2">
-        <h3 className="font-pixel text-[9px] text-hot">DANGER ZONE</h3>
+        <h3 className="font-pixel text-[9px] text-hot">{t('DANGER ZONE')}</h3>
         {!confirmReset ? (
           <PixelButton size="xs" variant="danger" icon={<RotateCcw size={10} />} onClick={() => setConfirmReset(true)}>
-            Factory reset
+            {t('Factory reset')}
           </PixelButton>
         ) : (
           <div className="flex flex-wrap items-center gap-1">
-            <span className="text-hot">Erase everything, including talents?</span>
-            <PixelButton size="xs" variant="danger" onClick={() => { hardReset(); setConfirmReset(false); }}>
-              Yes, wipe
+            <span className="text-hot">{t('Erase everything, including talents?')}</span>
+            <PixelButton size="xs" variant="danger" onClick={() => { factoryReset(); setConfirmReset(false); }}>
+              {t('Yes, wipe')}
             </PixelButton>
             <PixelButton size="xs" variant="ghost" onClick={() => setConfirmReset(false)}>
-              Cancel
+              {t('Cancel')}
             </PixelButton>
           </div>
         )}
       </section>
 
       <p className="text-[15px] leading-tight text-dim">
-        Simulation: {loopMode === 'worker' ? 'Web Worker (off-thread)' : loopMode === 'main-thread' ? 'main-thread fallback' : 'starting…'} · Farm founded {new Date(createdAt).toLocaleDateString()}
+        {t('Simulation')}:{' '}
+        {inMenu ? t('paused on the title screen') : loopMode === 'worker' ? t('Web Worker (off-thread)') : loopMode === 'main-thread' ? t('main-thread fallback') : t('starting…')} ·{' '}
+        {t('Farm founded {date}', { date: new Date(createdAt).toLocaleDateString() })}
       </p>
     </div>
   );

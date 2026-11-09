@@ -5,9 +5,17 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "typecheck": "tsc --noEmit",
-    "preview": "vite preview"
+    "build": "tsc --noEmit && tsc -p server && vite build",
+    "typecheck": "tsc --noEmit && tsc -p server",
+    "preview": "vite preview",
+    "server": "node --no-warnings --env-file-if-exists=.env server/index.ts",
+    "dev:server": "node --no-warnings --watch --env-file-if-exists=.env server/index.ts",
+    "start": "npm run build && npm run server",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "node tests/e2e/smoke.mjs",
+    "test:all": "npm run build && npm test && npm run test:server && npm run test:e2e",
+    "test:server": "node tests/server/security.mjs"
   },
   "dependencies": {
     "break_infinity.js": "^2.2.0",
@@ -22,11 +30,16 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.4",
     "@types/canvas-confetti": "^1.9.0",
+    "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.2.1",
     "tailwindcss": "^4.3.4",
     "typescript": "^7.0.2",
-    "vite": "^8.3.5"
+    "vite": "^8.3.5",
+    "vitest": "^5.1.0"
+  },
+  "engines": {
+    "node": ">=22.18"
   }
 }

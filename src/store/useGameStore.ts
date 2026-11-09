@@ -1,14 +1,17 @@
+import { tr } from '../i18n';
 import { create } from 'zustand';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { useShallow } from 'zustand/react/shallow';
 import { SAVE_KEY, SAVE_VERSION } from '../config/gameBalance';
-import type { GameData } from '../types/player';
+import type { GameData, RoomId } from '../types/player';
 import { bnAdd, bnMax, bnToNumber } from '../utils/bignum';
 import { fxBus, sfxBus, type SfxCue } from '../utils/eventBus';
 import { decodeSave, encodeSave } from '../utils/saveCodec';
 import { emptyLive, type SimInput, type SimOutput, type SoundCue } from './gamePhysics';
+import { pruneGpuEdits, reconcileGpuUpdate } from './editLedger';
 import { createInitialData } from './initialState';
 import { migrateSave } from './migrations';
+import { createContractsSlice } from './slices/contractsSlice';
 import { createEconomySlice } from './slices/economySlice';
 import { createHardwareSlice } from './slices/hardwareSlice';
 import { createMarketSlice } from './slices/marketSlice';
@@ -16,10 +19,10 @@ import { createRoomsSlice } from './slices/roomsSlice';
 import type { CoreActions, GameStore, GetState, SetState, UiState } from './storeTypes';
 
 const DATA_KEYS: (keyof GameData)[] = [
-  'saveVersion', 'createdAt', 'lastTick', 'cash', 'cc', 'meme', 'memeCostBasis', 'gems', 'sc', 'scLifetime',
-  'runEarnings', 'lifetimeEarnings', 'gpus', 'psus', 'coolers', 'racks', 'ownedRooms', 'activeRoom',
+  'saveVersion', 'createdAt', 'lastTick', 'cash', 'cc', 'meme', 'memeCostBasis', 'ccCostBasis', 'gems', 'sc', 'scLifetime',
+  'runEarnings', 'lifetimeEarnings', 'runStartedAt', 'gpus', 'psus', 'coolers', 'racks', 'ownedRooms', 'activeRoom',
   'roomTemps', 'technicians', 'pool', 'market', 'bots', 'event', 'nextEventAt', 'talents', 'vip',
-  'achievements', 'stats', 'settings',
+  'achievements', 'stats', 'settings', 'contracts',
 ];
 
 export const extractData = (s: GameStore): GameData => {
@@ -35,7 +38,7 @@ export const selectSimInput = (s: GameStore): SimInput => ({
   gpus: s.gpus, psus: s.psus, coolers: s.coolers, racks: s.racks, ownedRooms: s.ownedRooms,
   roomTemps: s.roomTemps, technicians: s.technicians, pool: s.pool, market: s.market, bots: s.bots,
   event: s.event, nextEventAt: s.nextEventAt, talents: s.talents, vip: s.vip, cash: s.cash, cc: s.cc,
-  meme: s.meme, memeCostBasis: s.memeCostBasis, lastTick: s.lastTick,
+  meme: s.meme, memeCostBasis: s.memeCostBasis, ccCostBasis: s.ccCostBasis, lastTick: s.lastTick,
 });
 
 /**
@@ -94,6 +97,16 @@ const SOUND_MAP: Record<SoundCue, SfxCue> = {
 
 let logId = 0;
 
+/** Rooms whose racks a raid just put into inspection reboot (raids are the only simulated reboots). */
+export function raidRooms(out: Pick<SimOutput, 'rackReboots' | 'now'>, racks: GameData['racks']): Map<RoomId, number> {
+  const rooms = new Map<RoomId, number>();
+  Object.entries(out.rackReboots).forEach(([uid, until]) => {
+    const roomId = racks[uid]?.roomId;
+    if (roomId && until > out.now) rooms.set(roomId, Math.max(rooms.get(roomId) ?? 0, until));
+  });
+  return rooms;
+}
+
 const initialUi = (): UiState => ({
   live: emptyLive(),
   log: [],
@@ -102,15 +115,38 @@ const initialUi = (): UiState => ({
   offlineReport: null,
   sideTab: 'shop',
   lottery: null,
+  contractToast: null,
+  screen: 'menu',
+  wikiOpen: false,
 });
+
+/** Navigation state that survives a save import / factory reset (only the data is replaced). */
+const keepNav = (s: GameStore): Pick<UiState, 'screen' | 'wikiOpen'> => ({ screen: s.screen, wikiOpen: s.wikiOpen });
+
+/** Play time (s) after which a fresh save counts as "real progress" worth continuing. */
+export const PROGRESS_MIN_PLAY_SEC = 5;
+
+/**
+ * True when the local save holds progress worth protecting: anything earned,
+ * more than the starter GPU, a past Halving, or more than a few seconds played.
+ */
+export function hasProgress(d: Pick<GameData, 'lifetimeEarnings' | 'gpus' | 'stats'>): boolean {
+  return (
+    bnToNumber(d.lifetimeEarnings) > 0 ||
+    Object.keys(d.gpus).length > 1 ||
+    d.stats.halvings > 0 ||
+    d.stats.playTimeSec > PROGRESS_MIN_PLAY_SEC
+  );
+}
 
 function createCoreActions(set: SetState, get: GetState): CoreActions {
   const mergeTick = (out: SimOutput) => {
     set((s) => {
       const gpus = { ...s.gpus };
       Object.entries(out.gpuUpdates).forEach(([uid, upd]) => {
-        if (gpus[uid]) gpus[uid] = { ...gpus[uid], ...upd };
+        if (gpus[uid]) gpus[uid] = { ...gpus[uid], ...reconcileGpuUpdate(uid, upd, out.now) };
       });
+      pruneGpuEdits(out.now);
       let racks = s.racks;
       const rebootEntries = Object.entries(out.rackReboots);
       if (rebootEntries.length) {
@@ -128,6 +164,7 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
         cc: bnMax(0, bnAdd(s.cc, out.ccDelta)),
         meme: Math.max(0, s.meme + out.memeDelta),
         memeCostBasis: Math.max(0, s.memeCostBasis + out.memeCostDelta),
+        ccCostBasis: Math.max(0, s.ccCostBasis + out.ccCostDelta),
         gems: s.gems + out.gemsDelta,
         runEarnings: bnAdd(s.runEarnings, out.earnedCash),
         lifetimeEarnings: bnAdd(s.lifetimeEarnings, out.earnedCash),
@@ -153,10 +190,17 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
   return {
     applyTick: (out) => {
       mergeTick(out);
-      const { pushLog, checkAchievements } = get();
-      out.messages.forEach((m) => pushLog(m.text, m.tone));
+      const { pushLog, checkAchievements, advanceContractBoard } = get();
+      out.messages.forEach((m) => {
+        if (!m.key) return pushLog(m.text, m.tone);
+        const params: Record<string, string | number> = {};
+        Object.entries(m.params ?? {}).forEach(([k, v]) => { params[k] = typeof v === 'string' ? tr(v) : v; });
+        pushLog(tr(m.key, params), m.tone);
+      });
+      advanceContractBoard(out, false);
       out.sounds.forEach((cue) => sfxBus.emit(SOUND_MAP[cue]));
       if (out.blocksFound > 0) fxBus.emit({ kind: 'block' });
+      if (out.raids > 0) raidRooms(out, get().racks).forEach((until, roomId) => fxBus.emit({ kind: 'raid', roomId, until }));
       checkAchievements();
     },
 
@@ -173,6 +217,7 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
           cashDelta: out.cashDelta,
         },
       });
+      get().advanceContractBoard(out, true);
       get().checkAchievements();
     },
 
@@ -196,21 +241,42 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
       const result = await decodeSave(text);
       if (!result.ok) {
         sfxBus.emit('error');
-        return { ok: false, message: result.error };
+        return { ok: false, message: tr(result.error) };
       }
       const data = migrateSave(result.data, result.version);
-      set({ ...data, ...initialUi(), sideTab: 'system', lastTick: Date.now() });
+      set({ ...data, ...initialUi(), ...keepNav(get()), sideTab: 'system', lastTick: Date.now() });
       gameStorage.flush();
       sfxBus.emit('success');
-      get().pushLog('Save imported and verified (SHA-256 OK).', 'good');
-      return { ok: true, message: 'Save imported successfully.' };
+      get().pushLog(tr('Save imported and verified (SHA-256 OK).'), 'good');
+      return { ok: true, message: tr('Save imported successfully.') };
     },
 
     hardReset: () => {
-      set({ ...createInitialData(), ...initialUi(), sideTab: 'system' });
+      set({ ...createInitialData(), ...initialUi(), ...keepNav(get()), sideTab: 'system' });
       gameStorage.flush();
-      get().pushLog('Factory reset complete. Welcome back to the bedroom.', 'info');
+      get().pushLog(tr('Factory reset complete. Welcome back to the bedroom.'), 'info');
     },
+
+    continueGame: () => {
+      if (get().screen === 'game') return;
+      set({ screen: 'game', wikiOpen: false });
+      sfxBus.emit('start');
+    },
+
+    startNewGame: () => {
+      // createInitialData stamps lastTick = now, so the loop credits no offline time.
+      set({ ...createInitialData({ settings: get().settings }), ...initialUi(), screen: 'game' });
+      gameStorage.flush();
+      sfxBus.emit('start');
+      get().pushLog(tr('New farm founded: one PX-460 on a bench in your bedroom. Happy hashing!'), 'good');
+    },
+
+    returnToMenu: () => {
+      set({ screen: 'menu', selectedRack: null, biosGpu: null, lottery: null, contractToast: null, offlineReport: null, wikiOpen: false });
+      gameStorage.flush();
+    },
+
+    setWikiOpen: (open) => set({ wikiOpen: open }),
   };
 }
 
@@ -226,6 +292,7 @@ export const useGameStore = create<GameStore>()(
         ...createRoomsSlice(s, g),
         ...createMarketSlice(s, g),
         ...createEconomySlice(s, g),
+        ...createContractsSlice(s, g),
         ...createCoreActions(s, g),
       };
     },

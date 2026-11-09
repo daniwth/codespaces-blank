@@ -7,12 +7,12 @@ import type { CoolerModel, GpuModel, PsuModel, RackModel, SiliconQuality } from 
  */
 export const GPU_CATALOG: GpuModel[] = [
   {
-    id: 'px460', name: 'PX-460', brand: 'Pixelia', tier: 1, price: 50,
+    id: 'px460', name: 'PX-460', brand: 'Pixelia', tier: 1, price: 45,
     hashrate: 25e6, power: 120, thermalMass: 70, style: 'card', fans: 1,
     palette: { shroud: '#52525b', shroudDark: '#27272a', accent: '#22c55e', pcb: '#14532d' },
   },
   {
-    id: 'px580', name: 'PX-580', brand: 'Pixelia', tier: 2, price: 250,
+    id: 'px580', name: 'PX-580', brand: 'Pixelia', tier: 2, price: 225,
     hashrate: 80e6, power: 170, thermalMass: 80, style: 'card', fans: 2,
     palette: { shroud: '#1d4ed8', shroudDark: '#1e3a8a', accent: '#ef4444', pcb: '#172554' },
   },
@@ -68,11 +68,11 @@ export const PSU_CATALOG: PsuModel[] = [
 ];
 
 export const COOLER_CATALOG: CoolerModel[] = [
-  { id: 'fan80', name: '80mm Case Fan', tier: 1, price: 10, cooling: 1.5, power: 2, kind: 'air' },
-  { id: 'fan120', name: '120mm Turbo Fan', tier: 2, price: 150, cooling: 4, power: 5, kind: 'air' },
-  { id: 'tower', name: 'Tower Heatsink', tier: 3, price: 2_000, cooling: 10, power: 8, kind: 'air' },
+  { id: 'fan80', name: '80mm Case Fan', tier: 1, price: 10, cooling: 2.5, power: 2, kind: 'air' },
+  { id: 'fan120', name: '120mm Turbo Fan', tier: 2, price: 150, cooling: 5, power: 5, kind: 'air' },
+  { id: 'tower', name: 'Tower Heatsink', tier: 3, price: 800, cooling: 10, power: 8, kind: 'air' },
   { id: 'aio', name: 'Liquid AIO 360', tier: 4, price: 30_000, cooling: 30, power: 25, kind: 'liquid' },
-  { id: 'immersion', name: 'Immersion Tank', tier: 5, price: 800_000, cooling: 120, power: 90, kind: 'immersion' },
+  { id: 'immersion', name: 'Immersion Tank', tier: 5, price: 800_000, cooling: 50, power: 90, kind: 'immersion' },
   { id: 'cryo', name: 'Cryo Phase-Change', tier: 6, price: 40_000_000, cooling: 400, power: 350, kind: 'cryo' },
 ];
 
