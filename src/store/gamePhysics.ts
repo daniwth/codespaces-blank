@@ -6,12 +6,13 @@
  * Integrated analytically so large Δt (background tabs, offline progress) stay stable:
  *   T(t+Δt) = T_eq + (T − T_eq) · e^(−kΔt / C),  T_eq = T_amb + Q_gen / k
  */
-import { COOLER_BY_ID, GPU_BY_ID, OC_LIMITS, PSU_BY_ID, RACK_BY_ID } from '../config/hardwareCatalog';
+import { COOLER_BY_ID, GPU_BY_ID, GPU_CATALOG, OC_LIMITS, PSU_BY_ID, RACK_BY_ID } from '../config/hardwareCatalog';
 import { ROOM_BY_ID } from '../config/roomsCatalog';
 import { talentModifiers, type TalentModifiers } from '../config/prestigeTree';
 import {
   EVENT_EFFECTS,
   EVENT_INTERVAL,
+  GRID,
   MARKET,
   NETWORK_EVENTS,
   PHYSICS,
@@ -37,15 +38,25 @@ export type SimInput = Pick<
   GameData,
   | 'gpus' | 'psus' | 'coolers' | 'racks' | 'ownedRooms' | 'roomTemps' | 'technicians'
   | 'pool' | 'market' | 'bots' | 'event' | 'nextEventAt' | 'talents' | 'vip'
-  | 'cash' | 'cc' | 'meme' | 'memeCostBasis' | 'lastTick'
+  | 'cash' | 'cc' | 'ccCostBasis' | 'meme' | 'memeCostBasis' | 'lastTick'
 >;
 
 export type MessageTone = 'info' | 'good' | 'warn' | 'bad';
 export type SoundCue = 'block' | 'alarm' | 'raid' | 'event' | 'shutdown' | 'sell' | 'restart';
 
 export interface GameMessage {
+  /** English text, already filled in. */
   text: string;
   tone: MessageTone;
+  /** English template + params so the main thread can translate (this module never imports i18n: it runs in a Worker). */
+  key?: string;
+  params?: Record<string, string | number>;
+}
+
+/** Build a message from an English template with `{name}` placeholders. */
+export function gameMsg(tone: MessageTone, key: string, params?: Record<string, string | number>): GameMessage {
+  const text = params ? key.replace(/\{(\w+)\}/g, (m, k: string) => (k in params ? String(params[k]) : m)) : key;
+  return { text, tone, key, params };
 }
 
 export interface RoomLive {
@@ -64,6 +75,8 @@ export interface LiveMetrics {
   totalHash: number;
   ccPerSec: number;
   electricityPerSec: number;
+  /** Farm-wide grid demand: wall-weighted average of the running GPUs' tariffs (see `gridTariff`). */
+  gridDemand: number;
   difficulty: number;
   hottest: number;
   rooms: Partial<Record<RoomId, RoomLive>>;
@@ -83,6 +96,7 @@ export interface SimOutput {
   ccDelta: number;
   memeDelta: number;
   memeCostDelta: number;
+  ccCostDelta: number;
   gemsDelta: number;
   earnedCash: number;
   ccMined: number;
@@ -95,6 +109,10 @@ export interface SimOutput {
   raids: number;
   overheats: number;
   bestTrade: number;
+  /** Hottest die temperature reached at any integration step of this tick (°C, 0 with no mounted GPU). */
+  peakTemp: number;
+  /** Realized profit (over cost basis) made by trading-bot sells during this tick. */
+  botEarned: number;
   live: LiveMetrics;
   messages: GameMessage[];
   sounds: SoundCue[];
@@ -158,7 +176,7 @@ function stepMarket(market: MarketState, dt: number, now: number, event: ActiveN
     if (id === 'MEME' && !offline && Math.random() < dt / 150) {
       const jump = Math.random() < 0.5 ? randRange(0.45, 0.75) : randRange(1.4, 2.6);
       logP += Math.log(jump);
-      messages.push({ text: jump > 1 ? '$MEME PUMP! Whales are buying.' : '$MEME DUMP! Paper hands everywhere.', tone: jump > 1 ? 'good' : 'warn' });
+      messages.push(jump > 1 ? gameMsg('good', '$MEME PUMP! Whales are buying.') : gameMsg('warn', '$MEME DUMP! Paper hands everywhere.'));
     }
     const price = clamp(Math.exp(logP), coin.basePrice * cfg.min, coin.basePrice * cfg.max);
     coin.price = price;
@@ -216,6 +234,20 @@ export function rackNominalLoad(rack: RackInstance, data: Pick<GameData, 'gpus' 
   return topo.gpuUids.reduce((acc, u) => acc + GPU_BY_ID[data.gpus[u].modelId].power * ocPowerMul(data.gpus[u].oc), 0) + topo.fanPower;
 }
 
+// ───────────────────────── Grid demand ─────────────────────────
+
+const REF_EFFICIENCY = GPU_CATALOG[0].hashrate / GPU_CATALOG[0].power;
+const GRID_TARIFFS: Record<string, number> = Object.fromEntries(
+  GPU_CATALOG.map((m) => [m.id, (m.hashrate / m.power / REF_EFFICIENCY) ** GRID.tariffExponent]),
+);
+
+/** Grid demand multiplier on the per-watt price of one GPU model (1 for the PX-460). */
+export const gridTariff = (modelId: string): number => GRID_TARIFFS[modelId] ?? 1;
+
+/** Base price of one wall watt-second in a room, before grid demand (room tariff and Green PPA). */
+export const wattPrice = (roomId: RoomId, mods: Pick<TalentModifiers, 'electricityMul'>): number =>
+  PHYSICS.pricePerWattSec * ROOM_BY_ID[roomId].priceMul * mods.electricityMul;
+
 // ───────────────────────── Simulation ─────────────────────────
 
 interface World {
@@ -230,6 +262,7 @@ interface World {
   cc: number;
   meme: number;
   memeCost: number;
+  ccCost: number;
 }
 
 function cloneWorld(input: SimInput): World {
@@ -260,11 +293,12 @@ function cloneWorld(input: SimInput): World {
     cc: bnToNumber(input.cc),
     meme: input.meme,
     memeCost: input.memeCostBasis,
+    ccCost: input.ccCostBasis,
   };
 }
 
 function emptyLive(): LiveMetrics {
-  return { totalHash: 0, ccPerSec: 0, electricityPerSec: 0, difficulty: 1, hottest: 0, rooms: {}, racks: {}, gpus: {} };
+  return { totalHash: 0, ccPerSec: 0, electricityPerSec: 0, gridDemand: 1, difficulty: 1, hottest: 0, rooms: {}, racks: {}, gpus: {} };
 }
 
 interface StepAccumulator {
@@ -276,24 +310,39 @@ interface StepAccumulator {
   raids: number;
   overheats: number;
   bestTrade: number;
+  peakTemp: number;
+  botEarned: number;
   messages: GameMessage[];
   sounds: SoundCue[];
+}
+
+/**
+ * Earnings = proceeds above the cash originally paid for the coins sold.
+ * Mined coins have zero cost basis, so selling them is pure earnings, while a
+ * buy -> sell round trip only counts its (rare) profit: no wash-trading levels.
+ */
+export function realizedEarnings(proceeds: number, holding: number, costBasis: number, amount: number): { earned: number; basis: number } {
+  const share = holding > 0 ? Math.min(1, amount / holding) : 1;
+  const basis = costBasis * share;
+  return { earned: Math.max(0, proceeds - basis), basis };
 }
 
 function sellCoin(w: World, coin: CoinId, amount: number, mods: TalentModifiers, acc: StepAccumulator): number {
   if (amount <= 0) return 0;
   const proceeds = amount * sellPrice(w.market, coin, mods);
   if (coin === 'CC') {
+    const { earned, basis } = realizedEarnings(proceeds, w.cc, w.ccCost, amount);
+    w.ccCost -= basis;
     w.cc -= amount;
+    acc.earnedCash += earned;
   } else {
-    const share = w.meme > 0 ? amount / w.meme : 1;
-    const basis = w.memeCost * share;
+    const { earned, basis } = realizedEarnings(proceeds, w.meme, w.memeCost, amount);
     w.memeCost -= basis;
     w.meme -= amount;
     acc.bestTrade = Math.max(acc.bestTrade, proceeds - basis);
+    acc.earnedCash += earned;
   }
   w.cash += proceeds;
-  acc.earnedCash += proceeds;
   return proceeds;
 }
 
@@ -301,8 +350,10 @@ function buyCoin(w: World, coin: CoinId, cashAmount: number): number {
   if (cashAmount <= 0) return 0;
   const qty = cashAmount / buyPrice(w.market, coin);
   w.cash -= cashAmount;
-  if (coin === 'CC') w.cc += qty;
-  else {
+  if (coin === 'CC') {
+    w.cc += qty;
+    w.ccCost += cashAmount;
+  } else {
     w.meme += qty;
     w.memeCost += cashAmount;
   }
@@ -311,7 +362,7 @@ function buyCoin(w: World, coin: CoinId, cashAmount: number): number {
 
 function stepEvents(w: World, input: SimInput, now: number, acc: StepAccumulator): void {
   if (w.event && now >= w.event.endsAt) {
-    acc.messages.push({ text: `Network event ended: ${NETWORK_EVENTS[w.event.id].name}.`, tone: 'info' });
+    acc.messages.push(gameMsg('info', 'Network event ended: {name}.', { name: NETWORK_EVENTS[w.event.id].name }));
     w.event = null;
     w.nextEventAt = now + randRange(EVENT_INTERVAL[0], EVENT_INTERVAL[1]) * 1000;
   }
@@ -322,10 +373,9 @@ function stepEvents(w: World, input: SimInput, now: number, acc: StepAccumulator
     const duration = randRange(def.duration[0], def.duration[1]) * 1000;
     const roomId = id === 'blackout' ? pick(input.ownedRooms) : null;
     w.event = { id, startedAt: now, endsAt: now + duration, roomId };
-    acc.messages.push({
-      text: `NETWORK EVENT: ${def.name}${roomId ? ` (${ROOM_BY_ID[roomId].name})` : ''}. ${def.description}`,
-      tone: def.positive ? 'good' : 'bad',
-    });
+    acc.messages.push(roomId
+      ? gameMsg(def.positive ? 'good' : 'bad', 'NETWORK EVENT: {name} ({room}). {description}', { name: def.name, room: ROOM_BY_ID[roomId].name, description: def.description })
+      : gameMsg(def.positive ? 'good' : 'bad', 'NETWORK EVENT: {name}. {description}', { name: def.name, description: def.description }));
     acc.sounds.push('event');
   }
 }
@@ -350,12 +400,14 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
   live.difficulty = difficulty;
   let totalHash = 0;
   let electricityRate = 0;
+  let farmPaidWall = 0;
+  let farmBilledWall = 0;
   let hottest = 0;
 
   const racksByRoom: Partial<Record<RoomId, RackInstance[]>> = {};
   Object.values(w.racks).forEach((r) => {
     if (!r.roomId) {
-      live.racks[r.uid] = { status: 'stored', load: 0, wall: 0, capacity: 0, hash: 0, maxTemp: 0, cooling: 0 };
+      live.racks[r.uid] = { status: 'stored', load: 0, wall: 0, capacity: 0, hash: 0, maxTemp: 0, cooling: 0, tariff: 1, powerCost: 0 };
       return;
     }
     (racksByRoom[r.roomId] ??= []).push(r);
@@ -373,34 +425,47 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
       const topo = rackTopology(rack, { gpus: w.gpus, psus: input.psus, coolers: input.coolers });
       let status: RackStatus;
       let load = 0;
+      let gpuLoad = 0;
+      let tariffLoad = 0;
       if (topo.gpuUids.length === 0) status = 'empty';
       else if (!topo.hasPsu) status = 'no_psu';
       else if (blackout && !topo.selfPowered) status = 'blackout';
       else if (rack.rebootUntil > now) status = 'rebooting';
       else {
-        load = topo.fanPower + topo.gpuUids.reduce((a, u) => {
+        topo.gpuUids.forEach((u) => {
           const g = w.gpus[u];
-          return a + (g.shutdown ? 0 : GPU_BY_ID[g.modelId].power * ocPowerMul(g.oc));
-        }, 0);
+          if (g.shutdown) return;
+          const p = GPU_BY_ID[g.modelId].power * ocPowerMul(g.oc);
+          gpuLoad += p;
+          tariffLoad += p * gridTariff(g.modelId);
+        });
+        load = topo.fanPower + gpuLoad;
         status = load > topo.capacity ? 'overload' : 'online';
       }
       if (status !== 'online') load = 0;
       const wall = topo.selfPowered ? 0 : load / topo.efficiency;
-      return { rack, topo, status, load, wall };
+      // Fans and PSU losses are billed at the rack's (GPU-load weighted) tariff.
+      const tariff = gpuLoad > 0 ? tariffLoad / gpuLoad : 1;
+      return { rack, topo, status, load, wall, tariff };
     });
 
     const roomWall = rackInfo.reduce((a, r) => a + r.wall, 0);
     const brownout = roomWall > room.maxPowerW ? room.maxPowerW / roomWall : 1;
     const paidWall = Math.min(roomWall, room.maxPowerW);
-    const elecRate = paidWall * PHYSICS.pricePerWattSec * room.priceMul * mods.electricityMul;
-    electricityRate += elecRate;
+    // A brownout caps the paid wall at the contracted line: every rack is billed pro rata.
+    const paidShare = roomWall > 0 ? paidWall / roomWall : 0;
+    const price = wattPrice(roomId, mods);
+    const billedWall = rackInfo.reduce((a, r) => a + r.wall * r.tariff, 0) * paidShare;
+    electricityRate += billedWall * price;
+    farmPaidWall += paidWall;
+    farmBilledWall += billedWall;
 
     let roomHeat = 0;
     let roomHash = 0;
     let racksOnline = 0;
 
     // Pass 2: thermals + hashrate
-    rackInfo.forEach(({ rack, topo, status, load, wall }) => {
+    rackInfo.forEach(({ rack, topo, status, load, wall, tariff }) => {
       const rackModel = RACK_BY_ID[rack.modelId];
       const powered = status === 'online';
       if (powered) racksOnline += 1;
@@ -421,42 +486,47 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
         if (!g.shutdown && g.temp >= PHYSICS.shutdownTemp) {
           g.shutdown = true;
           acc.overheats += 1;
-          acc.messages.push({ text: `THERMAL SHUTDOWN: ${model.name} hit ${g.temp.toFixed(0)}°C!`, tone: 'bad' });
+          acc.messages.push(gameMsg('bad', 'THERMAL SHUTDOWN: {name} hit {temp}°C!', { name: model.name, temp: g.temp.toFixed(0) }));
           acc.sounds.push('shutdown');
         } else if (g.shutdown && g.temp <= PHYSICS.restartTemp) {
           g.shutdown = false;
-          acc.messages.push({ text: `${model.name} cooled down and restarted.`, tone: 'info' });
+          acc.messages.push(gameMsg('info', '{name} cooled down and restarted.', { name: model.name }));
           acc.sounds.push('restart');
         }
 
-        const throttled = running && g.temp > PHYSICS.throttleTemp;
-        if (running && g.temp > PHYSICS.wearTemp) {
+        // Re-evaluate after the thermal protection check: a GPU that just shut down stops hashing now.
+        const active = powered && !g.shutdown;
+        const throttled = active && g.temp > PHYSICS.throttleTemp;
+        if (active && g.temp > PHYSICS.wearTemp) {
           g.overheatSeconds += dt;
           g.wear = Math.min(PHYSICS.maxWear, g.wear + (PHYSICS.wearPerMinute * dt) / 60);
         }
-        if (running) g.paste = Math.max(0, g.paste - dt / PHYSICS.pasteLifetimeSec);
+        if (active) g.paste = Math.max(0, g.paste - dt / PHYSICS.pasteLifetimeSec);
         if (techPaste > 0) g.paste = Math.min(1, g.paste + techPaste * dt);
         if (techRepair > 0 && g.wear > 0) g.wear = Math.max(0, g.wear - techRepair * dt);
 
-        const hash = running
+        const hash = active
           ? model.hashrate * (1 + g.ocBonus) * (throttled ? 0.5 : 1) * (1 - g.wear) * brownout * mods.hashMul
           : 0;
         rackHash += hash;
         rackMax = Math.max(rackMax, g.temp);
         hottest = Math.max(hottest, g.temp);
         roomHeat += heat;
-        live.gpus[uid] = { hash, running, throttled, heat, load: running ? clamp(heat / model.power, 0, 2) : 0 };
+        live.gpus[uid] = { hash, running: active, throttled, heat, load: active ? clamp(heat / model.power, 0, 2) : 0 };
       });
       roomHeat += load > 0 ? topo.fanPower + (wall - load) : 0;
       roomHash += rackHash;
+      const allShutdown = powered && topo.gpuUids.length > 0 && topo.gpuUids.every((u) => w.gpus[u].shutdown);
       live.racks[rack.uid] = {
-        status,
+        status: allShutdown ? 'overheat' : status,
         load,
         wall,
         capacity: topo.capacity,
         hash: rackHash,
         maxTemp: rackMax,
         cooling: (PHYSICS.baseCooling * n + topo.fanCooling) * room.coolingMul,
+        tariff,
+        powerCost: wall * paidShare * tariff * price,
       };
     });
 
@@ -490,7 +560,9 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
       acc.blocks += 1;
       const gem = Math.random() < 0.3;
       if (gem) acc.gems += 1;
-      acc.messages.push({ text: `BLOCK FOUND! Solo jackpot of ${ccGain.toFixed(2)} $CC${gem ? ' + 1 gem' : ''}!`, tone: 'good' });
+      acc.messages.push(gem
+        ? gameMsg('good', 'BLOCK FOUND! Solo jackpot of {cc} $CC + 1 gem!', { cc: ccGain.toFixed(2) })
+        : gameMsg('good', 'BLOCK FOUND! Solo jackpot of {cc} $CC!', { cc: ccGain.toFixed(2) }));
       acc.sounds.push('block');
     }
   } else {
@@ -503,7 +575,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
       Object.values(w.racks).forEach((r) => {
         if (r.roomId === roomId) r.rebootUntil = now + PHYSICS.inspectionRebootMs;
       });
-      acc.messages.push({ text: `RAID! Electrical inspection in ${ROOM_BY_ID[roomId].name}. Fined $${fine.toFixed(0)}, rigs offline 30s.`, tone: 'bad' });
+      acc.messages.push(gameMsg('bad', 'RAID! Electrical inspection in {room}. Fined ${fine}, rigs offline 30s.', { room: ROOM_BY_ID[roomId].name, fine: fine.toFixed(0) }));
       acc.sounds.push('raid');
     }
   }
@@ -518,6 +590,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
   bill -= fromCash;
   if (bill > 0 && w.cc > 0) {
     const ccNeeded = Math.min(w.cc, bill / w.market.CC.price);
+    w.ccCost *= w.cc > 0 ? (w.cc - ccNeeded) / w.cc : 0;
     w.cc -= ccNeeded;
   }
 
@@ -535,14 +608,16 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
     if (bot.side === 'sell') {
       const holding = bot.coin === 'CC' ? w.cc : w.meme;
       if (holding <= 1e-9) return;
+      const earnedBefore = acc.earnedCash;
       sellCoin(w, bot.coin, holding * pctAmt, mods, acc);
+      acc.botEarned += acc.earnedCash - earnedBefore;
     } else {
       if (w.cash <= 0.01) return;
       buyCoin(w, bot.coin, w.cash * pctAmt);
     }
     w.botFires[bot.id] = now;
     if (!opts.offline) {
-      acc.messages.push({ text: `BOT #${bot.id.slice(-3)} ${bot.side.toUpperCase()} ${bot.coin} @ ${coin.price.toFixed(4)}`, tone: 'info' });
+      acc.messages.push(gameMsg('info', 'BOT #{id} {side} {coin} @ {price}', { id: bot.id.slice(-3), side: bot.side.toUpperCase(), coin: bot.coin, price: coin.price.toFixed(4) }));
       acc.sounds.push('sell');
     }
   });
@@ -553,19 +628,22 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
   live.totalHash = totalHash;
   live.ccPerSec = baseRate * (input.pool === 'public' ? 1 - pool.fee : pool.payoutMul);
   live.electricityPerSec = electricityRate;
+  live.gridDemand = farmPaidWall > 0 ? farmBilledWall / farmPaidWall : 1;
   live.hottest = hottest;
+  acc.peakTemp = Math.max(acc.peakTemp, hottest);
 }
 
 /** Advance the world by `dtSec` seconds ending at `now` (epoch ms). */
 export function simulate(input: SimInput, dtSec: number, now: number, opts: SimOptions): SimOutput {
   const w = cloneWorld(input);
   const mods = talentModifiers(input.talents);
-  const acc: StepAccumulator = { ccMined: 0, electricity: 0, earnedCash: 0, gems: 0, blocks: 0, raids: 0, overheats: 0, bestTrade: 0, messages: [], sounds: [] };
+  const acc: StepAccumulator = { ccMined: 0, electricity: 0, earnedCash: 0, gems: 0, blocks: 0, raids: 0, overheats: 0, bestTrade: 0, peakTemp: 0, botEarned: 0, messages: [], sounds: [] };
   const live = emptyLive();
   const cash0 = w.cash;
   const cc0 = w.cc;
   const meme0 = w.meme;
   const memeCost0 = w.memeCost;
+  const ccCost0 = w.ccCost;
   const rebootBefore: Record<string, number> = {};
   Object.values(w.racks).forEach((r) => {
     rebootBefore[r.uid] = r.rebootUntil;
@@ -598,6 +676,7 @@ export function simulate(input: SimInput, dtSec: number, now: number, opts: SimO
     ccDelta: w.cc - cc0,
     memeDelta: w.meme - meme0,
     memeCostDelta: w.memeCost - memeCost0,
+    ccCostDelta: w.ccCost - ccCost0,
     gemsDelta: acc.gems,
     earnedCash: acc.earnedCash,
     ccMined: acc.ccMined,
@@ -610,6 +689,8 @@ export function simulate(input: SimInput, dtSec: number, now: number, opts: SimO
     raids: acc.raids,
     overheats: acc.overheats,
     bestTrade: acc.bestTrade,
+    peakTemp: acc.peakTemp,
+    botEarned: acc.botEarned,
     live,
     messages: acc.messages.slice(-12),
     sounds: Array.from(new Set(acc.sounds)),

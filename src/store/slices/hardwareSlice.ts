@@ -1,3 +1,4 @@
+import { tr } from '../../i18n';
 import { COOLER_BY_ID, GPU_BY_ID, PSU_BY_ID, QUALITY_DEFS, RACK_BY_ID } from '../../config/hardwareCatalog';
 import { talentModifiers } from '../../config/prestigeTree';
 import type { ComponentKind, GpuInstance, OverclockSettings, RackInstance } from '../../types/hardware';
@@ -5,6 +6,7 @@ import { bnAdd, bnGte, bnSub } from '../../utils/bignum';
 import { makeUid, sfxBus, fxBus } from '../../utils/eventBus';
 import { formatCash } from '../../utils/formatters';
 import { aiAutoTune, crashChance, ocHashBonus, STOCK_OC } from '../gamePhysics';
+import { recordGpuEdit } from '../editLedger';
 import { createGpu, createRack, rollQuality } from '../initialState';
 import { PHYSICS } from '../../config/gameBalance';
 import type { GameStore, GetState, HardwareSlice, SetState } from '../storeTypes';
@@ -41,7 +43,7 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
     const s = get();
     if (!bnGte(s.cash, price)) {
       sfxBus.emit('error');
-      s.pushLog(`Not enough cash for ${label} (${formatCash(price)}).`, 'warn');
+      s.pushLog(tr('Not enough cash for {label} ({price}).', { label: tr(label), price: formatCash(price) }), 'warn');
       return false;
     }
     set({ cash: bnSub(s.cash, price) });
@@ -59,7 +61,7 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
         stats: { ...s.stats, gpusBought: s.stats.gpusBought + 1 },
         lottery: { modelId, quality, t: Date.now() },
       }));
-      get().pushLog(`Bought ${model.brand} ${model.name} — Silicon Lottery: ${QUALITY_DEFS[quality].label.toUpperCase()}!`, quality === 'god' || quality === 'gold' ? 'good' : 'info');
+      get().pushLog(tr('Bought {brand} {name} — Silicon Lottery: {quality}!', { brand: model.brand, name: tr(model.name), quality: tr(QUALITY_DEFS[quality].label).toUpperCase() }), quality === 'god' || quality === 'gold' ? 'good' : 'info');
       sfxBus.emit(quality === 'god' ? 'unlock' : 'buy');
       fxBus.emit({ kind: 'lottery', quality });
       if (quality === 'god') fxBus.emit({ kind: 'confetti', intensity: 0.6 });
@@ -71,7 +73,7 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
       if (!model || !spend(model.price, model.name)) return false;
       const uid = makeUid('psu');
       set((s) => ({ psus: { ...s.psus, [uid]: { uid, modelId } } }));
-      get().pushLog(`Bought PSU ${model.name}.`);
+      get().pushLog(tr('Bought PSU {name}.', { name: tr(model.name) }));
       sfxBus.emit('buy');
       return true;
     },
@@ -81,7 +83,7 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
       if (!model || !spend(model.price, model.name)) return false;
       const uid = makeUid('cool');
       set((s) => ({ coolers: { ...s.coolers, [uid]: { uid, modelId } } }));
-      get().pushLog(`Bought cooler ${model.name}.`);
+      get().pushLog(tr('Bought cooler {name}.', { name: tr(model.name) }));
       sfxBus.emit('buy');
       return true;
     },
@@ -91,7 +93,7 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
       if (!model || model.vip || !spend(model.price, model.name)) return false;
       const rack = createRack(modelId, model.slots, model.fanSlots);
       set((s) => ({ racks: { ...s.racks, [rack.uid]: rack } }));
-      get().pushLog(`Bought ${model.name}. Click an empty floor pad to place it.`);
+      get().pushLog(tr('Bought {name}. Click an empty floor pad to place it.', { name: tr(model.name) }));
       sfxBus.emit('buy');
       return true;
     },
@@ -129,11 +131,11 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
         if (!r) return false;
         const model = RACK_BY_ID[r.modelId];
         if (model.vip) {
-          s.pushLog('Gold Edition racks are soulbound and cannot be sold.', 'warn');
+          s.pushLog(tr('Gold Edition racks are soulbound and cannot be sold.'), 'warn');
           return false;
         }
         if (r.gpuSlots.some(Boolean) || r.fanSlots.some(Boolean) || r.psuUid) {
-          s.pushLog('Empty the rack before selling it.', 'warn');
+          s.pushLog(tr('Empty the rack before selling it.'), 'warn');
           sfxBus.emit('error');
           return false;
         }
@@ -144,7 +146,7 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
         if (s.selectedRack === uid) patch.selectedRack = null;
       }
       set({ ...patch, cash: bnAdd(s.cash, refund) });
-      s.pushLog(`Sold for ${formatCash(refund)}.`);
+      s.pushLog(tr('Sold for {price}.', { price: formatCash(refund) }));
       sfxBus.emit('sell');
       return true;
     },
@@ -176,7 +178,7 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
     installPsu: (rackUid, psuUid) => {
       const rackModel = RACK_BY_ID[get().racks[rackUid]?.modelId ?? ''];
       if (rackModel?.selfPowered) {
-        get().pushLog('Gold Edition racks have a built-in power plant.', 'info');
+        get().pushLog(tr('Gold Edition racks have a built-in power plant.'), 'info');
         return;
       }
       set((s) => {
@@ -196,7 +198,8 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
           const uid = rack.gpuSlots[slot];
           const gpuSlots = rack.gpuSlots.slice();
           gpuSlots[slot] = null;
-          const gpus = uid && s.gpus[uid] ? { ...s.gpus, [uid]: { ...s.gpus[uid], temp: Math.min(s.gpus[uid].temp, 30) } } : s.gpus;
+          if (uid && s.gpus[uid]) recordGpuEdit(uid, { temp: Math.min(s.gpus[uid].temp, 30), shutdown: false });
+          const gpus = uid && s.gpus[uid] ? { ...s.gpus, [uid]: { ...s.gpus[uid], temp: Math.min(s.gpus[uid].temp, 30), shutdown: false } } : s.gpus;
           return { gpus, racks: { ...s.racks, [rackUid]: { ...rack, gpuSlots } } };
         }
         const fanSlots = rack.fanSlots.slice();
@@ -262,7 +265,7 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
           racks: rack ? { ...st.racks, [rack.uid]: { ...st.racks[rack.uid], rebootUntil: Date.now() + PHYSICS.rebootMs } } : st.racks,
           stats: { ...st.stats, bsods: st.stats.bsods + 1 },
         }));
-        s.pushLog(`BSOD! ${GPU_BY_ID[gpu.modelId].name} overclock unstable. Rig rebooting (10s).`, 'bad');
+        s.pushLog(tr('BSOD! {name} overclock unstable. Rig rebooting (10s).', { name: tr(GPU_BY_ID[gpu.modelId].name) }), 'bad');
         sfxBus.emit('bsod');
         return 'crash';
       }
@@ -271,7 +274,7 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
         gpus: { ...st.gpus, [gpuUid]: { ...st.gpus[gpuUid], oc: { ...oc }, ocBonus: bonus } },
         stats: { ...st.stats, stableOverclocks: st.stats.stableOverclocks + (bonus > 0 ? 1 : 0) },
       }));
-      s.pushLog(`Overclock stable: ${bonus >= 0 ? '+' : ''}${(bonus * 100).toFixed(1)}% hashrate on ${GPU_BY_ID[gpu.modelId].name}.`, 'good');
+      s.pushLog(tr('Overclock stable: {bonus}% hashrate on {name}.', { bonus: `${bonus >= 0 ? '+' : ''}${(bonus * 100).toFixed(1)}`, name: tr(GPU_BY_ID[gpu.modelId].name) }), 'good');
       sfxBus.emit('success');
       return 'stable';
     },
@@ -283,7 +286,7 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
       const oc = aiAutoTune(gpu.silicon);
       const bonus = ocHashBonus(oc);
       set((st) => ({ gpus: { ...st.gpus, [gpuUid]: { ...st.gpus[gpuUid], oc, ocBonus: bonus } } }));
-      s.pushLog(`AI Diagnostics tuned ${GPU_BY_ID[gpu.modelId].name}: +${(bonus * 100).toFixed(1)}% safe.`, 'good');
+      s.pushLog(tr('AI Diagnostics tuned {name}: +{bonus}% safe.', { name: tr(GPU_BY_ID[gpu.modelId].name), bonus: (bonus * 100).toFixed(1) }), 'good');
       sfxBus.emit('success');
       return true;
     },
@@ -297,6 +300,7 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
       const gpu = get().gpus[gpuUid];
       if (!gpu || !spend(repasteCost(gpu), 'thermal paste')) return false;
       set((s) => ({ gpus: { ...s.gpus, [gpuUid]: { ...s.gpus[gpuUid], paste: 1 } } }));
+      recordGpuEdit(gpuUid, { paste: 1 });
       sfxBus.emit('install');
       return true;
     },
@@ -305,7 +309,8 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
       const gpu = get().gpus[gpuUid];
       if (!gpu || gpu.wear <= 0 || !spend(repairCost(gpu), 'silicon repair')) return false;
       set((s) => ({ gpus: { ...s.gpus, [gpuUid]: { ...s.gpus[gpuUid], wear: 0, overheatSeconds: 0 } } }));
-      get().pushLog(`${GPU_BY_ID[gpu.modelId].name} reballed & repaired. Efficiency restored.`, 'good');
+      recordGpuEdit(gpuUid, { wear: 0, overheatSeconds: 0 });
+      get().pushLog(tr('{name} reballed & repaired. Efficiency restored.', { name: tr(GPU_BY_ID[gpu.modelId].name) }), 'good');
       sfxBus.emit('success');
       return true;
     },
