@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { talentModifiers } from '../config/prestigeTree';
 import { simulateOffline, simulateOnline } from '../store/gamePhysics';
 import { selectSimInput, useGameStore } from '../store/useGameStore';
+import { currentWorldEpoch } from '../store/worldEpoch';
 import type { WorkerRequest, WorkerResponse } from '../workers/gameTick.worker';
 
 const TICK_MS = 250;
@@ -32,6 +33,8 @@ export function useGameLoop(onMode?: (mode: LoopMode) => void): void {
     let worker: Worker | null = null;
     let inFlight = false;
     let reqId = 0;
+    /** World epoch the tick in flight was computed from. */
+    let postedEpoch = 0;
     let interval: ReturnType<typeof setInterval> | null = null;
     let raf = 0;
 
@@ -58,6 +61,8 @@ export function useGameLoop(onMode?: (mode: LoopMode) => void): void {
     const apply = (res: WorkerResponse) => {
       // A tick still in flight when the player left for the menu must not land.
       if (disposed || !inGame()) return;
+      // Nor may one computed before a reset, import or Halving replaced the world.
+      if (postedEpoch !== currentWorldEpoch()) return;
       useGameStore.getState().applyTick(res.output);
     };
 
@@ -80,6 +85,7 @@ export function useGameLoop(onMode?: (mode: LoopMode) => void): void {
         if (resolveLongGap(LIVE_GAP_SEC)) return;
         inFlight = true;
         reqId += 1;
+        postedEpoch = currentWorldEpoch();
         const msg: WorkerRequest = { type: 'tick', id: reqId, input: selectSimInput(useGameStore.getState()), now: Date.now() };
         worker.postMessage(msg);
       }, TICK_MS);

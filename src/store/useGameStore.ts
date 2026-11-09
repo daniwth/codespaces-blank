@@ -17,6 +17,7 @@ import { createHardwareSlice } from './slices/hardwareSlice';
 import { createMarketSlice } from './slices/marketSlice';
 import { createRoomsSlice } from './slices/roomsSlice';
 import type { CoreActions, GameStore, GetState, SetState, UiState } from './storeTypes';
+import { bumpWorldEpoch } from './worldEpoch';
 
 const DATA_KEYS: (keyof GameData)[] = [
   'saveVersion', 'createdAt', 'lastTick', 'cash', 'cc', 'meme', 'memeCostBasis', 'ccCostBasis', 'gems', 'sc', 'scLifetime',
@@ -244,6 +245,7 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
         return { ok: false, message: tr(result.error) };
       }
       const data = migrateSave(result.data, result.version);
+      bumpWorldEpoch();
       set({ ...data, ...initialUi(), ...keepNav(get()), sideTab: 'system', lastTick: Date.now() });
       gameStorage.flush();
       sfxBus.emit('success');
@@ -252,6 +254,7 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
     },
 
     hardReset: () => {
+      bumpWorldEpoch();
       set({ ...createInitialData(), ...initialUi(), ...keepNav(get()), sideTab: 'system' });
       gameStorage.flush();
       get().pushLog(tr('Factory reset complete. Welcome back to the bedroom.'), 'info');
@@ -265,6 +268,7 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
 
     startNewGame: () => {
       // createInitialData stamps lastTick = now, so the loop credits no offline time.
+      bumpWorldEpoch();
       set({ ...createInitialData({ settings: get().settings }), ...initialUi(), screen: 'game' });
       gameStorage.flush();
       sfxBus.emit('start');

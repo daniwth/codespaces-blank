@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { GPU_BY_ID } from '../../src/config/hardwareCatalog';
-import { createInitialData } from '../../src/store/initialState';
+import { createInitialData, createRack } from '../../src/store/initialState';
 import { useGameStore } from '../../src/store/useGameStore';
+import { currentWorldEpoch } from '../../src/store/worldEpoch';
 
 const store = () => useGameStore.getState();
 
@@ -48,5 +49,26 @@ describe('game store', () => {
     expect(store().gems).toBe(8);
     expect(store().ownedRooms).toEqual(['bedroom']);
     expect(store().stats.halvings).toBe(1);
+  });
+
+  it('a Gold rack carried through a Halving keeps one uid, so uid lookups and reboots find it', () => {
+    const gold = createRack('gold', 8, 4);
+    useGameStore.setState({ racks: { ...store().racks, [gold.uid]: gold }, runEarnings: '4000000' });
+    expect(store().performHalving()).toBe(true);
+    const kept = Object.entries(store().racks).filter(([, r]) => r.modelId === 'gold');
+    expect(kept).toHaveLength(1);
+    expect(kept[0][0]).toBe(kept[0][1].uid);
+    expect(kept[0][0]).toBe(gold.uid);
+  });
+
+  it('bumps the world epoch when the world is replaced, so in-flight ticks are dropped', () => {
+    const e0 = currentWorldEpoch();
+    store().hardReset();
+    expect(currentWorldEpoch()).toBe(e0 + 1);
+    store().startNewGame();
+    expect(currentWorldEpoch()).toBe(e0 + 2);
+    useGameStore.setState({ runEarnings: '4000000' });
+    store().performHalving();
+    expect(currentWorldEpoch()).toBe(e0 + 3);
   });
 });

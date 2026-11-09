@@ -328,13 +328,14 @@ function progressed(c: Contract, f: ContractFacts, share: number): Contract {
       next.progress += f.botEarned * share;
       break;
     case 'solo_block':
-      if (share > 0) next.progress += f.blocksFound;
+      next.progress += f.blocksFound * share;
       break;
     case 'reach_hash':
-      if (share > 0) next.progress = f.totalHash;
+      // End-of-window gauge: it only counts while the window ends before the deadline.
+      if (share > 0 && f.end <= c.expiresAt) next.progress = f.totalHash;
       break;
     case 'gpu_tier':
-      if (share > 0) next.progress = f.runningTiers.filter((t) => t >= c.param).length;
+      if (share > 0 && f.end <= c.expiresAt) next.progress = f.runningTiers.filter((t) => t >= c.param).length;
       break;
     case 'keep_cool': {
       const ok = !f.offline && f.peakTemp > 0 && f.peakTemp < c.param && f.totalHash >= c.minHash;

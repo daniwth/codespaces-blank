@@ -53,7 +53,8 @@ const fake = createServer(async (req, res) => {
     return send(200, s);
   }
   if (req.url === '/v1/customers') return send(200, { id: 'cus_test' });
-  if (req.url === '/v1/checkout/sessions') return send(200, { url: 'https://checkout.stripe.com/c/test' });
+  // Slow enough that two concurrent checkout requests overlap.
+  if (req.url === '/v1/checkout/sessions') return void setTimeout(() => send(200, { url: 'https://checkout.stripe.com/c/test' }), 150);
   send(404, { error: { message: 'unknown' } });
 });
 await new Promise((r) => fake.listen(P.fake, r));
@@ -174,6 +175,14 @@ try {
     const { payload, headers } = signed(event);
     return s('POST', '/billing/webhook', payload, headers);
   };
+
+  await check('concurrent checkouts open only one Stripe session', async () => {
+    const [a, b] = await Promise.all([s('POST', '/billing/checkout', { plan: 'monthly' }, auth), s('POST', '/billing/checkout', { plan: 'monthly' }, auth)]);
+    const codes = [a.status, b.status].sort();
+    assert(codes[0] === 200 && codes[1] === 409, `got ${codes}`);
+    const after = await s('POST', '/billing/checkout', { plan: 'monthly' }, auth);
+    assert(after.status === 200, `lock not released: ${after.status}`);
+  });
 
   await check('webhook failure is retried instead of silently lost', async () => {
     mkSub('sub_A', uid, 'active');

@@ -8,6 +8,7 @@ import { bnToNumber } from '../../utils/bignum';
 import { fxBus, sfxBus } from '../../utils/eventBus';
 import { createInitialData, createRack } from '../initialState';
 import type { EconomySlice, GameStore, GetState, SetState } from '../storeTypes';
+import { bumpWorldEpoch } from '../worldEpoch';
 
 export function achievementContext(s: GameStore): AchievementContext {
   const gpus = Object.values(s.gpus);
@@ -46,7 +47,7 @@ export function createEconomySlice(set: SetState, get: GetState): EconomySlice {
         .filter((r) => RACK_BY_ID[r.modelId]?.vip)
         .forEach((r) => {
           const fresh = createRack(r.modelId, r.gpuSlots.length, r.fanSlots.length);
-          goldRacks[fresh.uid] = { ...fresh, uid: r.uid };
+          goldRacks[r.uid] = { ...fresh, uid: r.uid };
         });
       const keepRooms = talentLevel(s.talents, 'room_keeper') > 0;
       const fresh = createInitialData({
@@ -65,6 +66,7 @@ export function createEconomySlice(set: SetState, get: GetState): EconomySlice {
         stats: { ...s.stats, halvings: s.stats.halvings + 1 },
         settings: s.settings,
       });
+      bumpWorldEpoch();
       set({ ...fresh, selectedRack: null, biosGpu: null, sideTab: 'halving' });
       get().pushLog(tr('THE HALVING! Your run is cashed out — you minted {reward} Smart Contracts ($SC) and +5 gems.', { reward }), 'good');
       sfxBus.emit('halving');

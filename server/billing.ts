@@ -152,7 +152,20 @@ export interface CheckoutResult {
   reactivated: boolean;
 }
 
+/** Users with a Stripe call in flight: concurrent requests must not each open a paid Checkout Session. */
+const checkoutInFlight = new Set<string>();
+
 export async function startCheckout(user: UserRow, planId: PlanId): Promise<CheckoutResult> {
+  if (checkoutInFlight.has(user.id)) throw new HttpError(409, 'checkout_in_progress', 'A checkout is already being prepared. Please wait a moment.');
+  checkoutInFlight.add(user.id);
+  try {
+    return await startCheckoutLocked(user, planId);
+  } finally {
+    checkoutInFlight.delete(user.id);
+  }
+}
+
+async function startCheckoutLocked(user: UserRow, planId: PlanId): Promise<CheckoutResult> {
   const plan = PLANS[planId];
   const sub = subscriptionOf(user);
 

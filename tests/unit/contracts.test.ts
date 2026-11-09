@@ -246,6 +246,17 @@ describe('contract progress', () => {
     expect(res.board.slots[1].progress).toBe(60);
   });
 
+  it('a window that straddles the deadline cannot complete event-based goals with post-deadline results', () => {
+    const solo = make('solo_block', { target: 1, createdAt: NOW - 5 * 60_000, expiresAt: NOW + 1000 });
+    const reach = make('reach_hash', { target: 50e6, createdAt: NOW - 5 * 60_000, expiresAt: NOW + 1000 });
+    const tier = make('gpu_tier', { target: 1, param: 1, createdAt: NOW - 5 * 60_000, expiresAt: NOW + 1000 });
+    // 8 h offline gap starting 1 s before the deadline: ~0.003% of it is inside the contract.
+    const gap = facts({ start: NOW, end: NOW + 8 * 3600_000, offline: true, blocksFound: 90, totalHash: 100e6, runningTiers: [2] });
+    const res = advanceContracts(boardOf(solo, reach, tier), gap);
+    expect(res.completed).toHaveLength(0);
+    expect(res.expired).toHaveLength(3);
+  });
+
   it('expires unfinished contracts at the deadline and refills the slot after a delay', () => {
     const ctx = ctxAt();
     const board = createBoard(ctx, NOW, seeded(2));
