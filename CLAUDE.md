@@ -3,7 +3,7 @@
 Pixel-art crypto-mining tycoon: React 19 + TypeScript strict + Vite + Zustand + Canvas 2D, with a zero-dependency Node account server (`server/`, node:sqlite, Stripe or demo billing).
 
 ## Commands
-- `npm run dev:server` + `npm run dev` — local development (Vite proxies `/api` to :8787).
+- `npm run dev` — local development: account server (:8787) + Vite together (Vite proxies `/api` to :8787). Separately: `dev:server` and `dev:web`.
 - `npm run typecheck` — frontend + server.
 - `npm test` — Vitest unit tests (`tests/unit/`).
 - `npm run test:e2e` — Playwright smoke test (needs `npm run build`; boots its own server on :8799).

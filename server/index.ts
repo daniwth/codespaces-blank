@@ -22,6 +22,11 @@ import { inspectSave } from './saves.ts';
 
 /** Account creation per IP. */
 const registerLimiter = createRateLimiter(10, 60_000);
+/**
+ * "Email already registered" answers per IP. Registration has no email step to hide this behind,
+ * so probing for accounts is capped hard (and answered as slowly as a real sign-up).
+ */
+const takenEmailLimiter = createRateLimiter(5, 60 * 60_000);
 /** All login attempts per IP (throttles credential stuffing across many emails). */
 const loginIpLimiter = createRateLimiter(30, 60_000);
 /**
@@ -49,12 +54,18 @@ const routes: Record<string, Handler> = {
     const email = normalizeEmail(str(body.email, 'email', 254));
     const password = str(body.password, 'password', 200);
     validateCredentials(email, password);
-    if (users.byEmail(email)) throw new HttpError(409, 'email_taken', 'An account with this email already exists.');
+    const ip = clientIp(req);
+    takenEmailLimiter.check(ip);
     const passwordHash = await hashPassword(password);
+    if (users.byEmail(email)) {
+      takenEmailLimiter.hit(ip);
+      throw new HttpError(409, 'email_taken', 'An account with this email already exists.');
+    }
     const id = newUserId();
     try {
       users.insert(id, email, passwordHash);
     } catch {
+      takenEmailLimiter.hit(ip);
       throw new HttpError(409, 'email_taken', 'An account with this email already exists.');
     }
     const session = createSession(id);

@@ -42,6 +42,14 @@ function AuthForm() {
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setLocalError(null);
+    if (!email.trim()) {
+      setLocalError(t('Enter your email.'));
+      return;
+    }
+    if (password.length < 8) {
+      setLocalError(t('Password must be at least 8 characters.'));
+      return;
+    }
     if (mode === 'register' && password !== confirm) {
       setLocalError(t('Passwords do not match.'));
       return;
@@ -86,7 +94,7 @@ function AuthForm() {
       <PixelButton
         variant="success"
         icon={mode === 'login' ? <KeyRound size={12} /> : <UserPlus size={12} />}
-        disabled={isBusy || !email || password.length < 8}
+        disabled={isBusy}
         onClick={(e) => void submit(e as unknown as FormEvent)}
       >
         {isBusy ? t('Connecting…') : mode === 'login' ? t('Log in') : t('Create account')}

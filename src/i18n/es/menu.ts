@@ -73,6 +73,7 @@ export const esMenu: Dict = {
   'rev {n}': 'rev {n}',
   'No data': 'Sin datos',
   'Passwords do not match.': 'Las contraseñas no coinciden.',
+  'Enter your email.': 'Escribe tu correo.',
   'Log in': 'Iniciar sesión',
   'Create account': 'Crear cuenta',
   EMAIL: 'CORREO',

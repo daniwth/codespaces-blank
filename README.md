@@ -6,8 +6,8 @@ operas en un terminal CRT y reinicias con **The Halving** para ganar Smart Contr
 
 ```bash
 npm install
-npm run dev:server # servidor de cuentas en :8787 (terminal 1)
-npm run dev        # frontend con proxy /api → :8787 (terminal 2)
+npm run dev        # servidor de cuentas (:8787) + frontend con proxy /api → :8787
+# por separado: npm run dev:server y npm run dev:web
 npm run typecheck  # tsc del frontend y del servidor
 npm run build      # typecheck + build de producción en dist/
 npm start          # build + un solo proceso que sirve dist/ y la API

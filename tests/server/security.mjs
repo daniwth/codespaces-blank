@@ -250,6 +250,14 @@ try {
     assert(subs.get('sub_A').status === 'canceled', 'subscription still billable');
   });
 
+  await check('probing for registered emails is capped per IP', async () => {
+    const mk = () => s('POST', '/auth/register', { email: 'probe@x.io', password: 'password123' });
+    assert((await mk()).status === 201, 'setup register failed');
+    const codes = [];
+    for (let i = 0; i < 6; i += 1) codes.push((await mk()).status);
+    assert(codes.slice(0, 5).every((c) => c === 409) && codes[5] === 429, `got ${codes}`);
+  });
+
   await stop(live);
 } catch (err) {
   results.push(false);
