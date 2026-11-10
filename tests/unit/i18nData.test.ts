@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { COIN_INFO } from '../../src/config/altcoins';
 import { CHALLENGES } from '../../src/config/challenges';
 import { CONTRACT_DEFS, CONTRACT_DIFFICULTY } from '../../src/config/contracts';
 import { ACHIEVEMENTS, NETWORK_EVENTS, POOLS } from '../../src/config/gameBalance';
@@ -23,6 +24,7 @@ const needed: string[] = [
     n.description,
     ...Array.from({ length: n.maxLevel + 1 }, (_, level) => n.format(level)),
   ]),
+  ...Object.values(COIN_INFO).flatMap((c) => [c.name, c.blurb]),
   ...CHALLENGES.flatMap((c) => [c.name, c.tagline, c.description]),
   ...Object.values(CONTRACT_DEFS).map((c) => c.name),
   ...Object.values(CONTRACT_DIFFICULTY).map((d) => d.label),

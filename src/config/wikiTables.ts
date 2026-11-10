@@ -37,6 +37,7 @@ import {
   talentCost,
   talentModifiers,
 } from './prestigeTree';
+import { COIN_INFO, COIN_MARKET, MINEABLE, MINEABLE_COIN_IDS, hashDifficulty } from './altcoins';
 import { CHALLENGES, POWER_CAP_MUL } from './challenges';
 import { ROOM_BY_ID, ROOM_CATALOG } from './roomsCatalog';
 import type { WikiRow, WikiTable } from './wikiTypes';
@@ -498,6 +499,41 @@ export function poolTable(lang: Lang = curLang()): WikiTable {
   };
 }
 
+export function altcoinTable(lang: Lang = curLang()): WikiTable {
+  const x = pick(lang);
+  const nm = namer(lang);
+  return {
+    id: 'mineable-coins',
+    caption: x('Monedas minables', 'Mineable coins'),
+    columns: [
+      { label: x('Moneda', 'Coin') }, { label: x('Precio base', 'Base price'), align: 'right' }, { label: x('Rango', 'Range'), align: 'right' },
+      { label: x('Pago', 'Pay'), align: 'right' }, { label: x('Dificultad', 'Difficulty') },
+    ],
+    rows: MINEABLE_COIN_IDS.map((id) => {
+      const cfg = COIN_MARKET[id];
+      const d = MINEABLE[id].difficulty;
+      return {
+        id,
+        color: COIN_INFO[id].color,
+        icon: { kind: 'swatch', color: COIN_INFO[id].color },
+        cells: [
+          `${nm(COIN_INFO[id].name)} ($${id})`,
+          `$${cfg.base}`,
+          `x${cfg.min} - x${cfg.max}`,
+          pct(MINEABLE[id].valueMul),
+          d
+            ? x(`Sube con tu hashrate: x${hashDifficulty(id, 1e12).toFixed(1)} a 1 TH/s`, `Rises with your hashrate: x${hashDifficulty(id, 1e12).toFixed(1)} at 1 TH/s`)
+            : x('Fija', 'Fixed'),
+        ],
+      };
+    }),
+    note: x(
+      'Pago = valor en dólares de cada MH/s al precio base, comparado con $CC (antes de la dificultad y del pool).',
+      'Pay = dollar value of each MH/s at the base price, compared with $CC (before difficulty and the pool).',
+    ),
+  };
+}
+
 const CHALLENGE_RULE: Record<ChallengeId, readonly [string, string]> = {
   bronze_only: [
     'La lotería de silicio siempre sale Bronce y el silicio de grado superior no mina.',
@@ -538,8 +574,8 @@ export function challengeTable(lang: Lang = curLang()): WikiTable {
 
 const EVENT_EFFECT: Record<NetworkEventId, readonly [string, string]> = {
   difficulty_spike: [
-    `Dificultad x${EVENT_EFFECTS.difficultyMul}: minas un ${pct(1 - 1 / EVENT_EFFECTS.difficultyMul)} menos.`,
-    `Difficulty x${EVENT_EFFECTS.difficultyMul}: you mine ${pct(1 - 1 / EVENT_EFFECTS.difficultyMul)} less.`,
+    `Dificultad x${EVENT_EFFECTS.difficultyMul}: minas un ${pct(1 - 1 / EVENT_EFFECTS.difficultyMul)} menos ($BYT solo x${EVENT_EFFECTS.bytDifficultyMul}).`,
+    `Difficulty x${EVENT_EFFECTS.difficultyMul}: you mine ${pct(1 - 1 / EVENT_EFFECTS.difficultyMul)} less ($BYT only x${EVENT_EFFECTS.bytDifficultyMul}).`,
   ],
   blackout: [
     'Una de tus salas, al azar, se queda sin luz: sus racks se apagan (los Gold Edition siguen).',
@@ -547,7 +583,10 @@ const EVENT_EFFECT: Record<NetworkEventId, readonly [string, string]> = {
   ],
   heatwave: [`+${EVENT_EFFECTS.heatwaveDelta} °C de ambiente en todas las salas.`, `+${EVENT_EFFECTS.heatwaveDelta} °C ambient in every room.`],
   cold_snap: [`${EVENT_EFFECTS.coldSnapDelta} °C de ambiente en todas las salas.`, `${EVENT_EFFECTS.coldSnapDelta} °C ambient in every room.`],
-  bull_run: [`El precio medio de $CC tiende a x${EVENT_EFFECTS.bullMeanMul}.`, `The average $CC price drifts toward x${EVENT_EFFECTS.bullMeanMul}.`],
+  bull_run: [
+    `El precio medio de $CC y $NOVA tiende a x${EVENT_EFFECTS.bullMeanMul} ($BYT solo a x${EVENT_EFFECTS.bytBullMeanMul}).`,
+    `The average $CC and $NOVA price drifts toward x${EVENT_EFFECTS.bullMeanMul} ($BYT only toward x${EVENT_EFFECTS.bytBullMeanMul}).`,
+  ],
   meme_mania: [`La volatilidad de $MEME se multiplica por ${EVENT_EFFECTS.memeVolMul}.`, `$MEME volatility is multiplied by ${EVENT_EFFECTS.memeVolMul}.`],
 };
 

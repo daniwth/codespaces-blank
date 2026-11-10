@@ -402,6 +402,43 @@ try {
     }
   });
 
+  await check('altcoins: choose $NOVA in Pools, it mines into its own wallet and shows in the HUD and Market (desktop + mobile)', async () => {
+    for (const [label, opts] of [['desktop', { viewport: { width: 1600, height: 1000 } }], ['mobile', { ...devices['iPhone 13'] }]]) {
+      const { context, p } = await fresh(opts);
+      try {
+        await p.goto(URL);
+        await enterGame(p, 'new');
+        await p.locator('nav[aria-label="Panels"] button[aria-label="Pools"]').click();
+        for (const id of ['CC', 'BYT', 'NOVA']) await p.getByTestId(`mine-${id}`).waitFor({ timeout: 3000 });
+        assert((await p.getByTestId('mine-CC').getAttribute('aria-pressed')) === 'true', `${label}: $CC is not the default mined coin`);
+        await p.getByTestId('mine-NOVA').click();
+        assert((await p.getByTestId('mine-NOVA').getAttribute('aria-pressed')) === 'true', `${label}: $NOVA did not become the mined coin`);
+        await p.getByTestId('mine-NOVA').scrollIntoViewIfNeeded();
+        await p.screenshot({ path: join(ART, `altcoins-pools-${label}.png`) });
+        await p.waitForFunction(() => {
+          const s = JSON.parse(localStorage.getItem('hash-harvest-tycoon') ?? '{}').state;
+          return s && s.minedCoin === 'NOVA' && s.alts && s.alts.NOVA.amount > 0;
+        }, undefined, { timeout: 15_000 });
+        const s = await saveOf(p);
+        assert(s.alts.NOVA.costBasis === 0, `${label}: mined $NOVA has a cost basis`);
+        assert(Object.keys(s.market).sort().join() === 'BYT,CC,MEME,NOVA', `${label}: market lacks the altcoins`);
+        await p.locator('nav[aria-label="Panels"] button[aria-label="Market"]').click();
+        await p.getByTestId('coin-tab-NOVA').click();
+        await p.getByTestId('alt-cost-basis').waitFor({ timeout: 3000 });
+        await p.getByTestId('coin-tab-BYT').click();
+        await p.getByTestId('alt-cost-basis').waitFor({ timeout: 3000 });
+        await p.screenshot({ path: join(ART, `altcoins-market-${label}.png`) });
+        await p.getByTestId('coin-tab-NOVA').click();
+        await p.getByText('HOLDINGS').waitFor({ timeout: 3000 });
+        const overflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        assert(overflow <= 0, `${label}: horizontal overflow of ${overflow}px`);
+        await p.screenshot({ path: join(ART, `altcoins-hud-${label}.png`) });
+      } finally {
+        await context.close();
+      }
+    }
+  });
+
   // ───────────── Title screen / main menu ─────────────
 
   await check('menu: the simulation does not tick and no offline time is credited until Continue', async () => {

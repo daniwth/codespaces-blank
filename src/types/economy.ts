@@ -7,7 +7,20 @@ import type { RoomId } from './player';
  */
 export type BigNum = string;
 
-export type CoinId = 'CC' | 'MEME';
+/** Altcoins the farm can mine instead of $CC; they live in `GameData.alts`. */
+export type AltCoinId = 'BYT' | 'NOVA';
+export type CoinId = 'CC' | 'MEME' | AltCoinId;
+/** Coins a pool can pay out (everything but the shitcoin). */
+export type MineableCoin = 'CC' | AltCoinId;
+
+/** Holding of a mined/traded altcoin (a plain number, like $MEME). */
+export interface AltWallet {
+  amount: number;
+  /** Cash spent on the coins still held (mined coins cost nothing). */
+  costBasis: number;
+}
+
+export type AltWallets = Record<AltCoinId, AltWallet>;
 
 export interface Candle {
   /** Candle open time (epoch ms). */

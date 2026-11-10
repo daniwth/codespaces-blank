@@ -1,28 +1,26 @@
 import { tr } from '../../i18n';
 import { BOT_UNLOCK_LEVEL, MARKET, POOLS, levelFromEarnings } from '../../config/gameBalance';
+import { COIN_INFO } from '../../config/altcoins';
 import { talentModifiers } from '../../config/prestigeTree';
 import type { TradingBot } from '../../types/economy';
-import { bnAdd, bnGte, bnSub, bnSubClamp, bnToNumber } from '../../utils/bignum';
+import { bnAdd, bnGte, bnSub, bnToNumber } from '../../utils/bignum';
 import { fxBus, makeUid, sfxBus } from '../../utils/eventBus';
 import { formatCash, formatNumber } from '../../utils/formatters';
 import { buyPrice, realizedEarnings, sellPrice } from '../gamePhysics';
+import { costBasisOf, holdingOf, walletPatch } from '../wallets';
 import type { GetState, MarketSlice, SetState } from '../storeTypes';
 
 export function createMarketSlice(set: SetState, get: GetState): MarketSlice {
   return {
     sellCoin: (coin, amount) => {
       const s = get();
-      const holding = coin === 'CC' ? bnToNumber(s.cc) : s.meme;
+      const holding = holdingOf(s, coin);
       const qty = Math.min(amount, holding);
       if (!(qty > 0)) return { ok: false, message: tr('No {coin} to sell.', { coin: `$${coin}` }) };
       const proceeds = qty * sellPrice(s.market, coin, talentModifiers(s.talents));
-      const costBasis = coin === 'CC' ? s.ccCostBasis : s.memeCostBasis;
-      const { earned, basis } = realizedEarnings(proceeds, holding, costBasis, qty);
-      const patch = coin === 'CC'
-        ? { cc: bnSubClamp(s.cc, qty), ccCostBasis: Math.max(0, s.ccCostBasis - basis) }
-        : { meme: Math.max(0, s.meme - qty), memeCostBasis: Math.max(0, s.memeCostBasis - basis) };
+      const { earned, basis } = realizedEarnings(proceeds, holding, costBasisOf(s, coin), qty);
       set({
-        ...patch,
+        ...walletPatch(s, coin, -qty, -basis),
         cash: bnAdd(s.cash, proceeds),
         runEarnings: bnAdd(s.runEarnings, earned),
         lifetimeEarnings: bnAdd(s.lifetimeEarnings, earned),
@@ -43,9 +41,7 @@ export function createMarketSlice(set: SetState, get: GetState): MarketSlice {
         return { ok: false, message: tr('Not enough cash.') };
       }
       const qty = cash / buyPrice(s.market, coin);
-      set(coin === 'CC'
-        ? { cash: bnSub(s.cash, cash), cc: bnAdd(s.cc, qty), ccCostBasis: s.ccCostBasis + cash }
-        : { cash: bnSub(s.cash, cash), meme: s.meme + qty, memeCostBasis: s.memeCostBasis + cash });
+      set({ ...walletPatch(s, coin, qty, cash), cash: bnSub(s.cash, cash) });
       sfxBus.emit('buy');
       const msg = tr('Bought {qty} {coin} for {price}.', { qty: formatNumber(qty), coin: `$${coin}`, price: formatCash(cash) });
       s.pushLog(msg, 'info');
@@ -86,6 +82,15 @@ export function createMarketSlice(set: SetState, get: GetState): MarketSlice {
       }
       set({ pool });
       s.pushLog(tr('Switched to {name}.', { name: tr(def.name) }), 'info');
+      sfxBus.emit('switch');
+      return true;
+    },
+
+    setMinedCoin: (coin) => {
+      const s = get();
+      if (s.minedCoin === coin) return true;
+      set({ minedCoin: coin });
+      s.pushLog(tr('Now mining {name} (${coin}).', { name: tr(COIN_INFO[coin].name), coin }), 'info');
       sfxBus.emit('switch');
       return true;
     },

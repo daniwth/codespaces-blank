@@ -1,9 +1,10 @@
 import { SAVE_VERSION } from '../config/gameBalance';
 import { COOLER_BY_ID, GPU_BY_ID, OC_LIMITS, PSU_BY_ID, QUALITY_ORDER, RACK_BY_ID } from '../config/hardwareCatalog';
+import { ALT_COIN_IDS, COIN_IDS, emptyAlts, isCoinId, isMineableCoin } from '../config/altcoins';
 import { CHALLENGE_IDS, isChallengeId } from '../config/challenges';
 import { ROOM_BY_ID } from '../config/roomsCatalog';
 import { TALENT_BY_ID } from '../config/prestigeTree';
-import type { CoinId, TradingBot } from '../types/economy';
+import type { AltWallets, Candle, CoinMarket, MarketState, MineableCoin, TradingBot } from '../types/economy';
 import type { CoolerInstance, GpuInstance, PsuInstance, RackInstance, SiliconQuality } from '../types/hardware';
 import type { ActiveChallenge, ChallengeRecords, GameData, RoomId, TalentId, TalentLevels } from '../types/player';
 import { clamp } from '../utils/random';
@@ -111,7 +112,7 @@ function sanitizeBots(raw: unknown): TradingBot[] {
     .slice(0, 8)
     .map((b) => ({
       id: String(b.id),
-      coin: (b.coin === 'MEME' ? 'MEME' : 'CC') as CoinId,
+      coin: isCoinId(b.coin) ? b.coin : 'CC',
       side: b.side === 'buy' ? 'buy' : 'sell',
       trigger: b.trigger === 'below' ? 'below' : 'above',
       threshold: clamp(finite(b.threshold, 1.15), 0.1, 10),
@@ -120,6 +121,37 @@ function sanitizeBots(raw: unknown): TradingBot[] {
       lastFiredAt: finite(b.lastFiredAt, 0),
       enabled: b.enabled !== false,
     }));
+}
+
+const isCandle = (c: unknown): c is Candle =>
+  isObject(c) && [c.t, c.o, c.h, c.l, c.c].every((v) => typeof v === 'number' && Number.isFinite(v)) && (c.o as number) > 0 && (c.c as number) > 0;
+
+const isCoinMarket = (m: unknown): m is CoinMarket =>
+  isObject(m) &&
+  typeof m.price === 'number' && Number.isFinite(m.price) && m.price > 0 &&
+  typeof m.basePrice === 'number' && Number.isFinite(m.basePrice) && m.basePrice > 0 &&
+  Array.isArray(m.candles) && m.candles.every(isCandle) && isCandle(m.current);
+
+/** Every coin must carry a usable price series; a missing or garbled one (older saves have no altcoins) is regenerated. */
+function sanitizeMarket(raw: unknown, defaults: MarketState): MarketState {
+  const src = isObject(raw) ? raw : {};
+  const out = { ...defaults };
+  COIN_IDS.forEach((id) => {
+    const m = src[id];
+    if (isCoinMarket(m)) out[id] = { ...m, id };
+  });
+  return out;
+}
+
+function sanitizeAlts(raw: unknown): AltWallets {
+  const out = emptyAlts();
+  const src = isObject(raw) ? raw : {};
+  ALT_COIN_IDS.forEach((id) => {
+    const w = src[id];
+    if (!isObject(w)) return;
+    out[id] = { amount: Math.max(0, finite(w.amount, 0)), costBasis: Math.max(0, finite(w.costBasis, 0)) };
+  });
+  return out;
 }
 
 function sanitizeChallenge(raw: unknown, now: number): ActiveChallenge | null {
@@ -195,6 +227,9 @@ function sanitize(data: GameData, source: Json): GameData {
     roomTemps,
     bots: sanitizeBots(source.bots ?? data.bots),
     talents: sanitizeTalents(source.talents),
+    market: sanitizeMarket(source.market, defaults.market),
+    alts: sanitizeAlts(source.alts),
+    minedCoin: (isMineableCoin(source.minedCoin) ? source.minedCoin : 'CC') as MineableCoin,
     challenge: sanitizeChallenge(source.challenge, Date.now()),
     challengeRecords: sanitizeChallengeRecords(source.challengeRecords),
     achievements: (Array.isArray(data.achievements) ? data.achievements : []).filter((a): a is string => typeof a === 'string'),
@@ -218,7 +253,8 @@ function sanitize(data: GameData, source: Json): GameData {
  * v2 → v3: added $CC cost basis (earnings only count realized profit).
  * v3 → v4: added the Contracts board (generated from the migrated farm) and stats.contractsCompleted.
  * v4 → v5: added runStartedAt (for the Halving $SC/h readout); older runs are dated from their last tick.
- * v5 → v6: added challenge runs (challenge, challengeRecords): older saves are free runs with no clears.
+ * v5 → v6: added challenge runs (challenge, challengeRecords): older saves are free runs with no clears;
+ *            and altcoins ($BYT/$NOVA wallets, minedCoin and their markets): older saves hold none and mine $CC.
  */
 export function migrateSave(raw: unknown, fromVersion: number): GameData {
   const defaults = createInitialData();
@@ -236,6 +272,8 @@ export function migrateSave(raw: unknown, fromVersion: number): GameData {
   if (fromVersion < 6) {
     source.challenge = null;
     source.challengeRecords = {};
+    source.alts = emptyAlts();
+    source.minedCoin = 'CC';
   }
   const merged = mergeTyped(defaults, source);
   merged.saveVersion = SAVE_VERSION;

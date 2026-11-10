@@ -1,4 +1,4 @@
-import type { CoinId, PoolMode, TradeResult, TradingBot } from '../types/economy';
+import type { CoinId, MineableCoin, PoolMode, TradeResult, TradingBot } from '../types/economy';
 import type { ComponentKind, GpuInstance, OverclockSettings, SiliconQuality } from '../types/hardware';
 import type { ChallengeId, GameData, GameSettings, RoomId, TalentId } from '../types/player';
 import type { LiveMetrics, MessageTone, SimOutput } from './gamePhysics';
@@ -19,6 +19,9 @@ export interface OfflineReport {
   seconds: number;
   requested: number;
   ccMined: number;
+  /** Amount of the mined coin minted while away (equals ccMined when mining $CC). */
+  coinMined: number;
+  minedCoin: MineableCoin;
   electricity: number;
   earnedCash: number;
   ccDelta: number;
@@ -90,6 +93,8 @@ export interface MarketSlice {
   updateBot: (id: string, patch: Partial<TradingBot>) => void;
   removeBot: (id: string) => void;
   setPool: (pool: PoolMode) => boolean;
+  /** Choose which coin the farm mines (the pool pays this one). */
+  setMinedCoin: (coin: MineableCoin) => boolean;
 }
 
 export interface EconomySlice {

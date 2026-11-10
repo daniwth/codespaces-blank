@@ -1,7 +1,9 @@
 import type {
   ActiveNetworkEvent,
+  AltWallets,
   BigNum,
   MarketState,
+  MineableCoin,
   PoolMode,
   TradingBot,
 } from './economy';
@@ -170,6 +172,10 @@ export interface GameData {
   memeCostBasis: number;
   /** Cash spent on $CC that is still held (mined coins have no cost). */
   ccCostBasis: number;
+  /** $BYT and $NOVA wallets. */
+  alts: AltWallets;
+  /** Coin the farm mines (every pool pays this one). */
+  minedCoin: MineableCoin;
   gems: number;
   sc: number;
   scLifetime: number;

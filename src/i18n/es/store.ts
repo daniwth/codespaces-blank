@@ -117,4 +117,9 @@ export const esStore: Dict = {
   'Challenge started: {name}. {description}': 'Reto iniciado: {name}. {description}',
   'CHALLENGE COMPLETE: {name} in {time}! First clear bonus: +{sc} $SC and +{gems} gems. The restriction is lifted.': 'RETO SUPERADO: {name} en {time}! Bonus de primera victoria: +{sc} $SC y +{gems} gemas. La restricción se levanta.',
   'CHALLENGE COMPLETE: {name} in {time}! Repeat bonus: +{sc} $SC and +{gems} gems. The restriction is lifted.': 'RETO SUPERADO: {name} en {time}! Bonus de repetición: +{sc} $SC y +{gems} gemas. La restricción se levanta.',
+
+  // altcoins
+  'Now mining {name} (${coin}).': 'Ahora minas {name} (${coin}).',
+  'BLOCK FOUND! Solo jackpot of {amount} ${coin} + 1 gem!': 'BLOQUE ENCONTRADO! Jackpot en solitario de {amount} ${coin} + 1 gema!',
+  'BLOCK FOUND! Solo jackpot of {amount} ${coin}!': 'BLOQUE ENCONTRADO! Jackpot en solitario de {amount} ${coin}!',
 };

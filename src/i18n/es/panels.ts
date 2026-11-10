@@ -192,4 +192,22 @@ export const esPanels: Dict = {
   'BIOS LOCKED by the active challenge: stock clocks only.': 'BIOS BLOQUEADA por el reto activo: solo frecuencias de fábrica.',
   'Challenge': 'Reto',
   'Locked by the Single Room challenge.': 'Bloqueado por el reto Una sola sala.',
+
+  // ── Altcoins ──
+  ByteCoin: 'ByteCoin',
+  Nova: 'Nova',
+  'The steady one: low volatility, a fixed difficulty and a modest yield. Barely moves in a Bull Run or a Difficulty Spike.': 'La estable: poca volatilidad, dificultad fija y un rendimiento modesto. Apenas se inmuta con un Bull Run o un pico de dificultad.',
+  'A young, volatile coin with a rich yield. Every extra GH/s of your farm raises its difficulty, so it shines for small farms and big price swings.': 'Una moneda joven y volátil con un rendimiento jugoso. Cada GH/s extra de tu granja sube su dificultad, así que brilla con granjas pequeñas y grandes vaivenes de precio.',
+  '{coin} mined': '{coin} minados',
+  'Currently mined': 'Minándose ahora',
+  'Cost basis: {cost} (mined coins cost nothing, so selling them is pure profit).': 'Coste base: {cost} (las monedas minadas no cuestan nada, así que venderlas es beneficio puro).',
+  'MINED COIN': 'MONEDA MINADA',
+  'Your farm mines one coin at a time and every pool pays it. Each coin has its own price, wallet and market.': 'Tu granja mina una moneda a la vez y todos los pools la pagan. Cada moneda tiene su precio, su monedero y su mercado.',
+  MINING: 'MINANDO',
+  '{amount} ${coin}/s ≈ {value}/s': '{amount} ${coin}/s ≈ {value}/s',
+  'difficulty x{d}': 'dificultad x{d}',
+  'yield x{mul}': 'rendimiento x{mul}',
+  volatile: 'volátil',
+  steady: 'estable',
+  balanced: 'equilibrada',
 };

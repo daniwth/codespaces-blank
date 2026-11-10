@@ -1,3 +1,4 @@
+import { COIN_MARKET, emptyAlts } from '../config/altcoins';
 import { GPU_BY_ID, QUALITY_DEFS } from '../config/hardwareCatalog';
 import { MARKET, SAVE_VERSION, STARTING_CASH, EVENT_INTERVAL } from '../config/gameBalance';
 import { talentModifiers } from '../config/prestigeTree';
@@ -54,10 +55,10 @@ export function createRack(modelId: string, slots: number, fanSlots: number): Ra
 }
 
 function createCoin(id: CoinId, now: number): CoinMarket {
-  const base: number = id === 'CC' ? MARKET.cc.base : MARKET.meme.base;
+  const cfg = COIN_MARKET[id];
+  const base: number = cfg.base;
   const candles = [];
   let price: number = base;
-  const cfg = id === 'CC' ? MARKET.cc : MARKET.meme;
   // Pre-roll a short synthetic history so the chart is alive on first launch.
   for (let i = MARKET.maxCandles; i > 0; i -= 1) {
     const o = price;
@@ -73,7 +74,12 @@ function createCoin(id: CoinId, now: number): CoinMarket {
   return { id, price, basePrice: base, candles, current: { t: now, o: price, h: price, l: price, c: price } };
 }
 
-export const createMarket = (now: number): MarketState => ({ CC: createCoin('CC', now), MEME: createCoin('MEME', now) });
+export const createMarket = (now: number): MarketState => ({
+  CC: createCoin('CC', now),
+  MEME: createCoin('MEME', now),
+  BYT: createCoin('BYT', now),
+  NOVA: createCoin('NOVA', now),
+});
 
 export const DEFAULT_VIP: VipState = { goldRacksBought: 0, aiDiagnostics: false, autoSellPeaks: false, autoSellEnabled: true };
 
@@ -107,6 +113,8 @@ export function createInitialData(carry?: Partial<GameData>, challenge?: Challen
     meme: 0,
     memeCostBasis: 0,
     ccCostBasis: 0,
+    alts: emptyAlts(),
+    minedCoin: 'CC',
     gems: carry?.gems ?? 0,
     sc: carry?.sc ?? 0,
     scLifetime: carry?.scLifetime ?? 0,

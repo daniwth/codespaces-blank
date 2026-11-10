@@ -72,7 +72,7 @@ export const POOL_ORDER: PoolMode[] = ['public', 'solo', 'darknet'];
 export const NETWORK_EVENTS: Record<NetworkEventId, NetworkEventDef> = {
   difficulty_spike: {
     id: 'difficulty_spike', name: 'Difficulty Spike', positive: false, color: '#f97316',
-    description: 'A whale joined the network: difficulty +40%.', duration: [45, 90],
+    description: 'A whale joined the network: difficulty +40% ($BYT only +15%).', duration: [45, 90],
   },
   blackout: {
     id: 'blackout', name: 'Zonal Blackout', positive: false, color: '#64748b',
@@ -88,7 +88,7 @@ export const NETWORK_EVENTS: Record<NetworkEventId, NetworkEventDef> = {
   },
   bull_run: {
     id: 'bull_run', name: 'Bull Run', positive: true, color: '#22c55e',
-    description: '$CC hype: the market drifts towards 1.6x.', duration: [60, 120],
+    description: '$CC and $NOVA hype: prices drift towards 1.6x ($BYT only 1.15x).', duration: [60, 120],
   },
   meme_mania: {
     id: 'meme_mania', name: 'Meme Mania', positive: true, color: '#e879f9',
@@ -103,6 +103,9 @@ export const EVENT_EFFECTS = {
   heatwaveDelta: 12,
   coldSnapDelta: -8,
   bullMeanMul: 1.6,
+  /** $BYT barely reacts to a Bull Run and shrugs off most of a Difficulty Spike. */
+  bytBullMeanMul: 1.15,
+  bytDifficultyMul: 1.15,
   memeVolMul: 2.6,
 };
 
@@ -113,6 +116,10 @@ export const MARKET = {
   cc: { base: 1, sigma: 0.022, theta: 0.012, min: 0.25, max: 4 },
   /** min/max are multiples of the base price (MEME swings 0.1x – 10x). */
   meme: { base: 0.01, sigma: 0.07, theta: 0.004, min: 0.1, max: 10 },
+  /** $BYT: steady, low volatility, strongly mean-reverting. */
+  byt: { base: 0.25, sigma: 0.008, theta: 0.03, min: 0.6, max: 1.6 },
+  /** $NOVA: young and volatile, 0.2x - 6x. */
+  nova: { base: 4, sigma: 0.045, theta: 0.006, min: 0.2, max: 6 },
   maxBots: 4,
   vipPeakThreshold: 1.3,
 } as const;

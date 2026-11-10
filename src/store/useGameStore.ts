@@ -25,7 +25,7 @@ const DATA_KEYS: (keyof GameData)[] = [
   'saveVersion', 'createdAt', 'lastTick', 'cash', 'cc', 'meme', 'memeCostBasis', 'ccCostBasis', 'gems', 'sc', 'scLifetime',
   'runEarnings', 'lifetimeEarnings', 'runStartedAt', 'gpus', 'psus', 'coolers', 'racks', 'ownedRooms', 'activeRoom',
   'roomTemps', 'technicians', 'pool', 'market', 'bots', 'event', 'nextEventAt', 'talents', 'vip',
-  'achievements', 'stats', 'settings', 'contracts', 'challenge', 'challengeRecords',
+  'achievements', 'stats', 'settings', 'contracts', 'challenge', 'challengeRecords', 'alts', 'minedCoin',
 ];
 
 export const extractData = (s: GameStore): GameData => {
@@ -41,7 +41,7 @@ export const selectSimInput = (s: GameStore): SimInput => ({
   gpus: s.gpus, psus: s.psus, coolers: s.coolers, racks: s.racks, ownedRooms: s.ownedRooms,
   roomTemps: s.roomTemps, technicians: s.technicians, pool: s.pool, market: s.market, bots: s.bots,
   event: s.event, nextEventAt: s.nextEventAt, talents: s.talents, vip: s.vip, cash: s.cash, cc: s.cc,
-  meme: s.meme, memeCostBasis: s.memeCostBasis, ccCostBasis: s.ccCostBasis, lastTick: s.lastTick, challenge: s.challenge,
+  meme: s.meme, memeCostBasis: s.memeCostBasis, ccCostBasis: s.ccCostBasis, alts: s.alts, minedCoin: s.minedCoin, lastTick: s.lastTick, challenge: s.challenge,
 });
 
 /**
@@ -168,6 +168,10 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
         meme: Math.max(0, s.meme + out.memeDelta),
         memeCostBasis: Math.max(0, s.memeCostBasis + out.memeCostDelta),
         ccCostBasis: Math.max(0, s.ccCostBasis + out.ccCostDelta),
+        alts: {
+          BYT: { amount: Math.max(0, s.alts.BYT.amount + out.altDeltas.BYT), costBasis: Math.max(0, s.alts.BYT.costBasis + out.altCostDeltas.BYT) },
+          NOVA: { amount: Math.max(0, s.alts.NOVA.amount + out.altDeltas.NOVA), costBasis: Math.max(0, s.alts.NOVA.costBasis + out.altCostDeltas.NOVA) },
+        },
         gems: s.gems + out.gemsDelta,
         runEarnings: bnAdd(s.runEarnings, out.earnedCash),
         lifetimeEarnings: bnAdd(s.lifetimeEarnings, out.earnedCash),
@@ -215,6 +219,8 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
           seconds: out.dt,
           requested,
           ccMined: out.ccMined,
+          coinMined: out.coinMined,
+          minedCoin: out.minedCoin,
           electricity: out.electricityPaid,
           earnedCash: out.earnedCash,
           ccDelta: out.ccDelta,

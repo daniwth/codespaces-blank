@@ -71,7 +71,7 @@ const pools: Dict = {
 
 const events: Dict = {
   'Difficulty Spike': 'Pico de dificultad',
-  'A whale joined the network: difficulty +40%.': 'Una ballena entró en la red: dificultad +40%.',
+  'A whale joined the network: difficulty +40% ($BYT only +15%).': 'Una ballena entró en la red: dificultad +40% ($BYT solo +15%).',
   'Zonal Blackout': 'Apagón zonal',
   'The grid failed in one of your rooms. Rigs are offline.': 'La red eléctrica falló en una de tus salas. Los rigs están apagados.',
   'Summer Heatwave': 'Ola de calor',
@@ -79,7 +79,7 @@ const events: Dict = {
   'Cold Snap': 'Ola de frío',
   'Ambient temperature -8°C. Free cooling!': 'Temperatura ambiente -8°C. Refrigeración gratis!',
   'Bull Run': 'Mercado alcista',
-  '$CC hype: the market drifts towards 1.6x.': 'Euforia por el $CC: el mercado tiende a 1.6x.',
+  '$CC and $NOVA hype: prices drift towards 1.6x ($BYT only 1.15x).': 'Euforia por el $CC y el $NOVA: los precios tienden a 1.6x ($BYT solo 1.15x).',
   'Meme Mania': 'Fiebre meme',
   '$MEME volatility goes parabolic.': 'La volatilidad del $MEME se vuelve parabólica.',
 };

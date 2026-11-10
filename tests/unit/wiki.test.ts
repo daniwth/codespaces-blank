@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { searchWiki, highlightRegex, normalizeText, queryTokens } from '../../src/components/wiki/wikiSearch';
+import { MINEABLE_COIN_IDS } from '../../src/config/altcoins';
 import { CHALLENGES } from '../../src/config/challenges';
 import { CONTRACT_KINDS } from '../../src/config/contracts';
 import { ACHIEVEMENTS, NETWORK_EVENTS, PHYSICS, POOL_ORDER } from '../../src/config/gameBalance';
@@ -40,6 +41,7 @@ describe('wiki tables are generated from the catalogs', () => {
     ['achievements', T.achievementTable, ACHIEVEMENTS.map((a) => a.id)],
     ['contract kinds', T.contractKindTable, CONTRACT_KINDS],
     ['challenges', T.challengeTable, CHALLENGES.map((c) => c.id)],
+    ['mineable coins', T.altcoinTable, MINEABLE_COIN_IDS],
   ] as const)('%s: one row per catalog entry, in catalog order', (_name, build, ids) => {
     const table = build();
     expect(table.rows.map((r) => r.id)).toEqual([...ids]);

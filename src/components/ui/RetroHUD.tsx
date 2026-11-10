@@ -1,5 +1,7 @@
 import { CircleHelp, Cloud, CloudOff, Coins, Cpu, Gem, Pickaxe, ScrollText, Thermometer, Volume2, VolumeX, Zap } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { ALT_COIN_IDS, COIN_INFO } from '../../config/altcoins';
+import { sprites } from '../../engine/SpriteManager';
 import { NETWORK_EVENTS, POOLS, earningsForLevel, levelFromEarnings } from '../../config/gameBalance';
 import { talentModifiers } from '../../config/prestigeTree';
 import { ROOM_BY_ID } from '../../config/roomsCatalog';
@@ -13,6 +15,7 @@ import { bnToNumber } from '../../utils/bignum';
 import { fxBus } from '../../utils/eventBus';
 import { formatCash, formatHashrate, formatMultiplier, formatNumber, formatPower, formatPrice, formatTemp, tempColor } from '../../utils/formatters';
 import { Meter } from './Meter';
+import { SpriteImg } from './SpriteImg';
 import { ChallengeBanner } from './ChallengeBanner';
 import { PixelButton } from './PixelButton';
 
@@ -45,8 +48,12 @@ export function RetroHUD() {
     price: st.market.CC.price,
     open: st.market.CC.candles[st.market.CC.candles.length - 12]?.c ?? st.market.CC.price,
     memePrice: st.market.MEME.price,
+    alts: st.alts,
+    minedCoin: st.minedCoin,
+    bytPrice: st.market.BYT.price,
+    novaPrice: st.market.NOVA.price,
     totalHash: st.live.totalHash,
-    ccPerSec: st.live.ccPerSec,
+    coinPerSec: st.live.coinPerSec,
     elec: st.live.electricityPerSec,
     grid: st.live.gridDemand,
     elecMul: talentModifiers(st.talents).electricityMul,
@@ -158,7 +165,17 @@ export function RetroHUD() {
           }
         />
         <Stat icon={<ScrollText size={16} />} label="$MEME" value={formatNumber(s.meme)} color="#e879f9" sub={formatPrice(s.memePrice)} />
-        <Stat icon={<Cpu size={16} />} label={t('Hashrate')} value={formatHashrate(s.totalHash)} color="#a3e635" glow sub={`${formatNumber(s.ccPerSec, 3)} CC/s · ${t(pool.name).split(' ')[0]}`} />
+        {ALT_COIN_IDS.filter((id) => s.alts[id].amount > 0 || s.minedCoin === id).map((id) => (
+          <Stat
+            key={id}
+            icon={<SpriteImg src={sprites.coinIcon(id)} width={20} height={20} alt="" />}
+            label={`$${id}${s.minedCoin === id ? ' ⛏' : ''}`}
+            value={formatNumber(s.alts[id].amount)}
+            color={COIN_INFO[id].color}
+            sub={`${formatPrice(id === 'BYT' ? s.bytPrice : s.novaPrice)} ≈ ${formatCash(s.alts[id].amount * (id === 'BYT' ? s.bytPrice : s.novaPrice))}`}
+          />
+        ))}
+        <Stat icon={<Cpu size={16} />} label={t('Hashrate')} value={formatHashrate(s.totalHash)} color="#a3e635" glow sub={`${formatNumber(s.coinPerSec, 3)} ${s.minedCoin}/s · ${t(pool.name).split(' ')[0]}`} />
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1 font-pixel text-[10px] text-magenta" title={t('Gems')}>
             <Gem size={14} /> {s.gems}
