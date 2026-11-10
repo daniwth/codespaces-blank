@@ -79,4 +79,4 @@ export const devLinks = mailMode === 'log' && env.NODE_ENV !== 'production';
 /** Must match SAVE_SALT in src/config/gameBalance.ts (integrity check, not a secret). */
 export const SAVE_SALT = 'HHT::pixel-rigs::v1';
 export const SAVE_FORMAT = 'hash-harvest-save';
-export const MAX_SAVE_VERSION = 5;
+export const MAX_SAVE_VERSION = 6;

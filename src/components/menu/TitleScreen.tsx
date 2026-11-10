@@ -9,6 +9,8 @@ import { bnToNumber } from '../../utils/bignum';
 import { useT } from '../../i18n';
 import { cn } from '../../utils/cn';
 import { formatAgo, formatCash, formatDuration } from '../../utils/formatters';
+import { ChallengePicker } from '../prestige/ChallengePicker';
+import type { ChallengeId } from '../../types/player';
 import { AccountPanel } from '../account/AccountPanel';
 import { SettingsPanel } from '../panels/SettingsPanel';
 import { PixelButton } from '../ui/PixelButton';
@@ -72,6 +74,7 @@ export function TitleScreen() {
   const playAsGuest = useAccountStore((a) => a.playAsGuest);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [cloudBusy, setCloudBusy] = useState(false);
+  const [challenge, setChallenge] = useState<ChallengeId | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -155,12 +158,13 @@ export function TitleScreen() {
                 size="lg"
                 variant={save.progress ? 'secondary' : 'primary'}
                 icon={<Sparkles size={14} />}
-                onClick={() => (save.progress ? setDialog('confirm-new') : startFreshRun())}
+                onClick={() => (save.progress ? setDialog('confirm-new') : startFreshRun(challenge))}
                 autoFocus={!save.progress}
                 className="w-full"
               >
                 {t('New game')}
               </PixelButton>
+              <ChallengePicker value={challenge} onChange={setChallenge} id="menu-challenge" />
 
               {account.cloudOffer && account.cloud && (
                 <div className="flex flex-col gap-1 bg-panel-2 p-2 shadow-[inset_0_0_0_2px_#0e7490]" data-testid="cloud-offer">
@@ -255,7 +259,7 @@ export function TitleScreen() {
                 icon={<Sparkles size={12} />}
                 onClick={() => {
                   setDialog(null);
-                  startFreshRun();
+                  startFreshRun(challenge);
                 }}
               >
                 {t('Overwrite & start')}

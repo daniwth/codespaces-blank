@@ -1,14 +1,16 @@
 import { Atom, Building2, Coins, Cpu, Crown, Leaf, Moon, Snowflake, TrendingUp, Wrench, Zap, type LucideIcon } from 'lucide-react';
 import { useState } from 'react';
+import { CHALLENGES } from '../../config/challenges';
 import { HALVING_MIN_EARNINGS, PRESTIGE_TREE, earningsForSc, nextScMilestone, talentCost, talentLevel } from '../../config/prestigeTree';
 import { useT } from '../../i18n';
 import { halvingReward } from '../../store/slices/economySlice';
 import { useGameShallow, useGameStore } from '../../store/useGameStore';
-import type { TalentIcon } from '../../types/player';
+import type { ChallengeId, TalentIcon } from '../../types/player';
 import { bnToNumber } from '../../utils/bignum';
 import { cn } from '../../utils/cn';
 import { formatCash, formatDuration } from '../../utils/formatters';
 import { PixelButton } from '../ui/PixelButton';
+import { ChallengePicker } from './ChallengePicker';
 import { SLOT, slotted } from '../panels/richText';
 
 const ICONS: Record<TalentIcon, LucideIcon> = {
@@ -29,10 +31,13 @@ export function HalvingTalentTree() {
     talents: st.talents,
     halvings: st.stats.halvings,
     runStartedAt: st.runStartedAt,
+    challenge: st.challenge,
+    records: st.challengeRecords,
     now: st.lastTick,
   }));
-  const { performHalving, buyTalent } = useGameStore.getState();
+  const { performHalving, buyTalent, abandonChallenge } = useGameStore.getState();
   const [confirm, setConfirm] = useState(false);
+  const [next, setNext] = useState<ChallengeId | null>(null);
   const reward = halvingReward(s);
   const run = bnToNumber(s.runEarnings);
   const progress = Math.min(1, run / HALVING_MIN_EARNINGS);
@@ -94,22 +99,64 @@ export function HalvingTalentTree() {
             <div className="mt-1 text-[15px] text-dim">{t('Earn {amount} this run to unlock ({pct}%).', { amount: formatCash(HALVING_MIN_EARNINGS), pct: (progress * 100).toFixed(1) })}</div>
           </div>
         )}
-        <div className="mt-2 flex gap-1">
-          {!confirm ? (
-            <PixelButton variant="gold" size="sm" disabled={reward <= 0} onClick={() => setConfirm(true)}>
-              {t('Trigger halving')}
-            </PixelButton>
-          ) : (
-            <>
-              <PixelButton variant="danger" size="sm" onClick={() => { performHalving(); setConfirm(false); }}>
-                {t('Confirm: reset for {n} $SC', { n: reward })}
+        <div className="mt-2 flex flex-col gap-2">
+          {confirm && <ChallengePicker value={next} onChange={setNext} records={s.records} id="halving-challenge" />}
+          <div className="flex gap-1">
+            {!confirm ? (
+              <PixelButton variant="gold" size="sm" disabled={reward <= 0} onClick={() => setConfirm(true)}>
+                {t('Trigger halving')}
               </PixelButton>
-              <PixelButton size="sm" variant="ghost" onClick={() => setConfirm(false)}>
-                {t('Cancel')}
-              </PixelButton>
-            </>
-          )}
+            ) : (
+              <>
+                <PixelButton variant="danger" size="sm" onClick={() => { performHalving(next); setConfirm(false); setNext(null); }}>
+                  {next ? t('Confirm: reset for {n} $SC + challenge', { n: reward }) : t('Confirm: reset for {n} $SC', { n: reward })}
+                </PixelButton>
+                <PixelButton size="sm" variant="ghost" onClick={() => { setConfirm(false); setNext(null); }}>
+                  {t('Cancel')}
+                </PixelButton>
+              </>
+            )}
+          </div>
         </div>
+      </div>
+
+      <div className="bg-panel-2 p-2" data-testid="challenge-log">
+        <div className="flex items-center justify-between">
+          <span className="font-pixel text-[9px] text-neon">{t('CHALLENGE RUNS')}</span>
+          <span className="text-[15px] text-dim">
+            {t('{n}/{max} cleared', { n: CHALLENGES.filter((c) => (s.records[c.id]?.clears ?? 0) > 0).length, max: CHALLENGES.length })}
+          </span>
+        </div>
+        <p className="mt-1 text-[15px] leading-tight text-dim">
+          {t('Pick one when you trigger the Halving or start a new game. Reach the Halving threshold with its restriction held for bonus $SC and gems (full on the first clear, smaller after). Abandoning keeps the normal reward.')}
+        </p>
+        <div className="mt-2 flex flex-col gap-1">
+          {CHALLENGES.map((c) => {
+            const rec = s.records[c.id];
+            const active = s.challenge?.id === c.id;
+            return (
+              <div key={c.id} className="flex items-start gap-2 bg-panel p-1.5 text-[16px] leading-tight" style={{ boxShadow: active ? `inset 0 0 0 2px ${c.color}` : undefined }} data-testid={`challenge-row-${c.id}`}>
+                <span className="mt-0.5 shrink-0 font-pixel text-[9px]" style={{ color: c.color }}>{rec ? '✓' : active ? '▶' : '·'}</span>
+                <span className="min-w-0 flex-1">
+                  <span style={{ color: c.color }}>{t(c.name)}</span>{active && <span className="text-lime"> {t('ACTIVE')}</span>}
+                  <span className="block text-dim">{t(c.description)}</span>
+                  <span className="block text-gold">
+                    {rec
+                      ? t('Cleared x{n} · best {time} · repeat +{sc} $SC, +{gems} gems', { n: rec.clears, time: formatDuration(rec.bestTimeSec), sc: c.repeatSc, gems: c.repeatGems })
+                      : t('First clear: +{sc} $SC, +{gems} gems', { sc: c.firstSc, gems: c.firstGems })}
+                  </span>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+        {s.challenge && (
+          <div className="mt-2">
+            <PixelButton size="xs" variant="danger" onClick={() => abandonChallenge()}>
+              {t('Abandon active challenge')}
+            </PixelButton>
+          </div>
+        )}
       </div>
 
       <div className="flex items-center justify-between">

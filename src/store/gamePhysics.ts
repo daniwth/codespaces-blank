@@ -7,6 +7,17 @@
  *   T(t+Δt) = T_eq + (T − T_eq) · e^(−kΔt / C),  T_eq = T_amb + Q_gen / k
  */
 import { COOLER_BY_ID, GPU_BY_ID, GPU_CATALOG, OC_LIMITS, PSU_BY_ID, RACK_BY_ID } from '../config/hardwareCatalog';
+import {
+  ALT_COIN_IDS,
+  COIN_IDS,
+  COIN_MARKET,
+  MINEABLE_COIN_IDS,
+  bullMeanMul,
+  coinPerMHs,
+  hashDifficulty,
+  spikeDifficulty,
+} from '../config/altcoins';
+import { challengeRules } from '../config/challenges';
 import { ROOM_BY_ID } from '../config/roomsCatalog';
 import { talentModifiers, type TalentModifiers } from '../config/prestigeTree';
 import {
@@ -18,7 +29,7 @@ import {
   PHYSICS,
   POOLS,
 } from '../config/gameBalance';
-import type { ActiveNetworkEvent, CoinId, MarketState, NetworkEventId } from '../types/economy';
+import type { ActiveNetworkEvent, AltCoinId, CoinId, MarketState, MineableCoin, NetworkEventId } from '../types/economy';
 import type {
   GpuInstance,
   GpuLive,
@@ -38,7 +49,7 @@ export type SimInput = Pick<
   GameData,
   | 'gpus' | 'psus' | 'coolers' | 'racks' | 'ownedRooms' | 'roomTemps' | 'technicians'
   | 'pool' | 'market' | 'bots' | 'event' | 'nextEventAt' | 'talents' | 'vip'
-  | 'cash' | 'cc' | 'ccCostBasis' | 'meme' | 'memeCostBasis' | 'lastTick'
+  | 'cash' | 'cc' | 'ccCostBasis' | 'meme' | 'memeCostBasis' | 'alts' | 'minedCoin' | 'lastTick' | 'challenge'
 >;
 
 export type MessageTone = 'info' | 'good' | 'warn' | 'bad';
@@ -71,9 +82,22 @@ export interface RoomLive {
   racksOnline: number;
 }
 
+/** What the farm would mint of one coin right now (before pool luck): coins/s, dollars/s at the current price, difficulty. */
+export interface CoinYield {
+  perSec: number;
+  valuePerSec: number;
+  difficulty: number;
+}
+
 export interface LiveMetrics {
   totalHash: number;
+  /** $CC per second the farm would mint with the current pool, whichever coin is being mined (sizes contracts). */
   ccPerSec: number;
+  /** Coin being mined and its minted amount per second under the current pool. */
+  minedCoin: MineableCoin;
+  coinPerSec: number;
+  /** Per-coin yield preview for the coin picker. */
+  yields: Record<MineableCoin, CoinYield>;
   electricityPerSec: number;
   /** Farm-wide grid demand: wall-weighted average of the running GPUs' tariffs (see `gridTariff`). */
   gridDemand: number;
@@ -94,12 +118,19 @@ export interface SimOutput {
   roomTemps: Partial<Record<RoomId, number>>;
   cashDelta: number;
   ccDelta: number;
+  /** Change of the $BYT / $NOVA wallets and cost bases during the tick. */
+  altDeltas: Record<AltCoinId, number>;
+  altCostDeltas: Record<AltCoinId, number>;
   memeDelta: number;
   memeCostDelta: number;
   ccCostDelta: number;
   gemsDelta: number;
   earnedCash: number;
+  /** $CC minted this tick (0 while mining an altcoin). */
   ccMined: number;
+  /** Coins of the mined coin minted this tick, and which coin that was. */
+  coinMined: number;
+  minedCoin: MineableCoin;
   electricityPaid: number;
   market: MarketState;
   botFires: Record<string, number>;
@@ -154,6 +185,12 @@ export function aiAutoTune(silicon: SiliconProfile): OverclockSettings {
 
 export const STOCK_OC: OverclockSettings = { core: 0, mem: 0, voltage: OC_LIMITS.voltage.stock };
 
+/** Rooms the farm may use: a Single Room challenge restricts the run to the Bedroom. */
+export function usableRooms(input: Pick<SimInput, 'ownedRooms' | 'challenge'>): RoomId[] {
+  if (!challengeRules(input.challenge?.id).singleRoom) return input.ownedRooms;
+  return input.ownedRooms.includes('bedroom') ? ['bedroom'] : [];
+}
+
 export const pasteFactor = (paste: number): number =>
   PHYSICS.pasteMinFactor + (1 - PHYSICS.pasteMinFactor) * clamp(paste, 0, 1);
 
@@ -165,10 +202,10 @@ export const sellPrice = (market: MarketState, coin: CoinId, mods: TalentModifie
 export const buyPrice = (market: MarketState, coin: CoinId): number => market[coin].price * (1 + MARKET.fee);
 
 function stepMarket(market: MarketState, dt: number, now: number, event: ActiveNetworkEvent | null, messages: GameMessage[], offline: boolean): void {
-  (['CC', 'MEME'] as const).forEach((id) => {
+  COIN_IDS.forEach((id) => {
     const coin = market[id];
-    const cfg = id === 'CC' ? MARKET.cc : MARKET.meme;
-    const mean = coin.basePrice * (id === 'CC' && event?.id === 'bull_run' ? EVENT_EFFECTS.bullMeanMul : 1);
+    const cfg = COIN_MARKET[id];
+    const mean = coin.basePrice * (event?.id === 'bull_run' ? bullMeanMul(id) : 1);
     const sigma = cfg.sigma * (id === 'MEME' && event?.id === 'meme_mania' ? EVENT_EFFECTS.memeVolMul : 1);
     let logP = Math.log(coin.price);
     logP += cfg.theta * (Math.log(mean) - logP) * dt + sigma * Math.sqrt(dt) * gaussian();
@@ -263,6 +300,7 @@ interface World {
   meme: number;
   memeCost: number;
   ccCost: number;
+  alts: Record<AltCoinId, { amount: number; cost: number }>;
 }
 
 function cloneWorld(input: SimInput): World {
@@ -282,10 +320,9 @@ function cloneWorld(input: SimInput): World {
     gpus,
     racks,
     roomTemps: { ...input.roomTemps },
-    market: {
-      CC: { ...input.market.CC, candles: input.market.CC.candles.slice(), current: { ...input.market.CC.current } },
-      MEME: { ...input.market.MEME, candles: input.market.MEME.candles.slice(), current: { ...input.market.MEME.current } },
-    },
+    market: Object.fromEntries(
+      COIN_IDS.map((id) => [id, { ...input.market[id], candles: input.market[id].candles.slice(), current: { ...input.market[id].current } }]),
+    ) as MarketState,
     event: input.event ? { ...input.event } : null,
     nextEventAt: input.nextEventAt,
     botFires,
@@ -294,15 +331,42 @@ function cloneWorld(input: SimInput): World {
     meme: input.meme,
     memeCost: input.memeCostBasis,
     ccCost: input.ccCostBasis,
+    alts: {
+      BYT: { amount: input.alts.BYT.amount, cost: input.alts.BYT.costBasis },
+      NOVA: { amount: input.alts.NOVA.amount, cost: input.alts.NOVA.costBasis },
+    },
   };
 }
 
+const holdingOf = (w: World, coin: CoinId): number => (coin === 'CC' ? w.cc : coin === 'MEME' ? w.meme : w.alts[coin].amount);
+const costOf = (w: World, coin: CoinId): number => (coin === 'CC' ? w.ccCost : coin === 'MEME' ? w.memeCost : w.alts[coin].cost);
+
+function addHolding(w: World, coin: CoinId, amount: number, cost: number): void {
+  if (coin === 'CC') {
+    w.cc += amount;
+    w.ccCost += cost;
+  } else if (coin === 'MEME') {
+    w.meme += amount;
+    w.memeCost += cost;
+  } else {
+    w.alts[coin].amount += amount;
+    w.alts[coin].cost += cost;
+  }
+}
+
+const emptyYields = (): Record<MineableCoin, CoinYield> => ({
+  CC: { perSec: 0, valuePerSec: 0, difficulty: 1 },
+  BYT: { perSec: 0, valuePerSec: 0, difficulty: 1 },
+  NOVA: { perSec: 0, valuePerSec: 0, difficulty: 1 },
+});
+
 function emptyLive(): LiveMetrics {
-  return { totalHash: 0, ccPerSec: 0, electricityPerSec: 0, gridDemand: 1, difficulty: 1, hottest: 0, rooms: {}, racks: {}, gpus: {} };
+  return { totalHash: 0, ccPerSec: 0, minedCoin: 'CC', coinPerSec: 0, yields: emptyYields(), electricityPerSec: 0, gridDemand: 1, difficulty: 1, hottest: 0, rooms: {}, racks: {}, gpus: {} };
 }
 
 interface StepAccumulator {
   ccMined: number;
+  coinMined: number;
   electricity: number;
   earnedCash: number;
   gems: number;
@@ -330,18 +394,11 @@ export function realizedEarnings(proceeds: number, holding: number, costBasis: n
 function sellCoin(w: World, coin: CoinId, amount: number, mods: TalentModifiers, acc: StepAccumulator): number {
   if (amount <= 0) return 0;
   const proceeds = amount * sellPrice(w.market, coin, mods);
-  if (coin === 'CC') {
-    const { earned, basis } = realizedEarnings(proceeds, w.cc, w.ccCost, amount);
-    w.ccCost -= basis;
-    w.cc -= amount;
-    acc.earnedCash += earned;
-  } else {
-    const { earned, basis } = realizedEarnings(proceeds, w.meme, w.memeCost, amount);
-    w.memeCost -= basis;
-    w.meme -= amount;
-    acc.bestTrade = Math.max(acc.bestTrade, proceeds - basis);
-    acc.earnedCash += earned;
-  }
+  const { earned, basis } = realizedEarnings(proceeds, holdingOf(w, coin), costOf(w, coin), amount);
+  addHolding(w, coin, -amount, -basis);
+  // Only $MEME is a pure trade: mined coins cost nothing, so their proceeds are not a "trade profit".
+  if (coin === 'MEME') acc.bestTrade = Math.max(acc.bestTrade, proceeds - basis);
+  acc.earnedCash += earned;
   w.cash += proceeds;
   return proceeds;
 }
@@ -350,28 +407,22 @@ function buyCoin(w: World, coin: CoinId, cashAmount: number): number {
   if (cashAmount <= 0) return 0;
   const qty = cashAmount / buyPrice(w.market, coin);
   w.cash -= cashAmount;
-  if (coin === 'CC') {
-    w.cc += qty;
-    w.ccCost += cashAmount;
-  } else {
-    w.meme += qty;
-    w.memeCost += cashAmount;
-  }
+  addHolding(w, coin, qty, cashAmount);
   return qty;
 }
 
-function stepEvents(w: World, input: SimInput, now: number, acc: StepAccumulator): void {
+function stepEvents(w: World, rooms: RoomId[], now: number, acc: StepAccumulator): void {
   if (w.event && now >= w.event.endsAt) {
     acc.messages.push(gameMsg('info', 'Network event ended: {name}.', { name: NETWORK_EVENTS[w.event.id].name }));
     w.event = null;
     w.nextEventAt = now + randRange(EVENT_INTERVAL[0], EVENT_INTERVAL[1]) * 1000;
   }
   if (!w.event && now >= w.nextEventAt) {
-    const pool: NetworkEventId[] = ['difficulty_spike', 'heatwave', 'cold_snap', 'bull_run', 'meme_mania', 'blackout'];
+    const pool: NetworkEventId[] = ['difficulty_spike', 'heatwave', 'cold_snap', 'bull_run', 'meme_mania', ...(rooms.length ? (['blackout'] as const) : [])];
     const id = pick(pool);
     const def = NETWORK_EVENTS[id];
     const duration = randRange(def.duration[0], def.duration[1]) * 1000;
-    const roomId = id === 'blackout' ? pick(input.ownedRooms) : null;
+    const roomId = id === 'blackout' && rooms.length ? pick(rooms) : null;
     w.event = { id, startedAt: now, endsAt: now + duration, roomId };
     acc.messages.push(roomId
       ? gameMsg(def.positive ? 'good' : 'bad', 'NETWORK EVENT: {name} ({room}). {description}', { name: def.name, room: ROOM_BY_ID[roomId].name, description: def.description })
@@ -381,10 +432,15 @@ function stepEvents(w: World, input: SimInput, now: number, acc: StepAccumulator
 }
 
 function step(w: World, input: SimInput, dt: number, now: number, mods: TalentModifiers, opts: SimOptions, acc: StepAccumulator, live: LiveMetrics): void {
-  if (!opts.offline) stepEvents(w, input, now, acc);
+  const rules = challengeRules(input.challenge?.id);
+  const rooms = usableRooms(input);
+  const gpuOc = (g: GpuInstance): OverclockSettings => (rules.lockOverclock ? STOCK_OC : g.oc);
+  if (!opts.offline) stepEvents(w, rooms, now, acc);
   const ev = opts.offline ? null : w.event;
   const ambientDelta = ev?.id === 'heatwave' ? EVENT_EFFECTS.heatwaveDelta : ev?.id === 'cold_snap' ? EVENT_EFFECTS.coldSnapDelta : 0;
-  const difficulty = ev?.id === 'difficulty_spike' ? EVENT_EFFECTS.difficultyMul : 1;
+  const spiking = ev?.id === 'difficulty_spike';
+  const coinId = input.minedCoin;
+  const eventDifficulty = (coin: MineableCoin): number => (spiking ? spikeDifficulty(coin) : 1);
 
   const totalMounted = Object.values(w.racks).reduce(
     (acc2, r) => acc2 + (r.roomId ? r.gpuSlots.filter(Boolean).length : 0),
@@ -397,7 +453,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
   live.rooms = {};
   live.racks = {};
   live.gpus = {};
-  live.difficulty = difficulty;
+  live.minedCoin = coinId;
   let totalHash = 0;
   let electricityRate = 0;
   let farmPaidWall = 0;
@@ -406,15 +462,16 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
 
   const racksByRoom: Partial<Record<RoomId, RackInstance[]>> = {};
   Object.values(w.racks).forEach((r) => {
-    if (!r.roomId) {
+    if (!r.roomId || !rooms.includes(r.roomId)) {
       live.racks[r.uid] = { status: 'stored', load: 0, wall: 0, capacity: 0, hash: 0, maxTemp: 0, cooling: 0, tariff: 1, powerCost: 0 };
       return;
     }
     (racksByRoom[r.roomId] ??= []).push(r);
   });
 
-  input.ownedRooms.forEach((roomId) => {
+  rooms.forEach((roomId) => {
     const room = ROOM_BY_ID[roomId];
+    const lineW = room.maxPowerW * rules.powerCapMul;
     const racks = racksByRoom[roomId] ?? [];
     const blackout = ev?.id === 'blackout' && ev.roomId === roomId;
     const baseAmbient = room.ambient + ambientDelta;
@@ -422,7 +479,9 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
 
     // Pass 1: rack power status
     const rackInfo = racks.map((rack) => {
-      const topo = rackTopology(rack, { gpus: w.gpus, psus: input.psus, coolers: input.coolers });
+      const full = rackTopology(rack, { gpus: w.gpus, psus: input.psus, coolers: input.coolers });
+      // Bronze Only: higher silicon grades stay idle (neither powered nor mining).
+      const topo = rules.bronzeOnly ? { ...full, gpuUids: full.gpuUids.filter((u) => w.gpus[u].quality === 'bronze') } : full;
       let status: RackStatus;
       let load = 0;
       let gpuLoad = 0;
@@ -435,7 +494,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
         topo.gpuUids.forEach((u) => {
           const g = w.gpus[u];
           if (g.shutdown) return;
-          const p = GPU_BY_ID[g.modelId].power * ocPowerMul(g.oc);
+          const p = GPU_BY_ID[g.modelId].power * ocPowerMul(gpuOc(g));
           gpuLoad += p;
           tariffLoad += p * gridTariff(g.modelId);
         });
@@ -450,8 +509,8 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
     });
 
     const roomWall = rackInfo.reduce((a, r) => a + r.wall, 0);
-    const brownout = roomWall > room.maxPowerW ? room.maxPowerW / roomWall : 1;
-    const paidWall = Math.min(roomWall, room.maxPowerW);
+    const brownout = roomWall > lineW ? lineW / roomWall : 1;
+    const paidWall = Math.min(roomWall, lineW);
     // A brownout caps the paid wall at the contracted line: every rack is billed pro rata.
     const paidShare = roomWall > 0 ? paidWall / roomWall : 0;
     const price = wattPrice(roomId, mods);
@@ -477,7 +536,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
         const g = w.gpus[uid];
         const model = GPU_BY_ID[g.modelId];
         const running = powered && !g.shutdown;
-        const powerMul = ocPowerMul(g.oc);
+        const powerMul = ocPowerMul(gpuOc(g));
         const heat = running ? model.power * powerMul * mods.heatMul * rackModel.heatMul * brownout : 0;
         const k = (PHYSICS.baseCooling + fanK / n) * pasteFactor(g.paste) * room.coolingMul;
         const tEq = roomTemp + heat / k;
@@ -506,7 +565,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
         if (techRepair > 0 && g.wear > 0) g.wear = Math.max(0, g.wear - techRepair * dt);
 
         const hash = active
-          ? model.hashrate * (1 + g.ocBonus) * (throttled ? 0.5 : 1) * (1 - g.wear) * brownout * mods.hashMul
+          ? model.hashrate * (1 + (rules.lockOverclock ? 0 : g.ocBonus)) * (throttled ? 0.5 : 1) * (1 - g.wear) * brownout * mods.hashMul
           : 0;
         rackHash += hash;
         rackMax = Math.max(rackMax, g.temp);
@@ -537,7 +596,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
     live.rooms[roomId] = {
       load: rackInfo.reduce((a, r) => a + r.load, 0),
       wall: roomWall,
-      capacity: room.maxPowerW,
+      capacity: lineW,
       brownout,
       ambient: baseAmbient,
       temp: w.roomTemps[roomId] ?? baseAmbient,
@@ -548,30 +607,39 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
   });
 
   // ── Mining yield ──
-  const baseRate = (totalHash / 1e6) * PHYSICS.rewardPerMHs / difficulty;
   const pool = POOLS[input.pool];
-  let ccGain = 0;
+  const poolMul = input.pool === 'public' ? 1 - pool.fee : pool.payoutMul;
+  const diffOf = (coin: MineableCoin): number => eventDifficulty(coin) * hashDifficulty(coin, totalHash);
+  const rateOf = (coin: MineableCoin): number => ((totalHash / 1e6) * coinPerMHs(coin)) / diffOf(coin);
+  const baseRate = rateOf(coinId);
+  let gain = 0;
   if (input.pool === 'public') {
-    ccGain = baseRate * (1 - pool.fee) * dt;
+    gain = baseRate * (1 - pool.fee) * dt;
   } else if (input.pool === 'solo') {
-    if (opts.offline) ccGain = baseRate * pool.payoutMul * dt;
+    if (opts.offline) gain = baseRate * pool.payoutMul * dt;
     else if (baseRate > 0 && Math.random() < dt / PHYSICS.soloBlockMeanSec) {
-      ccGain = baseRate * PHYSICS.soloBlockMeanSec * pool.payoutMul;
+      gain = baseRate * PHYSICS.soloBlockMeanSec * pool.payoutMul;
       acc.blocks += 1;
       const gem = Math.random() < 0.3;
       if (gem) acc.gems += 1;
-      acc.messages.push(gem
-        ? gameMsg('good', 'BLOCK FOUND! Solo jackpot of {cc} $CC + 1 gem!', { cc: ccGain.toFixed(2) })
-        : gameMsg('good', 'BLOCK FOUND! Solo jackpot of {cc} $CC!', { cc: ccGain.toFixed(2) }));
+      if (coinId === 'CC') {
+        acc.messages.push(gem
+          ? gameMsg('good', 'BLOCK FOUND! Solo jackpot of {cc} $CC + 1 gem!', { cc: gain.toFixed(2) })
+          : gameMsg('good', 'BLOCK FOUND! Solo jackpot of {cc} $CC!', { cc: gain.toFixed(2) }));
+      } else {
+        acc.messages.push(gem
+          ? gameMsg('good', 'BLOCK FOUND! Solo jackpot of {amount} ${coin} + 1 gem!', { amount: gain.toFixed(2), coin: coinId })
+          : gameMsg('good', 'BLOCK FOUND! Solo jackpot of {amount} ${coin}!', { amount: gain.toFixed(2), coin: coinId }));
+      }
       acc.sounds.push('block');
     }
   } else {
-    ccGain = baseRate * pool.payoutMul * dt;
+    gain = baseRate * pool.payoutMul * dt;
     if (!opts.offline && baseRate > 0 && Math.random() < dt / PHYSICS.darknetRaidMeanSec) {
-      const fine = Math.min(Math.max(0, w.cash), Math.max(w.cash * 0.12, baseRate * w.market.CC.price * 90));
+      const fine = Math.min(Math.max(0, w.cash), Math.max(w.cash * 0.12, baseRate * w.market[coinId].price * 90));
       w.cash -= fine;
       acc.raids += 1;
-      const roomId = pick(input.ownedRooms);
+      const roomId = pick(rooms);
       Object.values(w.racks).forEach((r) => {
         if (r.roomId === roomId) r.rebootUntil = now + PHYSICS.inspectionRebootMs;
       });
@@ -579,20 +647,24 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
       acc.sounds.push('raid');
     }
   }
-  w.cc += ccGain;
-  acc.ccMined += ccGain;
+  // Mined coins cost nothing: only the amount grows, never the cost basis.
+  addHolding(w, coinId, gain, 0);
+  acc.coinMined += gain;
+  if (coinId === 'CC') acc.ccMined += gain;
 
-  // ── Electricity bill (auto-debits $CC when cash runs dry) ──
+  // ── Electricity bill (auto-debits coins when cash runs dry: $CC first, then the altcoins) ──
   let bill = electricityRate * dt;
   acc.electricity += bill;
   const fromCash = Math.min(bill, Math.max(0, w.cash));
   w.cash -= fromCash;
   bill -= fromCash;
-  if (bill > 0 && w.cc > 0) {
-    const ccNeeded = Math.min(w.cc, bill / w.market.CC.price);
-    w.ccCost *= w.cc > 0 ? (w.cc - ccNeeded) / w.cc : 0;
-    w.cc -= ccNeeded;
-  }
+  (['CC', ...ALT_COIN_IDS] as const).forEach((coin) => {
+    const held = holdingOf(w, coin);
+    if (bill <= 0 || held <= 0) return;
+    const needed = Math.min(held, bill / w.market[coin].price);
+    addHolding(w, coin, -needed, -costOf(w, coin) * (needed / held));
+    bill -= needed * w.market[coin].price;
+  });
 
   // ── Market, bots & VIP auto-sell ──
   stepMarket(w.market, dt, now, ev, acc.messages, opts.offline);
@@ -606,7 +678,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
     if (!hit) return;
     const pctAmt = clamp(bot.amountPct, 1, 100) / 100;
     if (bot.side === 'sell') {
-      const holding = bot.coin === 'CC' ? w.cc : w.meme;
+      const holding = holdingOf(w, bot.coin);
       if (holding <= 1e-9) return;
       const earnedBefore = acc.earnedCash;
       sellCoin(w, bot.coin, holding * pctAmt, mods, acc);
@@ -626,7 +698,13 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
   }
 
   live.totalHash = totalHash;
-  live.ccPerSec = baseRate * (input.pool === 'public' ? 1 - pool.fee : pool.payoutMul);
+  live.ccPerSec = rateOf('CC') * poolMul;
+  live.coinPerSec = baseRate * poolMul;
+  live.difficulty = diffOf(coinId);
+  MINEABLE_COIN_IDS.forEach((coin) => {
+    const perSec = rateOf(coin) * poolMul;
+    live.yields[coin] = { perSec, valuePerSec: perSec * w.market[coin].price, difficulty: diffOf(coin) };
+  });
   live.electricityPerSec = electricityRate;
   live.gridDemand = farmPaidWall > 0 ? farmBilledWall / farmPaidWall : 1;
   live.hottest = hottest;
@@ -637,13 +715,14 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
 export function simulate(input: SimInput, dtSec: number, now: number, opts: SimOptions): SimOutput {
   const w = cloneWorld(input);
   const mods = talentModifiers(input.talents);
-  const acc: StepAccumulator = { ccMined: 0, electricity: 0, earnedCash: 0, gems: 0, blocks: 0, raids: 0, overheats: 0, bestTrade: 0, peakTemp: 0, botEarned: 0, messages: [], sounds: [] };
+  const acc: StepAccumulator = { ccMined: 0, coinMined: 0, electricity: 0, earnedCash: 0, gems: 0, blocks: 0, raids: 0, overheats: 0, bestTrade: 0, peakTemp: 0, botEarned: 0, messages: [], sounds: [] };
   const live = emptyLive();
   const cash0 = w.cash;
   const cc0 = w.cc;
   const meme0 = w.meme;
   const memeCost0 = w.memeCost;
   const ccCost0 = w.ccCost;
+  const alts0 = { BYT: { ...w.alts.BYT }, NOVA: { ...w.alts.NOVA } };
   const rebootBefore: Record<string, number> = {};
   Object.values(w.racks).forEach((r) => {
     rebootBefore[r.uid] = r.rebootUntil;
@@ -674,12 +753,16 @@ export function simulate(input: SimInput, dtSec: number, now: number, opts: SimO
     roomTemps: w.roomTemps,
     cashDelta: w.cash - cash0,
     ccDelta: w.cc - cc0,
+    altDeltas: { BYT: w.alts.BYT.amount - alts0.BYT.amount, NOVA: w.alts.NOVA.amount - alts0.NOVA.amount },
+    altCostDeltas: { BYT: w.alts.BYT.cost - alts0.BYT.cost, NOVA: w.alts.NOVA.cost - alts0.NOVA.cost },
     memeDelta: w.meme - meme0,
     memeCostDelta: w.memeCost - memeCost0,
     ccCostDelta: w.ccCost - ccCost0,
     gemsDelta: acc.gems,
     earnedCash: acc.earnedCash,
     ccMined: acc.ccMined,
+    coinMined: acc.coinMined,
+    minedCoin: input.minedCoin,
     electricityPaid: acc.electricity,
     market: w.market,
     botFires: w.botFires,

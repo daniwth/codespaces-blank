@@ -10,6 +10,7 @@ import { recordGpuEdit } from '../editLedger';
 import { createGpu, createRack, rollQuality } from '../initialState';
 import { PHYSICS } from '../../config/gameBalance';
 import type { GameStore, GetState, HardwareSlice, SetState } from '../storeTypes';
+import { challengeBlocks } from './challengesSlice';
 
 export const SELL_REFUND = 0.5;
 
@@ -54,7 +55,8 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
     buyGpu: (modelId) => {
       const model = GPU_BY_ID[modelId];
       if (!model || !spend(model.price, model.name)) return null;
-      const quality = rollQuality(talentModifiers(get().talents).qualityLuck);
+      // Bronze Only: the silicon lottery is locked to Bronze.
+      const quality = challengeBlocks(get(), 'bronzeOnly') ? 'bronze' : rollQuality(talentModifiers(get().talents).qualityLuck);
       const gpu = createGpu(modelId, quality);
       set((s) => ({
         gpus: { ...s.gpus, [gpu.uid]: gpu },
@@ -257,6 +259,10 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
       const s = get();
       const gpu = s.gpus[gpuUid];
       if (!gpu) return 'invalid';
+      if (challengeBlocks(s, 'lockOverclock')) {
+        get().denyByChallenge(tr('the BIOS is locked at stock clocks.'));
+        return 'invalid';
+      }
       const chance = crashChance(gpu.silicon, oc);
       const crashed = Math.random() < chance;
       if (crashed) {
@@ -283,6 +289,7 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
       const s = get();
       const gpu = s.gpus[gpuUid];
       if (!gpu || !s.vip.aiDiagnostics) return false;
+      if (challengeBlocks(s, 'lockOverclock')) return get().denyByChallenge(tr('the BIOS is locked at stock clocks.'));
       const oc = aiAutoTune(gpu.silicon);
       const bonus = ocHashBonus(oc);
       set((st) => ({ gpus: { ...st.gpus, [gpuUid]: { ...st.gpus[gpuUid], oc, ocBonus: bonus } } }));

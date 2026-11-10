@@ -383,6 +383,83 @@ try {
       await context.close();
     }
   });
+  await check('challenge runs: pick one on New game, the HUD shows it, Halving lists it, abandon lifts it (desktop + mobile)', async () => {
+    for (const [label, opts] of [['desktop', { viewport: { width: 1600, height: 1000 } }], ['mobile', { ...devices['iPhone 13'] }]]) {
+      const { context, p } = await fresh(opts);
+      try {
+        await p.goto(URL);
+        await menuOf(p).waitFor({ timeout: 10_000 });
+        await menuOf(p).locator('button:has-text("Play as guest")').click();
+        await p.getByTestId('menu-challenge').waitFor({ timeout: 3000 });
+        await p.getByTestId('menu-challenge-select').selectOption('single_room');
+        await p.getByTestId('menu-challenge-info').waitFor({ timeout: 3000 });
+        await p.screenshot({ path: join(ART, `challenge-menu-${label}.png`) });
+        const overflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        assert(overflow <= 0, `${label}: horizontal overflow of ${overflow}px on the menu`);
+        await menuOf(p).locator('button:has-text("New game")').click();
+        await roomCanvas(p).waitFor({ timeout: 10_000 });
+        const banner = p.getByTestId('challenge-banner');
+        await banner.waitFor({ timeout: 3000 });
+        assert(/SINGLE ROOM/.test((await banner.textContent()) ?? ''), `${label}: HUD banner does not name the challenge`);
+        assert((await saveOf(p)).challenge?.id === 'single_room', `${label}: challenge not stored in the save`);
+        await p.screenshot({ path: join(ART, `challenge-hud-${label}.png`) });
+        await p.locator('nav[aria-label="Panels"] button[aria-label="Shop"]').click();
+        await p.getByRole('button', { name: 'Rooms', exact: true }).click();
+        await p.getByText('Locked by the Single Room challenge.').first().waitFor({ timeout: 3000 });
+        await p.locator('nav[aria-label="Panels"] button[aria-label="Halving"]').click();
+        const log = p.getByTestId('challenge-log');
+        await log.waitFor({ timeout: 3000 });
+        assert((await log.locator('[data-testid^="challenge-row-"]').count()) === 4, `${label}: Halving panel does not list the 4 challenges`);
+        await log.scrollIntoViewIfNeeded();
+        await p.screenshot({ path: join(ART, `challenge-halving-${label}.png`) });
+        await banner.locator('button:has-text("Abandon")').click();
+        await banner.locator('button:has-text("Confirm abandon")').click();
+        await banner.waitFor({ state: 'detached', timeout: 3000 });
+        await p.waitForTimeout(2300);
+        assert((await saveOf(p)).challenge === null, `${label}: abandoning did not clear the challenge in the save`);
+      } finally {
+        await context.close();
+      }
+    }
+  });
+
+  await check('altcoins: choose $NOVA in Pools, it mines into its own wallet and shows in the HUD and Market (desktop + mobile)', async () => {
+    for (const [label, opts] of [['desktop', { viewport: { width: 1600, height: 1000 } }], ['mobile', { ...devices['iPhone 13'] }]]) {
+      const { context, p } = await fresh(opts);
+      try {
+        await p.goto(URL);
+        await enterGame(p, 'new');
+        await p.locator('nav[aria-label="Panels"] button[aria-label="Pools"]').click();
+        for (const id of ['CC', 'BYT', 'NOVA']) await p.getByTestId(`mine-${id}`).waitFor({ timeout: 3000 });
+        assert((await p.getByTestId('mine-CC').getAttribute('aria-pressed')) === 'true', `${label}: $CC is not the default mined coin`);
+        await p.getByTestId('mine-NOVA').click();
+        assert((await p.getByTestId('mine-NOVA').getAttribute('aria-pressed')) === 'true', `${label}: $NOVA did not become the mined coin`);
+        await p.getByTestId('mine-NOVA').scrollIntoViewIfNeeded();
+        await p.screenshot({ path: join(ART, `altcoins-pools-${label}.png`) });
+        await p.waitForFunction(() => {
+          const s = JSON.parse(localStorage.getItem('hash-harvest-tycoon') ?? '{}').state;
+          return s && s.minedCoin === 'NOVA' && s.alts && s.alts.NOVA.amount > 0;
+        }, undefined, { timeout: 15_000 });
+        const s = await saveOf(p);
+        assert(s.alts.NOVA.costBasis === 0, `${label}: mined $NOVA has a cost basis`);
+        assert(Object.keys(s.market).sort().join() === 'BYT,CC,MEME,NOVA', `${label}: market lacks the altcoins`);
+        await p.locator('nav[aria-label="Panels"] button[aria-label="Market"]').click();
+        await p.getByTestId('coin-tab-NOVA').click();
+        await p.getByTestId('alt-cost-basis').waitFor({ timeout: 3000 });
+        await p.getByTestId('coin-tab-BYT').click();
+        await p.getByTestId('alt-cost-basis').waitFor({ timeout: 3000 });
+        await p.screenshot({ path: join(ART, `altcoins-market-${label}.png`) });
+        await p.getByTestId('coin-tab-NOVA').click();
+        await p.getByText('HOLDINGS').waitFor({ timeout: 3000 });
+        const overflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        assert(overflow <= 0, `${label}: horizontal overflow of ${overflow}px`);
+        await p.screenshot({ path: join(ART, `altcoins-hud-${label}.png`) });
+      } finally {
+        await context.close();
+      }
+    }
+  });
+
   // ───────────── Title screen / main menu ─────────────
 
   await check('menu: the simulation does not tick and no offline time is credited until Continue', async () => {

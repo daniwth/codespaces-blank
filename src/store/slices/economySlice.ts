@@ -1,5 +1,6 @@
 import { tr } from '../../i18n';
 import { ACHIEVEMENTS, VIP_COSTS } from '../../config/gameBalance';
+import { CHALLENGE_BY_ID } from '../../config/challenges';
 import { MAX_TECHNICIANS, RACK_BY_ID } from '../../config/hardwareCatalog';
 import { PRESTIGE_TREE, TALENT_BY_ID, scForEarnings, talentCost, talentLevel } from '../../config/prestigeTree';
 import type { RackInstance } from '../../types/hardware';
@@ -34,7 +35,7 @@ export const halvingReward = (s: Pick<GameData, 'runEarnings'>): number => scFor
 
 export function createEconomySlice(set: SetState, get: GetState): EconomySlice {
   return {
-    performHalving: () => {
+    performHalving: (nextChallenge) => {
       const s = get();
       const reward = halvingReward(s);
       if (reward <= 0) {
@@ -65,10 +66,13 @@ export function createEconomySlice(set: SetState, get: GetState): EconomySlice {
         achievements: s.achievements,
         stats: { ...s.stats, halvings: s.stats.halvings + 1 },
         settings: s.settings,
-      });
+        challengeRecords: s.challengeRecords,
+      }, nextChallenge ?? null);
       bumpWorldEpoch();
       set({ ...fresh, selectedRack: null, biosGpu: null, sideTab: 'halving' });
       get().pushLog(tr('THE HALVING! Your run is cashed out — you minted {reward} Smart Contracts ($SC) and +5 gems.', { reward }), 'good');
+      const active = get().challenge;
+      if (active) get().pushLog(tr('Challenge started: {name}. {description}', { name: tr(CHALLENGE_BY_ID[active.id].name), description: tr(CHALLENGE_BY_ID[active.id].description) }), 'warn');
       sfxBus.emit('halving');
       fxBus.emit({ kind: 'confetti', intensity: 1 });
       return true;

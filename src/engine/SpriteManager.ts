@@ -2,8 +2,10 @@
  * Procedural pixel-art sprite factory. Every sprite in the game is drawn with
  * fillRect on small canvases, cached, and reused — no external images.
  */
+import { COIN_INFO } from '../config/altcoins';
 import { COOLER_BY_ID, GPU_BY_ID, PSU_BY_ID, RACK_BY_ID } from '../config/hardwareCatalog';
 import { ROOM_BY_ID } from '../config/roomsCatalog';
+import type { CoinId } from '../types/economy';
 import type { CoolerModel, GpuModel, PsuModel, RackStyle } from '../types/hardware';
 import type { RoomId } from '../types/player';
 
@@ -823,6 +825,34 @@ export class SpriteManager {
     return this.url(`icon:rack:${modelId}`, () => this.rackBody(model.style, model.slots, model.fanSlots));
   }
 
+  /** 14x14 token for a coin: round disc in the coin's color with its emblem (C, B, star, M). */
+  coinIcon(coin: CoinId): string {
+    return this.url(`icon:coin:${coin}`, () => this.make(`coinicon:${coin}`, 14, 14, (ctx) => {
+      const color = COIN_INFO[coin].color;
+      const rim = shade(color, -0.5);
+      const face = color;
+      const ink = shade(color, -0.72);
+      const c = 6.5;
+      for (let y = 0; y < 14; y += 1) {
+        for (let x = 0; x < 14; x += 1) {
+          const d = Math.hypot(x - c, y - c);
+          if (d <= 6.6) px(ctx, x, y, 1, 1, d > 5.3 ? rim : face);
+        }
+      }
+      // Shine on the upper-left edge and a darker lower-right edge.
+      px(ctx, 3, 2, 2, 1, shade(color, 0.65));
+      px(ctx, 2, 3, 1, 2, shade(color, 0.65));
+      px(ctx, 10, 11, 2, 1, shade(color, -0.3));
+      const glyph = COIN_GLYPHS[coin];
+      const gw = glyph[0].length;
+      const x0 = Math.floor((14 - gw) / 2);
+      const y0 = Math.floor((14 - glyph.length) / 2);
+      glyph.forEach((row, gy) => {
+        for (let gx = 0; gx < gw; gx += 1) if (row[gx] === '#') px(ctx, x0 + gx, y0 + gy, 1, 1, ink);
+      });
+    }));
+  }
+
   roomIcon(roomId: RoomId): string {
     return this.url(`icon:room:${roomId}`, () => {
       const full = this.roomBackground(roomId, 480, 270, 80);
@@ -836,6 +866,13 @@ export class SpriteManager {
     });
   }
 }
+
+const COIN_GLYPHS: Record<CoinId, string[]> = {
+  CC: ['.###.', '#...#', '#....', '#....', '#...#', '.###.'],
+  BYT: ['####.', '#...#', '####.', '#...#', '#...#', '####.'],
+  NOVA: ['..#..', '..#..', '#####', '.###.', '.#.#.', '#...#'],
+  MEME: ['#...#', '##.##', '#.#.#', '#...#', '#...#', '#...#'],
+};
 
 // ───────────────────────── Room painters ─────────────────────────
 

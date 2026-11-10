@@ -5,6 +5,7 @@ import { GPU_BY_ID, OC_LIMITS, QUALITY_DEFS } from '../../config/hardwareCatalog
 import { PHYSICS } from '../../config/gameBalance';
 import { hash01 } from '../../engine/SpriteManager';
 import { effectiveCoreHeadroom, ocHashBonus, ocPowerMul, STOCK_OC } from '../../store/gamePhysics';
+import { challengeBlocks } from '../../store/slices/challengesSlice';
 import { useGameStore } from '../../store/useGameStore';
 import type { OverclockSettings } from '../../types/hardware';
 import { useT } from '../../i18n';
@@ -62,6 +63,7 @@ export function BiosOverclockModal({ gpuUid }: { gpuUid: string }) {
   const t = useT();
   const gpu = useGameStore((s) => s.gpus[gpuUid]);
   const aiUnlocked = useGameStore((s) => s.vip.aiDiagnostics);
+  const locked = useGameStore((s) => challengeBlocks(s, 'lockOverclock'));
   const { openBios, applyOverclock, autoTuneGpu } = useGameStore.getState();
   const [oc, setOc] = useState<OverclockSettings>(() => (gpu ? { ...gpu.oc } : { ...STOCK_OC }));
   const [phase, setPhase] = useState<Phase>('edit');
@@ -78,6 +80,10 @@ export function BiosOverclockModal({ gpuUid }: { gpuUid: string }) {
 
   const runTest = useCallback(() => {
     if (phase !== 'edit') return;
+    if (locked) {
+      applyOverclock(gpuUid, oc);
+      return;
+    }
     setPhase('testing');
     setLines([]);
     setProgress(0);
@@ -104,11 +110,11 @@ export function BiosOverclockModal({ gpuUid }: { gpuUid: string }) {
             }
           }, 120);
           timers.current.push(rid);
-        } else setPhase('stable');
+        } else setPhase(res === 'stable' ? 'stable' : 'edit');
       }
     }, 90);
     timers.current.push(id);
-  }, [phase, applyOverclock, gpuUid, oc]);
+  }, [phase, locked, applyOverclock, gpuUid, oc]);
 
   useEffect(() => () => timers.current.forEach((id) => window.clearInterval(id)), []);
 
@@ -238,6 +244,11 @@ export function BiosOverclockModal({ gpuUid }: { gpuUid: string }) {
             <p className="mt-2 text-[16px] leading-tight">
               {t('More voltage unlocks core headroom but adds heat (∝V²). Undervolting runs cooler. Unstable settings trigger a BSOD and a 10s reboot.')}
             </p>
+            {locked && (
+              <div className="mt-2 bg-[#aa0000] p-2 text-center text-[#ffffff]" data-testid="bios-locked">
+                {t('BIOS LOCKED by the active challenge: stock clocks only.')}
+              </div>
+            )}
             {phase === 'testing' && (
               <div className="mt-2 bg-black p-1 text-[14px] leading-tight text-[#55ff55]">
                 {lines.map((l, i) => (
@@ -256,7 +267,7 @@ export function BiosOverclockModal({ gpuUid }: { gpuUid: string }) {
           </div>
         </div>
         <div className="flex flex-wrap justify-center gap-x-5 gap-y-1 px-2 py-2 text-[#ffffff]">
-          <button type="button" disabled={phase !== 'edit'} onClick={runTest} className="hover:text-[#ffff55] disabled:opacity-50">
+          <button type="button" disabled={phase !== 'edit' || locked} onClick={runTest} className="hover:text-[#ffff55] disabled:opacity-50">
             {t('F10: Save & Stress Test')}
           </button>
           <button type="button" disabled={phase !== 'edit'} onClick={() => { setOc({ ...STOCK_OC }); sfxBus.emit('switch'); }} className="hover:text-[#ffff55] disabled:opacity-50">
@@ -264,7 +275,7 @@ export function BiosOverclockModal({ gpuUid }: { gpuUid: string }) {
           </button>
           <button
             type="button"
-            disabled={!aiUnlocked || phase !== 'edit'}
+            disabled={!aiUnlocked || phase !== 'edit' || locked}
             onClick={() => {
               if (autoTuneGpu(gpuUid)) setOc(useGameStore.getState().gpus[gpuUid]?.oc ?? oc);
             }}

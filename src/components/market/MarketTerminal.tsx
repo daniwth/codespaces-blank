@@ -1,9 +1,12 @@
 import { Bot, Plus, Power, Trash2, TrendingUp } from 'lucide-react';
 import { useState } from 'react';
+import { COIN_IDS, COIN_INFO } from '../../config/altcoins';
 import { BOT_UNLOCK_LEVEL, MARKET, levelFromEarnings } from '../../config/gameBalance';
 import { talentModifiers } from '../../config/prestigeTree';
 import { useT } from '../../i18n';
+import { sprites } from '../../engine/SpriteManager';
 import { sellPrice } from '../../store/gamePhysics';
+import { costBasisOf, holdingOf } from '../../store/wallets';
 import { useGameShallow, useGameStore } from '../../store/useGameStore';
 import type { CoinId, TradingBot } from '../../types/economy';
 import { bnToNumber } from '../../utils/bignum';
@@ -11,12 +14,8 @@ import { cn } from '../../utils/cn';
 import { formatCash, formatNumber, formatPrice } from '../../utils/formatters';
 import { NumberField } from '../ui/NumberField';
 import { PixelButton } from '../ui/PixelButton';
+import { SpriteImg } from '../ui/SpriteImg';
 import { CryptoCanvasChart } from './CryptoCanvasChart';
-
-const COIN_INFO: Record<CoinId, { name: string; color: string; blurb: string }> = {
-  CC: { name: 'CryptoCoin', color: '#22d3ee', blurb: 'Settlement coin your rigs mine. Mean-reverting around $1.' },
-  MEME: { name: 'Shitcoin', color: '#e879f9', blurb: 'Pure degen fuel: swings from 0.1x to 10x. Pumps & dumps.' },
-};
 
 export function MarketTerminal() {
   const t = useT();
@@ -25,8 +24,11 @@ export function MarketTerminal() {
   const s = useGameShallow((st) => ({
     market: st.market,
     cc: st.cc,
+    ccCostBasis: st.ccCostBasis,
     meme: st.meme,
-    memeCost: st.memeCostBasis,
+    memeCostBasis: st.memeCostBasis,
+    alts: st.alts,
+    minedCoin: st.minedCoin,
     cash: st.cash,
     talents: st.talents,
     bots: st.bots,
@@ -34,7 +36,7 @@ export function MarketTerminal() {
     vip: st.vip,
   }));
   const { sellCoin, buyCoin, addBot, updateBot, removeBot, setAutoSellEnabled } = useGameStore.getState();
-  const holding = coin === 'CC' ? bnToNumber(s.cc) : s.meme;
+  const holding = holdingOf(s, coin);
   const mods = talentModifiers(s.talents);
   const unit = sellPrice(s.market, coin, mods);
   const value = holding * unit;
@@ -42,16 +44,20 @@ export function MarketTerminal() {
   const m = s.market[coin];
   const first = m.candles[0]?.o ?? m.price;
   const change = m.price / first - 1;
-  const pnl = coin === 'MEME' ? value - s.memeCost : 0;
+  const costBasis = costBasisOf(s, coin);
+  const pnl = value - costBasis;
   const level = levelFromEarnings(bnToNumber(s.lifetime));
   const info = COIN_INFO[coin];
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-1">
-        {(['CC', 'MEME'] as const).map((c) => (
-          <PixelButton key={c} size="sm" variant={coin === c ? 'primary' : 'secondary'} onClick={() => setCoin(c)} silent>
-            ${c}
+      <div className="flex flex-wrap items-center gap-1">
+        {COIN_IDS.map((c) => (
+          <PixelButton key={c} size="sm" variant={coin === c ? 'primary' : 'secondary'} onClick={() => setCoin(c)} silent aria-label={`$${c}`} data-testid={`coin-tab-${c}`}>
+            <span className="flex items-center gap-1">
+              <SpriteImg src={sprites.coinIcon(c)} width={14} height={14} alt="" />${c}
+              {s.minedCoin === c && <span className="text-[9px] text-lime" title={t('Currently mined')}>⛏</span>}
+            </span>
           </PixelButton>
         ))}
         <div className="ml-auto text-right leading-none">
@@ -86,6 +92,11 @@ export function MarketTerminal() {
           <div className="col-span-2">
             <span className="text-dim">{t('Unrealized P&L:')} </span>
             <span style={{ color: pnl >= 0 ? '#a3e635' : '#f43f5e' }}>{pnl >= 0 ? '+' : ''}{formatCash(pnl)}</span>
+          </div>
+        )}
+        {(coin === 'BYT' || coin === 'NOVA') && (
+          <div className="col-span-2 text-dim" data-testid="alt-cost-basis">
+            {t('Cost basis: {cost} (mined coins cost nothing, so selling them is pure profit).', { cost: formatCash(costBasis) })}
           </div>
         )}
       </div>
@@ -149,8 +160,9 @@ function BotRow({ bot, onChange, onRemove }: { bot: TradingBot; onChange: (p: Pa
       </button>
       <span className="text-dim">{t('IF')}</span>
       <select className="retro-input" value={bot.coin} onChange={(e) => onChange({ coin: e.target.value as CoinId })}>
-        <option value="CC">$CC</option>
-        <option value="MEME">$MEME</option>
+        {COIN_IDS.map((c) => (
+          <option key={c} value={c}>${c}</option>
+        ))}
       </select>
       <select className="retro-input" value={bot.trigger} onChange={(e) => onChange({ trigger: e.target.value as TradingBot['trigger'] })}>
         <option value="above">≥</option>

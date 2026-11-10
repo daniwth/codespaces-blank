@@ -1,12 +1,15 @@
 import { Radio, ShieldAlert, Sparkles, Waves } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
+import { COIN_INFO, COIN_MARKET, MINEABLE, MINEABLE_COIN_IDS } from '../../config/altcoins';
 import { NETWORK_EVENTS, POOL_ORDER, POOLS, levelFromEarnings } from '../../config/gameBalance';
+import { sprites } from '../../engine/SpriteManager';
 import { useT } from '../../i18n';
 import { useGameShallow, useGameStore } from '../../store/useGameStore';
 import type { PoolMode } from '../../types/economy';
 import { bnToNumber } from '../../utils/bignum';
 import { cn } from '../../utils/cn';
-import { formatDuration, formatHashrate, formatNumber } from '../../utils/formatters';
+import { formatCash, formatDuration, formatHashrate, formatNumber, formatPrice } from '../../utils/formatters';
+import { SpriteImg } from '../ui/SpriteImg';
 
 const POOL_ICON: Record<PoolMode, ReactNode> = {
   public: <Waves size={16} />,
@@ -23,8 +26,11 @@ export function PoolsPanel() {
     event: st.event,
     nextEventAt: st.nextEventAt,
     stats: st.stats,
+    minedCoin: st.minedCoin,
+    market: st.market,
   }));
   const setPool = useGameStore((st) => st.setPool);
+  const setMinedCoin = useGameStore((st) => st.setMinedCoin);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -67,6 +73,47 @@ export function PoolsPanel() {
         );
       })}
 
+      <h3 className="mt-1 font-pixel text-[9px] text-neon">{t('MINED COIN')}</h3>
+      <p className="text-[16px] leading-tight text-dim">{t('Your farm mines one coin at a time and every pool pays it. Each coin has its own price, wallet and market.')}</p>
+      {MINEABLE_COIN_IDS.map((id) => {
+        const info = COIN_INFO[id];
+        const y = s.live.yields[id];
+        const m = s.market[id];
+        const first = m.candles[0]?.o ?? m.price;
+        const change = m.price / first - 1;
+        const active = s.minedCoin === id;
+        const cfg = COIN_MARKET[id];
+        const swing = cfg.sigma >= 0.04 ? t('volatile') : cfg.sigma <= 0.012 ? t('steady') : t('balanced');
+        return (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setMinedCoin(id)}
+            data-testid={`mine-${id}`}
+            aria-pressed={active}
+            className={cn('flex gap-3 p-2 text-left transition-colors', active ? 'bg-panel-3' : 'bg-panel-2 hover:bg-panel-3')}
+            style={{ boxShadow: active ? `inset 0 0 0 2px ${info.color}` : undefined }}
+          >
+            <SpriteImg src={sprites.coinIcon(id)} width={28} height={28} alt="" className="mt-0.5 shrink-0 self-start" />
+            <span className="flex-1 text-[16px] leading-tight">
+              <span className="font-pixel text-[9px]" style={{ color: info.color }}>
+                {t(info.name)} (${id}) {active && `● ${t('MINING')}`}
+              </span>
+              <span className="block text-ink/90">{t(info.blurb)}</span>
+              <span className="block text-dim">
+                {[
+                  `${formatPrice(m.price)} ${change >= 0 ? '▲' : '▼'}${Math.abs(change * 100).toFixed(1)}%`,
+                  t('{amount} ${coin}/s ≈ {value}/s', { amount: formatNumber(y.perSec, 3), coin: id, value: formatCash(y.valuePerSec) }),
+                  t('difficulty x{d}', { d: y.difficulty.toFixed(2) }),
+                  t('yield x{mul}', { mul: MINEABLE[id].valueMul }),
+                  swing,
+                ].join(' · ')}
+              </span>
+            </span>
+          </button>
+        );
+      })}
+
       <h3 className="mt-1 font-pixel text-[9px] text-neon">{t('BLOCKCHAIN NETWORK')}</h3>
       <div className="grid grid-cols-2 gap-2 bg-panel-2 p-2 text-[16px] leading-tight">
         <span className="text-dim">{t('Your hashrate')}</span>
@@ -74,7 +121,7 @@ export function PoolsPanel() {
         <span className="text-dim">{t('Difficulty')}</span>
         <span className={s.live.difficulty > 1 ? 'text-hot' : ''}>x{s.live.difficulty.toFixed(2)}</span>
         <span className="text-dim">{t('Expected yield')}</span>
-        <span>{formatNumber(s.live.ccPerSec, 3)} $CC/s</span>
+        <span>{formatNumber(s.live.coinPerSec, 3)} ${s.minedCoin}/s</span>
         <span className="text-dim">{t('Blocks found')}</span>
         <span className="text-gold">{s.stats.blocksFound}</span>
         <span className="text-dim">{t('Raids survived')}</span>

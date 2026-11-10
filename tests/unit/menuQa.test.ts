@@ -19,7 +19,7 @@ describe('Main menu round trip', () => {
   it('discards a pending offline report, so Continue does not show a stale "Welcome back"', () => {
     game().continueGame();
     useGameStore.setState({
-      offlineReport: { seconds: 3600, requested: 3600, ccMined: 12, electricity: 3, earnedCash: 0, ccDelta: 12, cashDelta: -3 },
+      offlineReport: { seconds: 3600, requested: 3600, ccMined: 12, coinMined: 12, minedCoin: 'CC', electricity: 3, earnedCash: 0, ccDelta: 12, cashDelta: -3 },
     });
     game().returnToMenu();
     expect(game().offlineReport).toBeNull();

@@ -172,7 +172,7 @@ describe('run clock for the $SC/h readout', () => {
     const lastTick = Date.now() - 3_600_000;
     v4.lastTick = lastTick;
     const migrated = migrateSave(v4, 4);
-    expect(SAVE_VERSION).toBe(5);
+    expect(SAVE_VERSION).toBeGreaterThanOrEqual(5);
     expect(migrated.runStartedAt).toBe(lastTick);
     expect(migrateSave({ ...createInitialData(), runStartedAt: Date.now() + 1e9 }, 5).runStartedAt).toBeLessThanOrEqual(Date.now());
   });

@@ -3,6 +3,7 @@
  * Spanish `sectionsEs` in `wikiContent.ts` (a unit test enforces it). Every
  * number comes from the balance config; tables come from `wikiTables.ts`.
  */
+import { COIN_MARKET, MINEABLE, hashDifficulty } from './altcoins';
 import { CONTRACTS, KEEP_COOL_STREAK_MIN } from './contracts';
 import {
   BOT_UNLOCK_LEVEL,
@@ -438,12 +439,28 @@ export function sectionsEn(): WikiSection[] {
           ],
         },
         {
+          id: 'mined-coin',
+          title: 'Which coin you mine',
+          keywords: ['moneda', 'byt', 'nova', 'altcoin', 'bytecoin', 'minar', 'elegir', 'coin'],
+          blocks: [
+            p('In the **Pools** tab you choose the coin your farm mines: **$CC**, **$BYT** or **$NOVA**. It mines one at a time and every pool pays that coin. Each one has its own price, wallet and market.'),
+            table(T.altcoinTable(L)),
+            list(
+              `**$BYT:** steady (volatility ${COIN_MARKET.BYT.sigma} against ${COIN_MARKET.CC.sigma} for $CC), fixed difficulty and ${pct(MINEABLE.BYT.valueMul)} pay. A Bull Run barely moves it and a Difficulty Spike only raises its difficulty to ×${EVENT_EFFECTS.bytDifficultyMul}.`,
+              `**$NOVA:** volatile (${COIN_MARKET.NOVA.sigma}) with ${pct(MINEABLE.NOVA.valueMul)} pay, but its difficulty grows with your own hashrate: at ${formatHashrate(1e9)} it is ×1 and at ${formatHashrate(1e12)} it is already ×${hashDifficulty('NOVA', 1e12).toFixed(1)}. It beats $CC for small farms and falls behind it for huge ones.`,
+              'Mined coins cost nothing: selling them is entirely profit. All three are bought and sold in Market and trading bots can trade them.',
+              '"Mine $CC" contracts only advance while you mine $CC. Coins are lost at The Halving, but the market and bots are kept.',
+            ),
+            tip('The Pools tab shows, for every coin, what you would mine per second and its value right now: pick the highest, or the steadiest if you want no surprises.'),
+          ],
+        },
+        {
           id: 'difficulty',
           title: 'Difficulty',
           keywords: ['dificultad', 'difficulty', 'recompensa', 'reward'],
           blocks: [
-            formula(`$CC/s = MH/s × ${PHYSICS.rewardPerMHs} / difficulty × pool payout`),
-            p(`The base difficulty is 1 and does not grow over time. It only changes during a **Difficulty Spike** (×${EVENT_EFFECTS.difficultyMul}). Your hashrate is the only thing that makes income grow.`),
+            formula(`coins/s = MH/s × ${PHYSICS.rewardPerMHs} (in $CC) / difficulty × pool payout`),
+            p(`The base difficulty is 1 and does not grow over time. It only changes during a **Difficulty Spike** (×${EVENT_EFFECTS.difficultyMul}) and, for $NOVA, with your own hashrate. Your hashrate is the only thing that makes income grow.`),
           ],
         },
       ],
@@ -453,15 +470,17 @@ export function sectionsEn(): WikiSection[] {
       title: 'Market',
       icon: 'market',
       color: '#22c55e',
-      summary: '$CC and $MEME, buying and selling, fees, cost basis and trading bots.',
+      summary: '$CC, $BYT, $NOVA and $MEME, buying and selling, fees, cost basis and trading bots.',
       entries: [
         {
           id: 'coins',
-          title: '$CC and $MEME',
-          keywords: ['cc', 'meme', 'precio', 'moneda', 'coin', 'price'],
+          title: 'The four coins',
+          keywords: ['cc', 'meme', 'byt', 'nova', 'precio', 'moneda', 'coin', 'price'],
           blocks: [
             list(
               `**$CC:** the coin you mine. Base price $${MARKET.cc.base}. It fluctuates with a tendency to return to the base, between ×${MARKET.cc.min} and ×${MARKET.cc.max}. A Bull Run pushes it toward ×${EVENT_EFFECTS.bullMeanMul}.`,
+              `**$BYT:** mineable and steady. Base price $${MARKET.byt.base}, between ×${MARKET.byt.min} and ×${MARKET.byt.max}. A Bull Run pushes it only toward ×${EVENT_EFFECTS.bytBullMeanMul}.`,
+              `**$NOVA:** mineable and volatile. Base price $${MARKET.nova.base}, between ×${MARKET.nova.min} and ×${MARKET.nova.max}. A Bull Run pushes it toward ×${EVENT_EFFECTS.bullMeanMul}.`,
               `**$MEME:** can only be bought. Base price $${MARKET.meme.base}, much more volatile (×${MARKET.meme.min} to ×${MARKET.meme.max}), with sudden pumps and dumps while you play. Meme Mania blows up its volatility.`,
             ),
             p('The terminal chart shows 5 s candles.'),
@@ -482,7 +501,7 @@ export function sectionsEn(): WikiSection[] {
           blocks: [
             p('The game remembers how much you paid for the coins you hold (their **cost basis**). When you sell, only what you collect **above** the proportional part of that cost counts as profit:'),
             list(
-              'Mined $CC cost nothing: selling them is entirely profit.',
+              'Mined coins ($CC, $BYT, $NOVA) cost nothing: selling them is entirely profit.',
               'Buying and selling the same coin only adds the real profit, if any. Losses do not subtract, but "wash trading" does not raise your level.',
               'Contract prizes are a gift: they give cash, but do not count as earnings.',
             ),
@@ -496,7 +515,7 @@ export function sectionsEn(): WikiSection[] {
           blocks: [
             p(`They unlock at **level ${BOT_UNLOCK_LEVEL}**. You can have up to ${MARKET.maxBots}. Each bot is a rule:`),
             list(
-              'Coin ($CC or $MEME) and operation (buy or sell).',
+              'Coin ($CC, $BYT, $NOVA or $MEME) and operation (buy or sell).',
               'Trigger: price **above** or **below** a multiple of its base price (for example, 1.15 = 15% over the base).',
               'Amount: % of what you hold of that coin (sell) or of your cash (buy).',
               'Minimum wait in seconds between triggers.',
@@ -588,16 +607,32 @@ export function sectionsEn(): WikiSection[] {
           blocks: [
             p('**Resets:**'),
             list(
-              `Cash (you go back to ${formatCash(STARTING_CASH)} + Seed Capital), $CC and $MEME.`,
+              `Cash (you go back to ${formatCash(STARTING_CASH)} + Seed Capital), $CC, $BYT, $NOVA and $MEME. The mined coin goes back to $CC.`,
               `All regular hardware: GPUs, PSUs, coolers and racks. You return to the starter rig in the ${n(bedroom.name)}.`,
               'Rooms (unless you have Real Estate Trust), technicians, pool (back to Public), contracts and run earnings.',
             ),
             p('**Kept:**'),
             list(
-              '$SC, talents, gems, VIP upgrades and achievements.',
+              '$SC, talents, gems, VIP upgrades, achievements and completed challenges.',
               'Gold Edition Racks, empty and in storage.',
               'Trading bots, the market, lifetime earnings (your level), statistics and settings.',
             ),
+          ],
+        },
+        {
+          id: 'challenges',
+          title: 'Challenge runs',
+          keywords: ['reto', 'desafio', 'challenge', 'restriction', 'bonus', 'no overclock', 'bronze', 'single room', 'power cap'],
+          blocks: [
+            p(`When you trigger The Halving or start a new game you can pick an optional **challenge**: a restriction that lasts the whole run. If you reach the Halving threshold (${formatCash(HALVING_MIN_EARNINGS)} of earnings) with the restriction held, you are paid extra $SC and gems right away and the restriction is lifted.`),
+            table(T.challengeTable(L)),
+            list(
+              'The **first clear** of each challenge pays the full bonus; later clears pay the repeat bonus. Your best time is recorded.',
+              'Forbidden actions are refused with a warning in the log (for example the BIOS under No Overclock); the active challenge shows in the top bar with your progress.',
+              'You can **abandon** the challenge from the top bar or the Halving tab: the run goes on unrestricted and keeps the normal Halving reward, without the challenge bonus.',
+              'Completed challenges and best times are listed in the Halving tab and survive Halvings. Starting a new game wipes them with the rest of your progress.',
+            ),
+            tip('No Overclock and Bronze Only barely slow you down: good for starting out. Single Room is the serious one: all the profit comes from two pads and a 1.5 kW line, so favor hashrate per watt.'),
           ],
         },
         {

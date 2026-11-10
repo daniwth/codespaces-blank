@@ -6,6 +6,7 @@
  * guide follows the game when the catalogs change. In-game proper names (items,
  * rooms, talents, The Halving, $CC, $SC…) go through the dictionary (`tr`).
  */
+import { COIN_MARKET, MINEABLE, hashDifficulty } from './altcoins';
 import { CONTRACTS, KEEP_COOL_STREAK_MIN } from './contracts';
 import {
   BOT_UNLOCK_LEVEL,
@@ -444,12 +445,28 @@ export function sectionsEs(): WikiSection[] {
           ],
         },
         {
+          id: 'mined-coin',
+          title: 'Qué moneda minas',
+          keywords: ['moneda', 'byt', 'nova', 'altcoin', 'bytecoin', 'minar', 'elegir', 'coin'],
+          blocks: [
+            p('En la pestaña **Pools** eliges la moneda que mina tu granja: **$CC**, **$BYT** o **$NOVA**. Mina una a la vez y todos los pools pagan esa moneda. Cada una tiene su propio precio, su monedero y su mercado.'),
+            table(T.altcoinTable(L)),
+            list(
+              `**$BYT:** estable (volatilidad ${COIN_MARKET.BYT.sigma} frente a ${COIN_MARKET.CC.sigma} de $CC), dificultad fija y pago de ${pct(MINEABLE.BYT.valueMul)}. Un Bull Run apenas la mueve y un Difficulty Spike solo sube su dificultad a ×${EVENT_EFFECTS.bytDifficultyMul}.`,
+              `**$NOVA:** volátil (${COIN_MARKET.NOVA.sigma}) y con pago de ${pct(MINEABLE.NOVA.valueMul)}, pero su dificultad crece con tu propio hashrate: con ${formatHashrate(1e9)} es ×1 y a ${formatHashrate(1e12)} ya es ×${hashDifficulty('NOVA', 1e12).toFixed(1)}. Con granjas pequeñas rinde más que $CC; con granjas enormes, menos.`,
+              'Las monedas minadas no cuestan nada: venderlas es ganancia entera. Las tres se venden y compran en Market y los trading bots pueden operarlas.',
+              'Los contratos "Mina $CC" solo avanzan mientras minas $CC. Las monedas se pierden con The Halving, pero el mercado y los bots se conservan.',
+            ),
+            tip('La pestaña Pools muestra para cada moneda lo que minarías por segundo y su valor ahora mismo: elige la de mayor valor, o la más estable si no quieres sustos.'),
+          ],
+        },
+        {
           id: 'difficulty',
           title: 'Dificultad',
           keywords: ['dificultad', 'difficulty', 'recompensa'],
           blocks: [
-            formula(`$CC/s = MH/s × ${PHYSICS.rewardPerMHs} / dificultad × rendimiento del pool`),
-            p(`La dificultad base es 1 y no sube con el tiempo. Solo cambia durante un **Difficulty Spike** (×${EVENT_EFFECTS.difficultyMul}). Tu hashrate es lo único que hace crecer los ingresos.`),
+            formula(`monedas/s = MH/s × ${PHYSICS.rewardPerMHs} (en $CC) / dificultad × rendimiento del pool`),
+            p(`La dificultad base es 1 y no sube con el tiempo. Solo cambia durante un **Difficulty Spike** (×${EVENT_EFFECTS.difficultyMul}) y, en $NOVA, con tu propio hashrate. Tu hashrate es lo único que hace crecer los ingresos.`),
           ],
         },
       ],
@@ -459,15 +476,17 @@ export function sectionsEs(): WikiSection[] {
       title: 'Mercado',
       icon: 'market',
       color: '#22c55e',
-      summary: '$CC y $MEME, compra y venta, comisiones, coste base y trading bots.',
+      summary: '$CC, $BYT, $NOVA y $MEME, compra y venta, comisiones, coste base y trading bots.',
       entries: [
         {
           id: 'coins',
-          title: '$CC y $MEME',
-          keywords: ['cc', 'meme', 'precio', 'moneda', 'coin'],
+          title: 'Las cuatro monedas',
+          keywords: ['cc', 'meme', 'byt', 'nova', 'precio', 'moneda', 'coin'],
           blocks: [
             list(
               `**$CC:** la moneda que minas. Precio base $${MARKET.cc.base}. Fluctúa con tendencia a volver a la base, entre ×${MARKET.cc.min} y ×${MARKET.cc.max}. Un Bull Run lo empuja hacia ×${EVENT_EFFECTS.bullMeanMul}.`,
+              `**$BYT:** minable y estable. Precio base $${MARKET.byt.base}, entre ×${MARKET.byt.min} y ×${MARKET.byt.max}. Un Bull Run la empuja solo hacia ×${EVENT_EFFECTS.bytBullMeanMul}.`,
+              `**$NOVA:** minable y volátil. Precio base $${MARKET.nova.base}, entre ×${MARKET.nova.min} y ×${MARKET.nova.max}. Un Bull Run la empuja hacia ×${EVENT_EFFECTS.bullMeanMul}.`,
               `**$MEME:** solo se compra. Precio base $${MARKET.meme.base}, mucho más volátil (×${MARKET.meme.min} a ×${MARKET.meme.max}), con pumps y dumps repentinos mientras juegas. Meme Mania dispara su volatilidad.`,
             ),
             p('El gráfico del terminal muestra velas de 5 s.'),
@@ -488,7 +507,7 @@ export function sectionsEs(): WikiSection[] {
           blocks: [
             p('El juego recuerda cuánto pagaste por las monedas que tienes (su **coste base**). Al vender, solo cuenta como ganancia lo que cobras **por encima** de la parte proporcional de ese coste:'),
             list(
-              'Los $CC minados no costaron nada: venderlos es ganancia entera.',
+              'Las monedas minadas ($CC, $BYT, $NOVA) no costaron nada: venderlas es ganancia entera.',
               'Comprar y vender la misma moneda solo suma el beneficio real, si lo hay. Las pérdidas no restan, pero el "wash trading" no sube nivel.',
               'Los premios de los contratos son un regalo: dan efectivo, pero no cuentan como ganancias.',
             ),
@@ -502,7 +521,7 @@ export function sectionsEs(): WikiSection[] {
           blocks: [
             p(`Se desbloquean en el **nivel ${BOT_UNLOCK_LEVEL}**. Puedes tener hasta ${MARKET.maxBots}. Cada bot es una regla:`),
             list(
-              'Moneda ($CC o $MEME) y operación (comprar o vender).',
+              'Moneda ($CC, $BYT, $NOVA o $MEME) y operación (comprar o vender).',
               'Disparador: precio **por encima** o **por debajo** de un múltiplo de su precio base (por ejemplo, 1.15 = 15 % sobre la base).',
               'Cantidad: % de lo que tienes de esa moneda (venta) o de tu efectivo (compra).',
               'Espera mínima en segundos entre disparos.',
@@ -594,16 +613,32 @@ export function sectionsEs(): WikiSection[] {
           blocks: [
             p('**Se reinicia:**'),
             list(
-              `Efectivo (vuelves a ${formatCash(STARTING_CASH)} + Seed Capital), $CC y $MEME.`,
+              `Efectivo (vuelves a ${formatCash(STARTING_CASH)} + Seed Capital), $CC, $BYT, $NOVA y $MEME. La moneda minada vuelve a $CC.`,
               `Todo el hardware normal: GPUs, PSUs, coolers y racks. Vuelves al rig inicial en el ${n(bedroom.name)}.`,
               'Salas (salvo con Real Estate Trust), técnicos, pool (vuelve a Public), contratos y ganancias de la run.',
             ),
             p('**Se conserva:**'),
             list(
-              '$SC, talentos, gemas, mejoras VIP y logros.',
+              '$SC, talentos, gemas, mejoras VIP, logros y retos completados.',
               'Los Gold Edition Racks, vacíos y en el almacén.',
               'Los trading bots, el mercado, las ganancias de toda la vida (tu nivel), las estadísticas y los ajustes.',
             ),
+          ],
+        },
+        {
+          id: 'challenges',
+          title: 'Retos de partida',
+          keywords: ['reto', 'desafio', 'challenge', 'restriccion', 'bonus', 'sin overclock', 'bronce', 'una sala', 'limite de potencia'],
+          blocks: [
+            p(`Al activar The Halving o al empezar una partida nueva puedes elegir un **reto** opcional: una restricción que dura toda la run. Si alcanzas el umbral del Halving (${formatCash(HALVING_MIN_EARNINGS)} de ganancias) con la restricción activa, cobras $SC y gemas extra al momento y la restricción se levanta.`),
+            table(T.challengeTable(L)),
+            list(
+              'La **primera victoria** de cada reto paga el bonus completo; las siguientes pagan el bonus de repetición. Se guarda tu mejor tiempo.',
+              'Las acciones prohibidas se bloquean con un aviso en el registro (por ejemplo, la BIOS con el reto Sin Overclock); el reto activo aparece en la barra superior con tu progreso.',
+              'Puedes **abandonar** el reto desde la barra superior o desde la pestaña Halving: la run sigue sin restricciones y conserva la recompensa normal del Halving, pero sin el bonus del reto.',
+              'Los retos completados y tus mejores tiempos se listan en la pestaña Halving y sobreviven a los Halvings. Empezar una partida nueva los borra junto con el resto del progreso.',
+            ),
+            tip('Sin Overclock y Solo Bronce apenas te frenan: son buenos para empezar. Una sola sala es el reto serio: todo el beneficio sale de dos bases y una línea de 1.5 kW, así que prioriza el hashrate por vatio.'),
           ],
         },
         {

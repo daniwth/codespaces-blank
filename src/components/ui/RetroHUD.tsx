@@ -1,10 +1,13 @@
 import { CircleHelp, Cloud, CloudOff, Coins, Cpu, Gem, Pickaxe, ScrollText, Thermometer, Volume2, VolumeX, Zap } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { ALT_COIN_IDS, COIN_INFO } from '../../config/altcoins';
+import { sprites } from '../../engine/SpriteManager';
 import { NETWORK_EVENTS, POOLS, earningsForLevel, levelFromEarnings } from '../../config/gameBalance';
 import { talentModifiers } from '../../config/prestigeTree';
 import { ROOM_BY_ID } from '../../config/roomsCatalog';
 import { useShallow } from 'zustand/react/shallow';
 import { wattPrice } from '../../store/gamePhysics';
+import { activeRules } from '../../store/slices/challengesSlice';
 import { useAccountStore } from '../../store/useAccountStore';
 import { useGameShallow, useGameStore } from '../../store/useGameStore';
 import { useT } from '../../i18n';
@@ -12,6 +15,8 @@ import { bnToNumber } from '../../utils/bignum';
 import { fxBus } from '../../utils/eventBus';
 import { formatCash, formatHashrate, formatMultiplier, formatNumber, formatPower, formatPrice, formatTemp, tempColor } from '../../utils/formatters';
 import { Meter } from './Meter';
+import { SpriteImg } from './SpriteImg';
+import { ChallengeBanner } from './ChallengeBanner';
 import { PixelButton } from './PixelButton';
 
 function Stat({ icon, label, value, sub, color, glow }: { icon: ReactNode; label: string; value: string; sub?: ReactNode; color: string; glow?: boolean }) {
@@ -43,14 +48,19 @@ export function RetroHUD() {
     price: st.market.CC.price,
     open: st.market.CC.candles[st.market.CC.candles.length - 12]?.c ?? st.market.CC.price,
     memePrice: st.market.MEME.price,
+    alts: st.alts,
+    minedCoin: st.minedCoin,
+    bytPrice: st.market.BYT.price,
+    novaPrice: st.market.NOVA.price,
     totalHash: st.live.totalHash,
-    ccPerSec: st.live.ccPerSec,
+    coinPerSec: st.live.coinPerSec,
     elec: st.live.electricityPerSec,
     grid: st.live.gridDemand,
     elecMul: talentModifiers(st.talents).electricityMul,
     hottest: st.live.hottest,
     room: st.live.rooms[st.activeRoom],
     activeRoom: st.activeRoom,
+    powerCapMul: activeRules(st).powerCapMul,
     pool: st.pool,
     event: st.event,
     lifetime: st.lifetimeEarnings,
@@ -87,6 +97,7 @@ export function RetroHUD() {
   const lvlProgress = Math.max(0, Math.min(1, (Math.log10(Math.max(1, lifetime)) - Math.log10(lvlFrom)) / (Math.log10(lvlTo) - Math.log10(lvlFrom))));
   const change = s.open > 0 ? s.price / s.open - 1 : 0;
   const room = ROOM_BY_ID[s.activeRoom];
+  const lineCap = room.maxPowerW * s.powerCapMul;
   const ccValue = bnToNumber(s.cc) * s.price;
   const event = s.event ? NETWORK_EVENTS[s.event.id] : null;
   const pool = POOLS[s.pool];
@@ -154,7 +165,17 @@ export function RetroHUD() {
           }
         />
         <Stat icon={<ScrollText size={16} />} label="$MEME" value={formatNumber(s.meme)} color="#e879f9" sub={formatPrice(s.memePrice)} />
-        <Stat icon={<Cpu size={16} />} label={t('Hashrate')} value={formatHashrate(s.totalHash)} color="#a3e635" glow sub={`${formatNumber(s.ccPerSec, 3)} CC/s · ${t(pool.name).split(' ')[0]}`} />
+        {ALT_COIN_IDS.filter((id) => s.alts[id].amount > 0 || s.minedCoin === id).map((id) => (
+          <Stat
+            key={id}
+            icon={<SpriteImg src={sprites.coinIcon(id)} width={20} height={20} alt="" />}
+            label={`$${id}${s.minedCoin === id ? ' ⛏' : ''}`}
+            value={formatNumber(s.alts[id].amount)}
+            color={COIN_INFO[id].color}
+            sub={`${formatPrice(id === 'BYT' ? s.bytPrice : s.novaPrice)} ≈ ${formatCash(s.alts[id].amount * (id === 'BYT' ? s.bytPrice : s.novaPrice))}`}
+          />
+        ))}
+        <Stat icon={<Cpu size={16} />} label={t('Hashrate')} value={formatHashrate(s.totalHash)} color="#a3e635" glow sub={`${formatNumber(s.coinPerSec, 3)} ${s.minedCoin}/s · ${t(pool.name).split(' ')[0]}`} />
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1 font-pixel text-[10px] text-magenta" title={t('Gems')}>
             <Gem size={14} /> {s.gems}
@@ -186,13 +207,15 @@ export function RetroHUD() {
         </div>
       </div>
 
+      <ChallengeBanner />
+
       <div className="grid grid-cols-1 gap-x-5 gap-y-2 border-t-2 border-[#1b1838] pt-2 md:grid-cols-2 2xl:grid-cols-[1fr_1fr_1.2fr]">
         <div className="flex items-center gap-2">
           <Zap size={14} className="shrink-0 text-amber" />
           <span className="w-24 shrink-0 font-silk text-[10px] uppercase text-dim">{t('{room} line', { room: t(room.name).split(' ')[0] })}</span>
-          <Meter value={s.room?.wall ?? 0} max={room.maxPowerW} color="#fbbf24" className="flex-1" />
+          <Meter value={s.room?.wall ?? 0} max={lineCap} color="#fbbf24" className="flex-1" />
           <span className="shrink-0 whitespace-nowrap text-right text-[16px] leading-none" style={{ color: (s.room?.brownout ?? 1) < 1 ? '#f43f5e' : '#e9e6ff' }}>
-            {formatPower(s.room?.wall ?? 0)}/{formatPower(room.maxPowerW)}
+            {formatPower(s.room?.wall ?? 0)}/{formatPower(lineCap)}
           </span>
         </div>
         <div className="flex items-center gap-2">

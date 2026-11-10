@@ -19,8 +19,8 @@ export function OfflineModal() {
           <p>&gt; {t('Your rigs kept hashing for {time}.', { time: formatDuration(report.seconds) })}</p>
           {capped && <p className="text-[#fbbf24]">&gt; {t('Offline window capped (away {time}). Night Shift talents extend it.', { time: formatDuration(report.requested) })}</p>}
           <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1">
-            <span>{t('$CC mined')}</span>
-            <span className="text-right text-[#22d3ee]">+{formatNumber(report.ccMined)}</span>
+            <span>{t('{coin} mined', { coin: `$${report.minedCoin}` })}</span>
+            <span className="text-right text-[#22d3ee]">+{formatNumber(report.coinMined)}</span>
             <span>{t('Electricity bill')}</span>
             <span className="text-right text-[#f87171]">-{formatCash(report.electricity)}</span>
             <span>{t('Bot / VIP sales')}</span>
