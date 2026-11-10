@@ -26,6 +26,8 @@ Requiere Node ≥ 22.18 (usa `node:sqlite` y ejecuta TypeScript sin compilar).
 - **Miner Pass:** $2.99/mes o $24.99/año. Desbloquea el guardado en la nube, con sincronización cada 3 min y al salir de la pestaña. Descargar una partida ya guardada es gratis aunque la suscripción caduque.
 - **Conflictos:** cada guardado tiene un número de revisión. Si otro dispositivo guardó antes, el juego pregunta qué progreso conservar.
 - **Pagos:** se cobra con Stripe Checkout y se gestiona en el Billing Portal. El webhook se verifica con su firma y es idempotente. Copia `.env.example` a `.env` y rellena las variables `STRIPE_*`. Configura el webhook en `https://TU_DOMINIO/api/billing/webhook` con los eventos `checkout.session.completed` y `customer.subscription.*`.
+- **Límites por IP y `TRUST_PROXY`:** el login, el registro y las respuestas «email ya registrado» (5 por hora y IP) se limitan por IP del cliente. Detrás de un proxy inverso, `TRUST_PROXY` debe ser el número **exacto** de proxies. Si es menor, todos los usuarios comparten la IP del proxy y alguien puede bloquear los registros de todos durante una hora. Si es mayor, un cliente puede falsear su IP para saltarse o dirigir los límites.
+- **Enumeración de emails:** el registro responde `409 email_taken` cuando el correo ya existe. El tope por IP solo lo mitiga: ocultarlo del todo requiere verificación por email, que no está implementada.
 - **Modo demo:** sin `STRIPE_SECRET_KEY`, suscribirse activa el pase al instante y sin cobrar, para desarrollo.
 - **Datos:** SQLite en `DATA_DIR` (por defecto `./data`, excluido de git).
 
