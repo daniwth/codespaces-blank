@@ -7,6 +7,7 @@ import { bnGte, bnSub } from '../../utils/bignum';
 import { fxBus, sfxBus } from '../../utils/eventBus';
 import { formatCash } from '../../utils/formatters';
 import type { GetState, RoomsSlice, SetState } from '../storeTypes';
+import { challengeBlocks } from './challengesSlice';
 
 export const padCount = (roomId: RoomId, talents: TalentLevels): number =>
   Math.min(MAX_PADS, ROOM_BY_ID[roomId].pads + talentModifiers(talents).extraPads);
@@ -20,6 +21,7 @@ export function createRoomsSlice(set: SetState, get: GetState): RoomsSlice {
       const s = get();
       const room = ROOM_BY_ID[roomId];
       if (s.ownedRooms.includes(roomId)) return false;
+      if (challengeBlocks(s, 'singleRoom')) return get().denyByChallenge(tr('you can only use the Bedroom.'));
       const idx = ROOM_ORDER.indexOf(roomId);
       const prev = ROOM_ORDER[idx - 1];
       if (prev && !s.ownedRooms.includes(prev)) {
@@ -54,6 +56,7 @@ export function createRoomsSlice(set: SetState, get: GetState): RoomsSlice {
       const s = get();
       const rack = s.racks[rackUid];
       if (!rack || !s.ownedRooms.includes(roomId) || pad >= padCount(roomId, s.talents)) return false;
+      if (roomId !== 'bedroom' && challengeBlocks(s, 'singleRoom')) return get().denyByChallenge(tr('you can only use the Bedroom.'));
       const occupied = Object.values(s.racks).some((r) => r.uid !== rackUid && r.roomId === roomId && r.pad === pad);
       if (occupied) return false;
       set({ racks: { ...s.racks, [rackUid]: { ...rack, roomId, pad } } });

@@ -594,10 +594,26 @@ export function sectionsEn(): WikiSection[] {
             ),
             p('**Kept:**'),
             list(
-              '$SC, talents, gems, VIP upgrades and achievements.',
+              '$SC, talents, gems, VIP upgrades, achievements and completed challenges.',
               'Gold Edition Racks, empty and in storage.',
               'Trading bots, the market, lifetime earnings (your level), statistics and settings.',
             ),
+          ],
+        },
+        {
+          id: 'challenges',
+          title: 'Challenge runs',
+          keywords: ['reto', 'desafio', 'challenge', 'restriction', 'bonus', 'no overclock', 'bronze', 'single room', 'power cap'],
+          blocks: [
+            p(`When you trigger The Halving or start a new game you can pick an optional **challenge**: a restriction that lasts the whole run. If you reach the Halving threshold (${formatCash(HALVING_MIN_EARNINGS)} of earnings) with the restriction held, you are paid extra $SC and gems right away and the restriction is lifted.`),
+            table(T.challengeTable(L)),
+            list(
+              'The **first clear** of each challenge pays the full bonus; later clears pay the repeat bonus. Your best time is recorded.',
+              'Forbidden actions are refused with a warning in the log (for example the BIOS under No Overclock); the active challenge shows in the top bar with your progress.',
+              'You can **abandon** the challenge from the top bar or the Halving tab: the run goes on unrestricted and keeps the normal Halving reward, without the challenge bonus.',
+              'Completed challenges and best times are listed in the Halving tab and survive Halvings. Starting a new game wipes them with the rest of your progress.',
+            ),
+            tip('No Overclock and Bronze Only barely slow you down: good for starting out. Single Room is the serious one: all the profit comes from two pads and a 1.5 kW line, so favor hashrate per watt.'),
           ],
         },
         {

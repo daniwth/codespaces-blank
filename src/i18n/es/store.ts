@@ -108,4 +108,13 @@ export const esStore: Dict = {
   '{n} h ago': 'hace {n} h',
   yesterday: 'ayer',
   '{n} days ago': 'hace {n} días',
+
+  // challengesSlice & friends
+  'Challenge {name}: {reason}': 'Reto {name}: {reason}',
+  'the BIOS is locked at stock clocks.': 'la BIOS está bloqueada a frecuencias de fábrica.',
+  'you can only use the Bedroom.': 'solo puedes usar el Dormitorio.',
+  'Challenge abandoned: {name}. The run continues unrestricted and keeps its normal Halving reward, without the challenge bonus.': 'Reto abandonado: {name}. La partida sigue sin restricciones y conserva su recompensa normal de Halving, sin el bonus del reto.',
+  'Challenge started: {name}. {description}': 'Reto iniciado: {name}. {description}',
+  'CHALLENGE COMPLETE: {name} in {time}! First clear bonus: +{sc} $SC and +{gems} gems. The restriction is lifted.': 'RETO SUPERADO: {name} en {time}! Bonus de primera victoria: +{sc} $SC y +{gems} gemas. La restricción se levanta.',
+  'CHALLENGE COMPLETE: {name} in {time}! Repeat bonus: +{sc} $SC and +{gems} gems. The restriction is lifted.': 'RETO SUPERADO: {name} en {time}! Bonus de repetición: +{sc} $SC y +{gems} gemas. La restricción se levanta.',
 };

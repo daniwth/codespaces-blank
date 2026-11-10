@@ -600,10 +600,26 @@ export function sectionsEs(): WikiSection[] {
             ),
             p('**Se conserva:**'),
             list(
-              '$SC, talentos, gemas, mejoras VIP y logros.',
+              '$SC, talentos, gemas, mejoras VIP, logros y retos completados.',
               'Los Gold Edition Racks, vacíos y en el almacén.',
               'Los trading bots, el mercado, las ganancias de toda la vida (tu nivel), las estadísticas y los ajustes.',
             ),
+          ],
+        },
+        {
+          id: 'challenges',
+          title: 'Retos de partida',
+          keywords: ['reto', 'desafio', 'challenge', 'restriccion', 'bonus', 'sin overclock', 'bronce', 'una sala', 'limite de potencia'],
+          blocks: [
+            p(`Al activar The Halving o al empezar una partida nueva puedes elegir un **reto** opcional: una restricción que dura toda la run. Si alcanzas el umbral del Halving (${formatCash(HALVING_MIN_EARNINGS)} de ganancias) con la restricción activa, cobras $SC y gemas extra al momento y la restricción se levanta.`),
+            table(T.challengeTable(L)),
+            list(
+              'La **primera victoria** de cada reto paga el bonus completo; las siguientes pagan el bonus de repetición. Se guarda tu mejor tiempo.',
+              'Las acciones prohibidas se bloquean con un aviso en el registro (por ejemplo, la BIOS con el reto Sin Overclock); el reto activo aparece en la barra superior con tu progreso.',
+              'Puedes **abandonar** el reto desde la barra superior o desde la pestaña Halving: la run sigue sin restricciones y conserva la recompensa normal del Halving, pero sin el bonus del reto.',
+              'Los retos completados y tus mejores tiempos se listan en la pestaña Halving y sobreviven a los Halvings. Empezar una partida nueva los borra junto con el resto del progreso.',
+            ),
+            tip('Sin Overclock y Solo Bronce apenas te frenan: son buenos para empezar. Una sola sala es el reto serio: todo el beneficio sale de dos bases y una línea de 1.5 kW, así que prioriza el hashrate por vatio.'),
           ],
         },
         {

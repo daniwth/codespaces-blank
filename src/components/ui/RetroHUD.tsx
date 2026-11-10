@@ -5,6 +5,7 @@ import { talentModifiers } from '../../config/prestigeTree';
 import { ROOM_BY_ID } from '../../config/roomsCatalog';
 import { useShallow } from 'zustand/react/shallow';
 import { wattPrice } from '../../store/gamePhysics';
+import { activeRules } from '../../store/slices/challengesSlice';
 import { useAccountStore } from '../../store/useAccountStore';
 import { useGameShallow, useGameStore } from '../../store/useGameStore';
 import { useT } from '../../i18n';
@@ -12,6 +13,7 @@ import { bnToNumber } from '../../utils/bignum';
 import { fxBus } from '../../utils/eventBus';
 import { formatCash, formatHashrate, formatMultiplier, formatNumber, formatPower, formatPrice, formatTemp, tempColor } from '../../utils/formatters';
 import { Meter } from './Meter';
+import { ChallengeBanner } from './ChallengeBanner';
 import { PixelButton } from './PixelButton';
 
 function Stat({ icon, label, value, sub, color, glow }: { icon: ReactNode; label: string; value: string; sub?: ReactNode; color: string; glow?: boolean }) {
@@ -51,6 +53,7 @@ export function RetroHUD() {
     hottest: st.live.hottest,
     room: st.live.rooms[st.activeRoom],
     activeRoom: st.activeRoom,
+    powerCapMul: activeRules(st).powerCapMul,
     pool: st.pool,
     event: st.event,
     lifetime: st.lifetimeEarnings,
@@ -87,6 +90,7 @@ export function RetroHUD() {
   const lvlProgress = Math.max(0, Math.min(1, (Math.log10(Math.max(1, lifetime)) - Math.log10(lvlFrom)) / (Math.log10(lvlTo) - Math.log10(lvlFrom))));
   const change = s.open > 0 ? s.price / s.open - 1 : 0;
   const room = ROOM_BY_ID[s.activeRoom];
+  const lineCap = room.maxPowerW * s.powerCapMul;
   const ccValue = bnToNumber(s.cc) * s.price;
   const event = s.event ? NETWORK_EVENTS[s.event.id] : null;
   const pool = POOLS[s.pool];
@@ -186,13 +190,15 @@ export function RetroHUD() {
         </div>
       </div>
 
+      <ChallengeBanner />
+
       <div className="grid grid-cols-1 gap-x-5 gap-y-2 border-t-2 border-[#1b1838] pt-2 md:grid-cols-2 2xl:grid-cols-[1fr_1fr_1.2fr]">
         <div className="flex items-center gap-2">
           <Zap size={14} className="shrink-0 text-amber" />
           <span className="w-24 shrink-0 font-silk text-[10px] uppercase text-dim">{t('{room} line', { room: t(room.name).split(' ')[0] })}</span>
-          <Meter value={s.room?.wall ?? 0} max={room.maxPowerW} color="#fbbf24" className="flex-1" />
+          <Meter value={s.room?.wall ?? 0} max={lineCap} color="#fbbf24" className="flex-1" />
           <span className="shrink-0 whitespace-nowrap text-right text-[16px] leading-none" style={{ color: (s.room?.brownout ?? 1) < 1 ? '#f43f5e' : '#e9e6ff' }}>
-            {formatPower(s.room?.wall ?? 0)}/{formatPower(room.maxPowerW)}
+            {formatPower(s.room?.wall ?? 0)}/{formatPower(lineCap)}
           </span>
         </div>
         <div className="flex items-center gap-2">

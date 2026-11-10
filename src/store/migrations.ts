@@ -1,10 +1,11 @@
 import { SAVE_VERSION } from '../config/gameBalance';
 import { COOLER_BY_ID, GPU_BY_ID, OC_LIMITS, PSU_BY_ID, QUALITY_ORDER, RACK_BY_ID } from '../config/hardwareCatalog';
+import { CHALLENGE_IDS, isChallengeId } from '../config/challenges';
 import { ROOM_BY_ID } from '../config/roomsCatalog';
 import { TALENT_BY_ID } from '../config/prestigeTree';
 import type { CoinId, TradingBot } from '../types/economy';
 import type { CoolerInstance, GpuInstance, PsuInstance, RackInstance, SiliconQuality } from '../types/hardware';
-import type { GameData, RoomId, TalentId, TalentLevels } from '../types/player';
+import type { ActiveChallenge, ChallengeRecords, GameData, RoomId, TalentId, TalentLevels } from '../types/player';
 import { clamp } from '../utils/random';
 import { contractContext, sanitizeBoard } from './contracts';
 import { STOCK_OC } from './gamePhysics';
@@ -121,6 +122,23 @@ function sanitizeBots(raw: unknown): TradingBot[] {
     }));
 }
 
+function sanitizeChallenge(raw: unknown, now: number): ActiveChallenge | null {
+  if (!isObject(raw) || !isChallengeId(raw.id)) return null;
+  return { id: raw.id, startedAt: Math.min(now, finite(raw.startedAt, now)) };
+}
+
+function sanitizeChallengeRecords(raw: unknown): ChallengeRecords {
+  const out: ChallengeRecords = {};
+  if (!isObject(raw)) return out;
+  CHALLENGE_IDS.forEach((id) => {
+    const rec = raw[id];
+    if (!isObject(rec)) return;
+    const clears = Math.floor(clamp(finite(rec.clears, 0), 0, 1_000_000));
+    if (clears > 0) out[id] = { clears, bestTimeSec: Math.max(1, finite(rec.bestTimeSec, 1)) };
+  });
+  return out;
+}
+
 function sanitizeTalents(raw: unknown): TalentLevels {
   if (!isObject(raw)) return {};
   const out: TalentLevels = {};
@@ -177,6 +195,8 @@ function sanitize(data: GameData, source: Json): GameData {
     roomTemps,
     bots: sanitizeBots(source.bots ?? data.bots),
     talents: sanitizeTalents(source.talents),
+    challenge: sanitizeChallenge(source.challenge, Date.now()),
+    challengeRecords: sanitizeChallengeRecords(source.challengeRecords),
     achievements: (Array.isArray(data.achievements) ? data.achievements : []).filter((a): a is string => typeof a === 'string'),
     technicians: clamp(Math.floor(finite(data.technicians, 0)), 0, 6),
     meme: Math.max(0, finite(data.meme, 0)),
@@ -198,6 +218,7 @@ function sanitize(data: GameData, source: Json): GameData {
  * v2 → v3: added $CC cost basis (earnings only count realized profit).
  * v3 → v4: added the Contracts board (generated from the migrated farm) and stats.contractsCompleted.
  * v4 → v5: added runStartedAt (for the Halving $SC/h readout); older runs are dated from their last tick.
+ * v5 → v6: added challenge runs (challenge, challengeRecords): older saves are free runs with no clears.
  */
 export function migrateSave(raw: unknown, fromVersion: number): GameData {
   const defaults = createInitialData();
@@ -211,6 +232,11 @@ export function migrateSave(raw: unknown, fromVersion: number): GameData {
   if (fromVersion < 4) delete source.contracts;
   // The real run start is unknown: the last tick is the best lower bound on how long it has lasted.
   if (fromVersion < 5) source.runStartedAt = finite(source.lastTick, Date.now());
+  // Challenge runs did not exist: a pre-v6 save is a free run with no recorded clears.
+  if (fromVersion < 6) {
+    source.challenge = null;
+    source.challengeRecords = {};
+  }
   const merged = mergeTyped(defaults, source);
   merged.saveVersion = SAVE_VERSION;
   return sanitize(merged, source);

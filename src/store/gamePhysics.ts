@@ -7,6 +7,7 @@
  *   T(t+Δt) = T_eq + (T − T_eq) · e^(−kΔt / C),  T_eq = T_amb + Q_gen / k
  */
 import { COOLER_BY_ID, GPU_BY_ID, GPU_CATALOG, OC_LIMITS, PSU_BY_ID, RACK_BY_ID } from '../config/hardwareCatalog';
+import { challengeRules } from '../config/challenges';
 import { ROOM_BY_ID } from '../config/roomsCatalog';
 import { talentModifiers, type TalentModifiers } from '../config/prestigeTree';
 import {
@@ -38,7 +39,7 @@ export type SimInput = Pick<
   GameData,
   | 'gpus' | 'psus' | 'coolers' | 'racks' | 'ownedRooms' | 'roomTemps' | 'technicians'
   | 'pool' | 'market' | 'bots' | 'event' | 'nextEventAt' | 'talents' | 'vip'
-  | 'cash' | 'cc' | 'ccCostBasis' | 'meme' | 'memeCostBasis' | 'lastTick'
+  | 'cash' | 'cc' | 'ccCostBasis' | 'meme' | 'memeCostBasis' | 'lastTick' | 'challenge'
 >;
 
 export type MessageTone = 'info' | 'good' | 'warn' | 'bad';
@@ -153,6 +154,12 @@ export function aiAutoTune(silicon: SiliconProfile): OverclockSettings {
 }
 
 export const STOCK_OC: OverclockSettings = { core: 0, mem: 0, voltage: OC_LIMITS.voltage.stock };
+
+/** Rooms the farm may use: a Single Room challenge restricts the run to the Bedroom. */
+export function usableRooms(input: Pick<SimInput, 'ownedRooms' | 'challenge'>): RoomId[] {
+  if (!challengeRules(input.challenge?.id).singleRoom) return input.ownedRooms;
+  return input.ownedRooms.includes('bedroom') ? ['bedroom'] : [];
+}
 
 export const pasteFactor = (paste: number): number =>
   PHYSICS.pasteMinFactor + (1 - PHYSICS.pasteMinFactor) * clamp(paste, 0, 1);
@@ -360,18 +367,18 @@ function buyCoin(w: World, coin: CoinId, cashAmount: number): number {
   return qty;
 }
 
-function stepEvents(w: World, input: SimInput, now: number, acc: StepAccumulator): void {
+function stepEvents(w: World, rooms: RoomId[], now: number, acc: StepAccumulator): void {
   if (w.event && now >= w.event.endsAt) {
     acc.messages.push(gameMsg('info', 'Network event ended: {name}.', { name: NETWORK_EVENTS[w.event.id].name }));
     w.event = null;
     w.nextEventAt = now + randRange(EVENT_INTERVAL[0], EVENT_INTERVAL[1]) * 1000;
   }
   if (!w.event && now >= w.nextEventAt) {
-    const pool: NetworkEventId[] = ['difficulty_spike', 'heatwave', 'cold_snap', 'bull_run', 'meme_mania', 'blackout'];
+    const pool: NetworkEventId[] = ['difficulty_spike', 'heatwave', 'cold_snap', 'bull_run', 'meme_mania', ...(rooms.length ? (['blackout'] as const) : [])];
     const id = pick(pool);
     const def = NETWORK_EVENTS[id];
     const duration = randRange(def.duration[0], def.duration[1]) * 1000;
-    const roomId = id === 'blackout' ? pick(input.ownedRooms) : null;
+    const roomId = id === 'blackout' && rooms.length ? pick(rooms) : null;
     w.event = { id, startedAt: now, endsAt: now + duration, roomId };
     acc.messages.push(roomId
       ? gameMsg(def.positive ? 'good' : 'bad', 'NETWORK EVENT: {name} ({room}). {description}', { name: def.name, room: ROOM_BY_ID[roomId].name, description: def.description })
@@ -381,7 +388,10 @@ function stepEvents(w: World, input: SimInput, now: number, acc: StepAccumulator
 }
 
 function step(w: World, input: SimInput, dt: number, now: number, mods: TalentModifiers, opts: SimOptions, acc: StepAccumulator, live: LiveMetrics): void {
-  if (!opts.offline) stepEvents(w, input, now, acc);
+  const rules = challengeRules(input.challenge?.id);
+  const rooms = usableRooms(input);
+  const gpuOc = (g: GpuInstance): OverclockSettings => (rules.lockOverclock ? STOCK_OC : g.oc);
+  if (!opts.offline) stepEvents(w, rooms, now, acc);
   const ev = opts.offline ? null : w.event;
   const ambientDelta = ev?.id === 'heatwave' ? EVENT_EFFECTS.heatwaveDelta : ev?.id === 'cold_snap' ? EVENT_EFFECTS.coldSnapDelta : 0;
   const difficulty = ev?.id === 'difficulty_spike' ? EVENT_EFFECTS.difficultyMul : 1;
@@ -406,15 +416,16 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
 
   const racksByRoom: Partial<Record<RoomId, RackInstance[]>> = {};
   Object.values(w.racks).forEach((r) => {
-    if (!r.roomId) {
+    if (!r.roomId || !rooms.includes(r.roomId)) {
       live.racks[r.uid] = { status: 'stored', load: 0, wall: 0, capacity: 0, hash: 0, maxTemp: 0, cooling: 0, tariff: 1, powerCost: 0 };
       return;
     }
     (racksByRoom[r.roomId] ??= []).push(r);
   });
 
-  input.ownedRooms.forEach((roomId) => {
+  rooms.forEach((roomId) => {
     const room = ROOM_BY_ID[roomId];
+    const lineW = room.maxPowerW * rules.powerCapMul;
     const racks = racksByRoom[roomId] ?? [];
     const blackout = ev?.id === 'blackout' && ev.roomId === roomId;
     const baseAmbient = room.ambient + ambientDelta;
@@ -422,7 +433,9 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
 
     // Pass 1: rack power status
     const rackInfo = racks.map((rack) => {
-      const topo = rackTopology(rack, { gpus: w.gpus, psus: input.psus, coolers: input.coolers });
+      const full = rackTopology(rack, { gpus: w.gpus, psus: input.psus, coolers: input.coolers });
+      // Bronze Only: higher silicon grades stay idle (neither powered nor mining).
+      const topo = rules.bronzeOnly ? { ...full, gpuUids: full.gpuUids.filter((u) => w.gpus[u].quality === 'bronze') } : full;
       let status: RackStatus;
       let load = 0;
       let gpuLoad = 0;
@@ -435,7 +448,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
         topo.gpuUids.forEach((u) => {
           const g = w.gpus[u];
           if (g.shutdown) return;
-          const p = GPU_BY_ID[g.modelId].power * ocPowerMul(g.oc);
+          const p = GPU_BY_ID[g.modelId].power * ocPowerMul(gpuOc(g));
           gpuLoad += p;
           tariffLoad += p * gridTariff(g.modelId);
         });
@@ -450,8 +463,8 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
     });
 
     const roomWall = rackInfo.reduce((a, r) => a + r.wall, 0);
-    const brownout = roomWall > room.maxPowerW ? room.maxPowerW / roomWall : 1;
-    const paidWall = Math.min(roomWall, room.maxPowerW);
+    const brownout = roomWall > lineW ? lineW / roomWall : 1;
+    const paidWall = Math.min(roomWall, lineW);
     // A brownout caps the paid wall at the contracted line: every rack is billed pro rata.
     const paidShare = roomWall > 0 ? paidWall / roomWall : 0;
     const price = wattPrice(roomId, mods);
@@ -477,7 +490,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
         const g = w.gpus[uid];
         const model = GPU_BY_ID[g.modelId];
         const running = powered && !g.shutdown;
-        const powerMul = ocPowerMul(g.oc);
+        const powerMul = ocPowerMul(gpuOc(g));
         const heat = running ? model.power * powerMul * mods.heatMul * rackModel.heatMul * brownout : 0;
         const k = (PHYSICS.baseCooling + fanK / n) * pasteFactor(g.paste) * room.coolingMul;
         const tEq = roomTemp + heat / k;
@@ -506,7 +519,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
         if (techRepair > 0 && g.wear > 0) g.wear = Math.max(0, g.wear - techRepair * dt);
 
         const hash = active
-          ? model.hashrate * (1 + g.ocBonus) * (throttled ? 0.5 : 1) * (1 - g.wear) * brownout * mods.hashMul
+          ? model.hashrate * (1 + (rules.lockOverclock ? 0 : g.ocBonus)) * (throttled ? 0.5 : 1) * (1 - g.wear) * brownout * mods.hashMul
           : 0;
         rackHash += hash;
         rackMax = Math.max(rackMax, g.temp);
@@ -537,7 +550,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
     live.rooms[roomId] = {
       load: rackInfo.reduce((a, r) => a + r.load, 0),
       wall: roomWall,
-      capacity: room.maxPowerW,
+      capacity: lineW,
       brownout,
       ambient: baseAmbient,
       temp: w.roomTemps[roomId] ?? baseAmbient,
@@ -571,7 +584,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
       const fine = Math.min(Math.max(0, w.cash), Math.max(w.cash * 0.12, baseRate * w.market.CC.price * 90));
       w.cash -= fine;
       acc.raids += 1;
-      const roomId = pick(input.ownedRooms);
+      const roomId = pick(rooms);
       Object.values(w.racks).forEach((r) => {
         if (r.roomId === roomId) r.rebootUntil = now + PHYSICS.inspectionRebootMs;
       });

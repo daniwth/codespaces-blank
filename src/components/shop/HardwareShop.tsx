@@ -7,6 +7,7 @@ import { PHYSICS } from '../../config/gameBalance';
 import { useT } from '../../i18n';
 import { sprites } from '../../engine/SpriteManager';
 import { gridTariff } from '../../store/gamePhysics';
+import { challengeBlocks } from '../../store/slices/challengesSlice';
 import { technicianCost } from '../../store/slices/roomsSlice';
 import { useGameShallow, useGameStore } from '../../store/useGameStore';
 import { bnGte } from '../../utils/bignum';
@@ -62,6 +63,7 @@ export function HardwareShop() {
     ownedRooms: st.ownedRooms,
     technicians: st.technicians,
     talents: st.talents,
+    roomsLocked: challengeBlocks(st, 'singleRoom'),
   }));
   const actions = useGameStore.getState();
   const can = (price: number) => bnGte(s.cash, price);
@@ -165,12 +167,13 @@ export function HardwareShop() {
                 icon={<SpriteImg src={sprites.roomIcon(room.id)} width={84} height={48} alt={t(room.name)} />}
                 title={t(room.name)}
                 price={owned ? t('OWNED') : formatCash(room.price)}
-                affordable={!owned && prevOwned && can(room.price)}
-                disabled={owned || !prevOwned}
-                cta={owned ? '✓' : prevOwned ? t('Buy') : t('Locked')}
+                affordable={!owned && prevOwned && !s.roomsLocked && can(room.price)}
+                disabled={owned || !prevOwned || s.roomsLocked}
+                cta={owned ? '✓' : s.roomsLocked ? t('Challenge') : prevOwned ? t('Buy') : t('Locked')}
                 onBuy={() => actions.buyRoom(room.id)}
               >
                 <div className="text-dim">{t(room.subtitle)}</div>
+                {s.roomsLocked && !owned && <div className="text-hot">{t('Locked by the Single Room challenge.')}</div>}
                 <div>
                   {t('{temp} · {power} line · {pads} pads', { temp: formatTemp(room.ambient), power: formatPower(room.maxPowerW), pads: room.pads + mods.extraPads })}
                 </div>

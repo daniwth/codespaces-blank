@@ -1,6 +1,6 @@
 import type { CoinId, PoolMode, TradeResult, TradingBot } from '../types/economy';
 import type { ComponentKind, GpuInstance, OverclockSettings, SiliconQuality } from '../types/hardware';
-import type { GameData, GameSettings, RoomId, TalentId } from '../types/player';
+import type { ChallengeId, GameData, GameSettings, RoomId, TalentId } from '../types/player';
 import type { LiveMetrics, MessageTone, SimOutput } from './gamePhysics';
 
 export interface LogEntry {
@@ -93,7 +93,8 @@ export interface MarketSlice {
 }
 
 export interface EconomySlice {
-  performHalving: () => boolean;
+  /** Cash out the run; `challenge` optionally restricts the next one. */
+  performHalving: (challenge?: ChallengeId | null) => boolean;
   buyTalent: (id: TalentId) => boolean;
   buyVip: (item: VipItem) => boolean;
   setAutoSellEnabled: (enabled: boolean) => void;
@@ -114,6 +115,15 @@ export interface ContractsSlice {
   dismissContractToast: () => void;
 }
 
+export interface ChallengesSlice {
+  /** Log a "refused by the challenge" warning (with the translated reason) and play the error cue. Always returns false. */
+  denyByChallenge: (reason: string) => false;
+  /** Drop the active challenge: the run keeps its normal Halving reward, without the challenge bonus. */
+  abandonChallenge: () => boolean;
+  /** Pay out and record the active challenge once the Halving threshold is reached (called every tick). */
+  checkChallenge: () => boolean;
+}
+
 export interface CoreActions {
   applyTick: (out: SimOutput) => void;
   applyOffline: (out: SimOutput, requestedSeconds: number) => void;
@@ -130,13 +140,13 @@ export interface CoreActions {
   /** Leave the title menu and resume the local save (the game loop credits offline time on start). */
   continueGame: () => void;
   /** Wipe the local save for a fresh run (starter bench rig, lastTick = now) and enter the game. Settings are kept. */
-  startNewGame: () => void;
+  startNewGame: (challenge?: ChallengeId | null) => void;
   /** Flush the save and go back to the title menu (the game loop stops). */
   returnToMenu: () => void;
   setWikiOpen: (open: boolean) => void;
 }
 
-export type GameStore = GameData & UiState & HardwareSlice & RoomsSlice & MarketSlice & EconomySlice & ContractsSlice & CoreActions;
+export type GameStore = GameData & UiState & HardwareSlice & RoomsSlice & MarketSlice & EconomySlice & ContractsSlice & ChallengesSlice & CoreActions;
 
 export type SetState = (partial: Partial<GameStore> | ((state: GameStore) => Partial<GameStore>)) => void;
 export type GetState = () => GameStore;

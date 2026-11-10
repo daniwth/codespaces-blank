@@ -3,7 +3,7 @@ import { MARKET, SAVE_VERSION, STARTING_CASH, EVENT_INTERVAL } from '../config/g
 import { talentModifiers } from '../config/prestigeTree';
 import type { CoinId, CoinMarket, MarketState } from '../types/economy';
 import type { GpuInstance, RackInstance, SiliconQuality } from '../types/hardware';
-import type { GameData, RoomId, TalentLevels, VipState } from '../types/player';
+import type { ChallengeId, GameData, RoomId, TalentLevels, VipState } from '../types/player';
 import { bn } from '../utils/bignum';
 import { makeUid } from '../utils/eventBus';
 import { randRange, weightedPick } from '../utils/random';
@@ -80,7 +80,7 @@ export const DEFAULT_VIP: VipState = { goldRacksBought: 0, aiDiagnostics: false,
 /**
  * Fresh run state. `carry` holds the progression that survives The Halving.
  */
-export function createInitialData(carry?: Partial<GameData>): GameData {
+export function createInitialData(carry?: Partial<GameData>, challenge?: ChallengeId | null): GameData {
   const now = Date.now();
   const talents: TalentLevels = carry?.talents ?? {};
   const mods = talentModifiers(talents);
@@ -133,6 +133,8 @@ export function createInitialData(carry?: Partial<GameData>): GameData {
       blocksFound: 0, halvings: 0, raids: 0, bsods: 0, overheats: 0, stableOverclocks: 0,
       gpusBought: 0, playTimeSec: 0, maxHashrate: 0, bestTrade: 0, contractsCompleted: 0,
     },
+    challenge: challenge ? { id: challenge, startedAt: now } : null,
+    challengeRecords: carry?.challengeRecords ?? {},
     settings: carry?.settings ?? { muted: false, volume: 0.6, ambientHum: true, particles: true, offlineProgress: true },
   };
   // A fresh board scaled to this run (The Halving starts a new one: the old targets were sized for the old farm).

@@ -2,6 +2,7 @@ import { tr } from '../i18n';
 import { create } from 'zustand';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { useShallow } from 'zustand/react/shallow';
+import { CHALLENGE_BY_ID } from '../config/challenges';
 import { SAVE_KEY, SAVE_VERSION } from '../config/gameBalance';
 import type { GameData, RoomId } from '../types/player';
 import { bnAdd, bnMax, bnToNumber } from '../utils/bignum';
@@ -11,6 +12,7 @@ import { emptyLive, type SimInput, type SimOutput, type SoundCue } from './gameP
 import { pruneGpuEdits, reconcileGpuUpdate } from './editLedger';
 import { createInitialData } from './initialState';
 import { migrateSave } from './migrations';
+import { createChallengesSlice } from './slices/challengesSlice';
 import { createContractsSlice } from './slices/contractsSlice';
 import { createEconomySlice } from './slices/economySlice';
 import { createHardwareSlice } from './slices/hardwareSlice';
@@ -23,7 +25,7 @@ const DATA_KEYS: (keyof GameData)[] = [
   'saveVersion', 'createdAt', 'lastTick', 'cash', 'cc', 'meme', 'memeCostBasis', 'ccCostBasis', 'gems', 'sc', 'scLifetime',
   'runEarnings', 'lifetimeEarnings', 'runStartedAt', 'gpus', 'psus', 'coolers', 'racks', 'ownedRooms', 'activeRoom',
   'roomTemps', 'technicians', 'pool', 'market', 'bots', 'event', 'nextEventAt', 'talents', 'vip',
-  'achievements', 'stats', 'settings', 'contracts',
+  'achievements', 'stats', 'settings', 'contracts', 'challenge', 'challengeRecords',
 ];
 
 export const extractData = (s: GameStore): GameData => {
@@ -39,7 +41,7 @@ export const selectSimInput = (s: GameStore): SimInput => ({
   gpus: s.gpus, psus: s.psus, coolers: s.coolers, racks: s.racks, ownedRooms: s.ownedRooms,
   roomTemps: s.roomTemps, technicians: s.technicians, pool: s.pool, market: s.market, bots: s.bots,
   event: s.event, nextEventAt: s.nextEventAt, talents: s.talents, vip: s.vip, cash: s.cash, cc: s.cc,
-  meme: s.meme, memeCostBasis: s.memeCostBasis, ccCostBasis: s.ccCostBasis, lastTick: s.lastTick,
+  meme: s.meme, memeCostBasis: s.memeCostBasis, ccCostBasis: s.ccCostBasis, lastTick: s.lastTick, challenge: s.challenge,
 });
 
 /**
@@ -191,7 +193,7 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
   return {
     applyTick: (out) => {
       mergeTick(out);
-      const { pushLog, checkAchievements, advanceContractBoard } = get();
+      const { pushLog, checkAchievements, advanceContractBoard, checkChallenge } = get();
       out.messages.forEach((m) => {
         if (!m.key) return pushLog(m.text, m.tone);
         const params: Record<string, string | number> = {};
@@ -202,6 +204,7 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
       out.sounds.forEach((cue) => sfxBus.emit(SOUND_MAP[cue]));
       if (out.blocksFound > 0) fxBus.emit({ kind: 'block' });
       if (out.raids > 0) raidRooms(out, get().racks).forEach((until, roomId) => fxBus.emit({ kind: 'raid', roomId, until }));
+      checkChallenge();
       checkAchievements();
     },
 
@@ -219,6 +222,7 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
         },
       });
       get().advanceContractBoard(out, true);
+      get().checkChallenge();
       get().checkAchievements();
     },
 
@@ -266,13 +270,15 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
       sfxBus.emit('start');
     },
 
-    startNewGame: () => {
+    startNewGame: (challenge) => {
       // createInitialData stamps lastTick = now, so the loop credits no offline time.
       bumpWorldEpoch();
-      set({ ...createInitialData({ settings: get().settings }), ...initialUi(), screen: 'game' });
+      set({ ...createInitialData({ settings: get().settings }, challenge ?? null), ...initialUi(), screen: 'game' });
       gameStorage.flush();
       sfxBus.emit('start');
       get().pushLog(tr('New farm founded: one PX-460 on a bench in your bedroom. Happy hashing!'), 'good');
+      const active = get().challenge;
+      if (active) get().pushLog(tr('Challenge started: {name}. {description}', { name: tr(CHALLENGE_BY_ID[active.id].name), description: tr(CHALLENGE_BY_ID[active.id].description) }), 'warn');
     },
 
     returnToMenu: () => {
@@ -297,6 +303,7 @@ export const useGameStore = create<GameStore>()(
         ...createMarketSlice(s, g),
         ...createEconomySlice(s, g),
         ...createContractsSlice(s, g),
+        ...createChallengesSlice(s, g),
         ...createCoreActions(s, g),
       };
     },

@@ -37,6 +37,7 @@ import {
   talentCost,
   talentModifiers,
 } from './prestigeTree';
+import { CHALLENGES, POWER_CAP_MUL } from './challenges';
 import { ROOM_BY_ID, ROOM_CATALOG } from './roomsCatalog';
 import type { WikiRow, WikiTable } from './wikiTypes';
 import { tr, useLangStore, type Lang } from '../i18n';
@@ -47,7 +48,7 @@ import { technicianCost } from '../store/slices/roomsSlice';
 import type { ContractKind } from '../types/contracts';
 import type { NetworkEventId, PoolMode } from '../types/economy';
 import type { CoolerKind, GpuInstance, SiliconQuality } from '../types/hardware';
-import type { RoomId, TalentId } from '../types/player';
+import type { ChallengeId, RoomId, TalentId } from '../types/player';
 import {
   formatCash,
   formatDuration,
@@ -494,6 +495,44 @@ export function poolTable(lang: Lang = curLang()): WikiTable {
         cells: [nm(p.name), `x${p.payoutMul}`, p.fee > 0 ? pct(p.fee) : '0%', `LV ${p.unlockLevel}`, x(...POOL_RISK[id])],
       };
     }),
+  };
+}
+
+const CHALLENGE_RULE: Record<ChallengeId, readonly [string, string]> = {
+  bronze_only: [
+    'La lotería de silicio siempre sale Bronce y el silicio de grado superior no mina.',
+    'The silicon lottery always rolls Bronze and higher-grade silicon does not mine.',
+  ],
+  no_overclock: [
+    'BIOS bloqueada a frecuencias de fábrica: sin overclock ni AI Auto-Tune.',
+    'BIOS locked at stock clocks: no overclock and no AI Auto-Tune.',
+  ],
+  power_cap: [
+    `La línea eléctrica de cada sala se recorta al ${pct(POWER_CAP_MUL)}.`,
+    `Every room's power line is cut to ${pct(POWER_CAP_MUL)}.`,
+  ],
+  single_room: [
+    'Solo puedes usar el Dormitorio: no puedes comprar ni usar otras salas.',
+    'You can only use the Bedroom: other rooms cannot be bought or used.',
+  ],
+};
+
+export function challengeTable(lang: Lang = curLang()): WikiTable {
+  const x = pick(lang);
+  const nm = namer(lang);
+  return {
+    id: 'challenges',
+    caption: x('Retos de partida', 'Challenge runs'),
+    columns: [
+      { label: x('Reto', 'Challenge') }, { label: x('Restricción', 'Restriction') },
+      { label: x('1ª victoria', 'First clear'), align: 'right' }, { label: x('Repetición', 'Repeat'), align: 'right' },
+    ],
+    rows: CHALLENGES.map((c) => ({
+      id: c.id,
+      color: c.color,
+      icon: { kind: 'swatch', color: c.color },
+      cells: [nm(c.name), x(...CHALLENGE_RULE[c.id]), `+${c.firstSc} $SC, +${c.firstGems} ${x('gemas', 'gems')}`, `+${c.repeatSc} $SC, +${c.repeatGems} ${x('gemas', 'gems')}`],
+    })),
   };
 }
 

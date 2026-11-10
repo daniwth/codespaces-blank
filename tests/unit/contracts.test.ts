@@ -405,8 +405,8 @@ describe('contracts persistence', () => {
     v3.stats = { ...(v3.stats as Record<string, unknown>) };
     delete (v3.stats as Record<string, unknown>).contractsCompleted;
     const migrated = migrateSave(v3, 3);
-    expect(SAVE_VERSION).toBe(5);
-    expect(migrated.saveVersion).toBe(5);
+    expect(SAVE_VERSION).toBeGreaterThanOrEqual(5);
+    expect(migrated.saveVersion).toBe(SAVE_VERSION);
     expect(migrated.contracts.slots).toHaveLength(CONTRACTS.slots);
     expect(migrated.stats.contractsCompleted).toBe(0);
   });
