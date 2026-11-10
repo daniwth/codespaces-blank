@@ -222,5 +222,31 @@ export const esMenu: Dict = {
   'You already have a Miner Pass subscription. Manage it from "Manage billing".': 'Ya tienes una suscripción Miner Pass. Gestiónala desde "Gestionar facturación".',
   'You already have an active Miner Pass.': 'Ya tienes un Miner Pass activo.',
   'Internal server error.': 'Error interno del servidor.',
+
+  // Email verification and password reset
+  'This link is invalid or has expired.': 'Este enlace no es válido o ha caducado.',
+  'Confirm your email first: check your inbox or request a new link.': 'Confirma primero tu correo: revisa tu bandeja de entrada o pide un enlace nuevo.',
+  'If that account still needs confirming, a new link is on its way.': 'Si esa cuenta aún necesita confirmación, un enlace nuevo va de camino.',
+  'Password updated. Log in with your new password.': 'Contraseña actualizada. Inicia sesión con la nueva contraseña.',
+  'Email confirmed. You are signed in.': 'Correo confirmado. Has iniciado sesión.',
+  'CHECK YOUR EMAIL': 'REVISA TU CORREO',
+  'We sent a confirmation link to {email}. Open it to activate your account; it works once and expires in 24 hours.':
+    'Enviamos un enlace de confirmación a {email}. Ábrelo para activar tu cuenta; funciona una vez y caduca en 24 horas.',
+  'Already registered with this address? The email says so instead. Nothing arrived? Check spam, or ask for a new link.':
+    '¿Ya registrado con esta dirección? El correo lo indica. ¿No llegó nada? Mira en spam o pide un enlace nuevo.',
+  'Dev server: open the link directly': 'Servidor de desarrollo: abrir el enlace directamente',
+  'Resend verification': 'Reenviar verificación',
+  'Back to log in': 'Volver a iniciar sesión',
+  'RESET PASSWORD': 'RESTABLECER CONTRASEÑA',
+  'Enter your account email and we will send you a link to choose a new password.': 'Escribe el correo de tu cuenta y te enviaremos un enlace para elegir una contraseña nueva.',
+  'Send reset link': 'Enviar enlace',
+  'If an account exists for {email}, a reset link is on its way. It works once and expires in 1 hour.':
+    'Si existe una cuenta para {email}, un enlace de restablecimiento va de camino. Funciona una vez y caduca en 1 hora.',
+  'CHOOSE A NEW PASSWORD': 'ELIGE UNA CONTRASEÑA NUEVA',
+  'Saving it signs you out of every device.': 'Al guardarla se cierra la sesión en todos los dispositivos.',
+  'NEW PASSWORD': 'CONTRASEÑA NUEVA',
+  'Save new password': 'Guardar contraseña nueva',
+  'Confirming your email…': 'Confirmando tu correo…',
+  'Forgot password?': '¿Olvidaste tu contraseña?',
   'Not found.': 'No encontrado.',
 };

@@ -90,6 +90,25 @@ try {
     await roomCanvas(p).waitFor({ timeout: 10_000 });
   };
 
+  /**
+   * Finishes sign-up after clicking "Create account": the "check your email" view exposes the emailed link
+   * (dev server only). The token is consumed through the API (like opening it elsewhere), then the player logs in.
+   */
+  const verifyAndLogin = async (p, scope, password = 'e2e-password') => {
+    const view = scope.getByTestId('check-email');
+    await view.waitFor({ timeout: 8000 });
+    const email = /[\w.+-]+@[\w.-]+\.com/.exec((await view.textContent()) ?? '')?.[0];
+    assert(email, 'check-email view does not show the address');
+    const href = await scope.getByTestId('dev-link').getAttribute('href');
+    const token = new globalThis.URL(href).searchParams.get('verify');
+    const r = await p.request.post(`${URL}api/auth/verify`, { data: { token } });
+    assert(r.ok(), `verify answered ${r.status()}`);
+    await scope.locator('button:has-text("Back to log in")').click();
+    await scope.locator('input[autocomplete="email"]').fill(email);
+    await scope.locator('input[autocomplete="current-password"]').fill(password);
+    await scope.locator('form button:has-text("Log in")').last().click();
+  };
+
   console.log('Hash Harvest E2E smoke test');
   await page.goto(URL);
 
@@ -181,6 +200,7 @@ try {
     await page.locator('input[autocomplete="new-password"]').nth(0).fill('e2e-password');
     await page.locator('input[autocomplete="new-password"]').nth(1).fill('e2e-password');
     await page.locator('form button:has-text("Create account")').last().click();
+    await verifyAndLogin(page, page.locator('body'));
     await page.locator('button:has-text("Subscribe")').first().click();
     await page.getByText('ACTIVE ·').waitFor({ timeout: 5000 });
     await page.click('button:has-text("Save to cloud")');
@@ -309,6 +329,7 @@ try {
       await p.locator('input[autocomplete="new-password"]').nth(0).fill('e2e-password');
       await p.locator('input[autocomplete="new-password"]').nth(1).fill('e2e-password');
       await p.locator('form button:has-text("Create account")').last().click();
+      await verifyAndLogin(p, p.locator('body'));
       await p.locator('button:has-text("Subscribe")').first().click();
       await p.getByText('ACTIVE ·').waitFor({ timeout: 8000 });
       await p.waitForTimeout(5500); // enough play time for the title menu to offer Continue
@@ -542,6 +563,7 @@ try {
       await dlg.locator('input[autocomplete="new-password"]').nth(0).fill('e2e-password');
       await dlg.locator('input[autocomplete="new-password"]').nth(1).fill('e2e-password');
       await dlg.locator('form button:has-text("Create account")').last().click();
+      await verifyAndLogin(a.p, dlg);
       await a.p.getByTestId('menu-main').waitFor({ timeout: 8000 });
       await a.p.getByTestId('menu-identity-status').getByText(email).waitFor({ timeout: 5000 });
       await enterGame(a.p, 'new');
@@ -618,6 +640,7 @@ try {
       await p.locator('input[autocomplete="new-password"]').nth(0).fill('e2e-password');
       await p.locator('input[autocomplete="new-password"]').nth(1).fill('e2e-password');
       await p.locator('form button:has-text("Create account")').last().click();
+      await verifyAndLogin(p, p.locator('body'));
       await p.locator('button:has-text("Subscribe")').first().click();
       await p.getByText('ACTIVE ·').waitFor({ timeout: 8000 });
       await p.getByText(/synced/).first().waitFor({ timeout: 8000 });
@@ -696,6 +719,7 @@ try {
       await dlg.locator('input[autocomplete="new-password"]').nth(0).fill('e2e-password');
       await dlg.locator('input[autocomplete="new-password"]').nth(1).fill('e2e-password');
       await dlg.locator('form button:has-text("Create account")').last().click();
+      await verifyAndLogin(p, dlg);
       await p.getByTestId('menu-main').waitFor({ timeout: 8000 });
       await p.goto(`${URL}?checkout=success`);
       await p.waitForTimeout(2500);
@@ -705,6 +729,111 @@ try {
       const menuFeedback = (await menuOf(p).count()) > 0 && (await menuOf(p).getByText(/checkout|miner pass/i).count()) > 0;
       await p.screenshot({ path: join(ART, 'checkout-return.png') });
       assert(inGameOnAccount || menuFeedback, 'back from checkout on the plain title screen: no confirmation, the Account-tab switch and log line are hidden behind the menu');
+    } finally {
+      await context.close();
+    }
+  });
+
+  // ───────────── Email verification + password reset screens ─────────────
+  const postJson = async (path, body) => {
+    const r = await fetch(`${URL}api${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    return { status: r.status, json: await r.json().catch(() => null) };
+  };
+  const appLink = (devLink) => `${URL}${new globalThis.URL(devLink).search}`;
+  const accountDialog = (p) => p.locator('[role="dialog"]', { hasText: 'Account' });
+
+  await check('account: ?verify= link signs in, shows the result and cleans the URL; used/invalid links show an error', async () => {
+    const { context, p } = await fresh();
+    try {
+      const email = `e2e-verify${Date.now()}@example.com`;
+      const reg = await postJson('/auth/register', { email, password: 'e2e-password' });
+      assert(reg.status === 202 && reg.json.devLink, `register: ${reg.status}`);
+      const link = appLink(reg.json.devLink);
+      await p.goto(link);
+      const dlg = accountDialog(p);
+      await dlg.getByText('Email confirmed. You are signed in.').waitFor({ timeout: 8000 });
+      await dlg.getByText(email).waitFor({ timeout: 3000 });
+      assert(!/verify=/.test(new globalThis.URL(p.url()).search), `URL not cleaned: ${p.url()}`);
+      await p.screenshot({ path: join(ART, 'account-verified.png') });
+      // The same link a second time: visible error, no session.
+      const again = await fresh();
+      try {
+        await again.p.goto(link);
+        await accountDialog(again.p).getByText('This link is invalid or has expired.').waitFor({ timeout: 8000 });
+        assert(!/verify=/.test(new globalThis.URL(again.p.url()).search), 'URL not cleaned after a failed link');
+        await again.p.screenshot({ path: join(ART, 'account-verify-failed.png') });
+      } finally {
+        await again.context.close();
+      }
+    } finally {
+      await context.close();
+    }
+  });
+
+  await check('account: forgot password form, ?reset= link, new password logs in (desktop and 390 px)', async () => {
+    for (const [label, viewport] of [['desktop', { width: 1600, height: 1000 }], ['mobile', { width: 390, height: 844 }]]) {
+      const email = `e2e-forgot-${label}${Date.now()}@example.com`;
+      const reg = await postJson('/auth/register', { email, password: 'old-password1' });
+      await postJson('/auth/verify', { token: new globalThis.URL(reg.json.devLink).searchParams.get('verify') });
+      const { context, p } = await fresh({ viewport });
+      try {
+        await p.goto(URL);
+        await p.click('[data-testid="menu-identity"] button:has-text("Sign in")');
+        const dlg = accountDialog(p);
+        await dlg.locator('button:has-text("Forgot password?")').click();
+        await dlg.getByTestId('forgot-form').waitFor({ timeout: 3000 });
+        await p.screenshot({ path: join(ART, `account-forgot-${label}.png`) });
+        await dlg.locator('input[autocomplete="email"]').fill(email);
+        await dlg.locator('form button:has-text("Send reset link")').click();
+        const sent = dlg.getByTestId('forgot-sent');
+        await sent.waitFor({ timeout: 5000 });
+        await p.screenshot({ path: join(ART, `account-forgot-sent-${label}.png`) });
+        const link = appLink(await dlg.getByTestId('dev-link').getAttribute('href'));
+        await p.goto(link);
+        const reset = accountDialog(p).getByTestId('reset-form');
+        await reset.waitFor({ timeout: 8000 });
+        assert(!/reset=/.test(new globalThis.URL(p.url()).search), `URL not cleaned: ${p.url()}`);
+        await p.screenshot({ path: join(ART, `account-reset-${label}.png`) });
+        // Mismatch is shown, not swallowed.
+        const pw = `new-password-${label}1`;
+        await reset.locator('input[autocomplete="new-password"]').nth(0).fill(pw);
+        await reset.locator('input[autocomplete="new-password"]').nth(1).fill('different-one');
+        await reset.locator('button:has-text("Save new password")').click();
+        await reset.getByText('Passwords do not match.').waitFor({ timeout: 2000 });
+        await reset.locator('input[autocomplete="new-password"]').nth(1).fill(pw);
+        await reset.locator('button:has-text("Save new password")').click();
+        await accountDialog(p).getByText('Password updated. Log in with your new password.').waitFor({ timeout: 5000 });
+        await p.screenshot({ path: join(ART, `account-reset-done-${label}.png`) });
+        // Old password is refused with a visible error; the new one signs in.
+        await dlg.locator('input[autocomplete="email"]').fill(email);
+        await dlg.locator('input[autocomplete="current-password"]').fill('old-password1');
+        await dlg.locator('form button:has-text("Log in")').last().click();
+        await dlg.getByText('Wrong email or password.').waitFor({ timeout: 5000 });
+        await dlg.locator('input[autocomplete="current-password"]').fill(pw);
+        await dlg.locator('form button:has-text("Log in")').last().click();
+        await p.getByTestId('menu-identity-status').getByText(email).waitFor({ timeout: 8000 });
+      } finally {
+        await context.close();
+      }
+    }
+  });
+
+  await check('account: an unconfirmed login shows "check your email" with resend (390 px)', async () => {
+    const { context, p } = await fresh({ viewport: { width: 390, height: 844 } });
+    try {
+      const email = `e2e-pending${Date.now()}@example.com`;
+      await postJson('/auth/register', { email, password: 'e2e-password' });
+      await p.goto(URL);
+      await p.click('[data-testid="menu-identity"] button:has-text("Sign in")');
+      const dlg = accountDialog(p);
+      await dlg.locator('input[autocomplete="email"]').fill(email);
+      await dlg.locator('input[autocomplete="current-password"]').fill('e2e-password');
+      await dlg.locator('form button:has-text("Log in")').last().click();
+      await dlg.getByText('Confirm your email first', { exact: false }).waitFor({ timeout: 5000 });
+      await dlg.getByTestId('check-email').waitFor({ timeout: 3000 });
+      await dlg.locator('button:has-text("Resend verification")').click();
+      await dlg.getByText('a new link is on its way', { exact: false }).waitFor({ timeout: 5000 });
+      await p.screenshot({ path: join(ART, 'account-check-email-mobile.png') });
     } finally {
       await context.close();
     }

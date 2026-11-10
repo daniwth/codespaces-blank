@@ -1,4 +1,4 @@
-import { AlertTriangle, BadgeCheck, Cloud, CloudDownload, CloudUpload, CreditCard, KeyRound, LogOut, Server, UserPlus } from 'lucide-react';
+import { AlertTriangle, BadgeCheck, Cloud, CloudDownload, CloudUpload, CreditCard, KeyRound, LogOut, MailCheck, Send, Server, UserPlus } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { useGameShallow } from '../../store/useGameStore';
 import { useAccountStore } from '../../store/useAccountStore';
@@ -29,15 +29,171 @@ function SaveSummaryCard({ title, meta }: { title: string; meta: CloudSaveMeta |
   );
 }
 
+/** Shown after sign-up (or a login blocked by an unconfirmed email): the link arrives by email. */
+function CheckEmail() {
+  const t = useT();
+  const email = useAccountStore((s) => s.pendingEmail);
+  const devLink = useAccountStore((s) => s.devLink);
+  const busy = useAccountStore((s) => s.busy);
+  const { resendVerification, setAuthView } = useAccountStore.getState();
+  return (
+    <div className="flex flex-col gap-2 bg-panel-2 p-3" data-testid="check-email">
+      <h3 className="flex items-center gap-2 font-pixel text-[9px] text-neon">
+        <MailCheck size={13} /> {t('CHECK YOUR EMAIL')}
+      </h3>
+      <p className="text-[16px] leading-tight">{t('We sent a confirmation link to {email}. Open it to activate your account; it works once and expires in 24 hours.', { email: email ?? '' })}</p>
+      <p className="text-[15px] leading-tight text-dim">{t('Already registered with this address? The email says so instead. Nothing arrived? Check spam, or ask for a new link.')}</p>
+      {devLink && (
+        <a className="break-all text-[15px] leading-tight text-amber underline" href={devLink} data-testid="dev-link">
+          {t('Dev server: open the link directly')}
+        </a>
+      )}
+      <div className="flex flex-wrap gap-1">
+        <PixelButton size="xs" variant="primary" icon={<Send size={10} />} disabled={busy} onClick={() => void resendVerification()}>
+          {busy ? t('Connecting…') : t('Resend verification')}
+        </PixelButton>
+        <PixelButton size="xs" variant="ghost" onClick={() => setAuthView('login')}>
+          {t('Back to log in')}
+        </PixelButton>
+      </div>
+    </div>
+  );
+}
+
+function ForgotForm() {
+  const t = useT();
+  const [email, setEmail] = useState(() => useAccountStore.getState().pendingEmail ?? '');
+  const [localError, setLocalError] = useState<string | null>(null);
+  const busy = useAccountStore((s) => s.busy);
+  const { forgotPassword, setAuthView } = useAccountStore.getState();
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setLocalError(null);
+    if (!email.trim()) {
+      setLocalError(t('Enter your email.'));
+      return;
+    }
+    await forgotPassword(email);
+  };
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-2 bg-panel-2 p-3" data-testid="forgot-form">
+      <h3 className="flex items-center gap-2 font-pixel text-[9px] text-neon">
+        <KeyRound size={13} /> {t('RESET PASSWORD')}
+      </h3>
+      <p className="text-[15px] leading-tight text-dim">{t('Enter your account email and we will send you a link to choose a new password.')}</p>
+      <label className="flex flex-col gap-0.5 text-[16px]">
+        <span className="font-silk text-[9px] text-dim">{t('EMAIL')}</span>
+        <input className="retro-input" type="text" inputMode="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+      </label>
+      {localError && <p className="text-[16px] text-hot">{localError}</p>}
+      <button type="submit" className="hidden" aria-hidden tabIndex={-1} />
+      <div className="flex flex-wrap gap-1">
+        <PixelButton variant="success" icon={<Send size={12} />} disabled={busy} onClick={(e) => void submit(e as unknown as FormEvent)}>
+          {busy ? t('Connecting…') : t('Send reset link')}
+        </PixelButton>
+        <PixelButton variant="ghost" onClick={() => setAuthView('login')}>
+          {t('Back to log in')}
+        </PixelButton>
+      </div>
+    </form>
+  );
+}
+
+function ForgotSent() {
+  const t = useT();
+  const email = useAccountStore((s) => s.pendingEmail);
+  const devLink = useAccountStore((s) => s.devLink);
+  const { setAuthView } = useAccountStore.getState();
+  return (
+    <div className="flex flex-col gap-2 bg-panel-2 p-3" data-testid="forgot-sent">
+      <h3 className="flex items-center gap-2 font-pixel text-[9px] text-neon">
+        <MailCheck size={13} /> {t('CHECK YOUR EMAIL')}
+      </h3>
+      <p className="text-[16px] leading-tight">{t('If an account exists for {email}, a reset link is on its way. It works once and expires in 1 hour.', { email: email ?? '' })}</p>
+      {devLink && (
+        <a className="break-all text-[15px] leading-tight text-amber underline" href={devLink} data-testid="dev-link">
+          {t('Dev server: open the link directly')}
+        </a>
+      )}
+      <div className="flex gap-1">
+        <PixelButton size="xs" variant="primary" onClick={() => setAuthView('login')}>
+          {t('Back to log in')}
+        </PixelButton>
+      </div>
+    </div>
+  );
+}
+
+function ResetForm() {
+  const t = useT();
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [localError, setLocalError] = useState<string | null>(null);
+  const busy = useAccountStore((s) => s.busy);
+  const { resetPassword, setAuthView } = useAccountStore.getState();
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setLocalError(null);
+    if (password.length < 8) {
+      setLocalError(t('Password must be at least 8 characters.'));
+      return;
+    }
+    if (password !== confirm) {
+      setLocalError(t('Passwords do not match.'));
+      return;
+    }
+    await resetPassword(password);
+  };
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-2 bg-panel-2 p-3" data-testid="reset-form">
+      <h3 className="flex items-center gap-2 font-pixel text-[9px] text-neon">
+        <KeyRound size={13} /> {t('CHOOSE A NEW PASSWORD')}
+      </h3>
+      <p className="text-[15px] leading-tight text-dim">{t('Saving it signs you out of every device.')}</p>
+      <label className="flex flex-col gap-0.5 text-[16px]">
+        <span className="font-silk text-[9px] text-dim">{t('NEW PASSWORD')}</span>
+        <input className="retro-input" type="password" autoComplete="new-password" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} required />
+      </label>
+      <label className="flex flex-col gap-0.5 text-[16px]">
+        <span className="font-silk text-[9px] text-dim">{t('CONFIRM PASSWORD')}</span>
+        <input className="retro-input" type="password" autoComplete="new-password" minLength={8} value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
+      </label>
+      {localError && <p className="text-[16px] text-hot">{localError}</p>}
+      <button type="submit" className="hidden" aria-hidden tabIndex={-1} />
+      <div className="flex flex-wrap gap-1">
+        <PixelButton variant="success" icon={<KeyRound size={12} />} disabled={busy} onClick={(e) => void submit(e as unknown as FormEvent)}>
+          {busy ? t('Connecting…') : t('Save new password')}
+        </PixelButton>
+        <PixelButton variant="ghost" onClick={() => setAuthView('login')}>
+          {t('Cancel')}
+        </PixelButton>
+      </div>
+    </form>
+  );
+}
+
 function AuthForm() {
   const t = useT();
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const view = useAccountStore((s) => s.authView);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [localError, setLocalError] = useState<string | null>(null);
-  const { login, register, busy, clearMessages } = useAccountStore.getState();
-  const isBusy = useAccountStore((s) => s.busy) || busy;
+  const { login, register, setAuthView } = useAccountStore.getState();
+  const isBusy = useAccountStore((s) => s.busy);
+
+  if (view === 'verifying') {
+    return (
+      <div className="flex items-center gap-2 bg-panel-2 p-3 text-[16px]" data-testid="verifying">
+        <MailCheck size={14} className="text-neon" /> {t('Confirming your email…')}
+      </div>
+    );
+  }
+  if (view === 'check-email') return <CheckEmail />;
+  if (view === 'forgot') return <ForgotForm />;
+  if (view === 'forgot-sent') return <ForgotSent />;
+  if (view === 'reset') return <ResetForm />;
+  const mode = view;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -62,7 +218,7 @@ function AuthForm() {
     <form onSubmit={submit} className="flex flex-col gap-2 bg-panel-2 p-3">
       <div className="flex gap-1">
         {(['login', 'register'] as const).map((m) => (
-          <PixelButton key={m} size="xs" variant={mode === m ? 'primary' : 'secondary'} onClick={() => { setMode(m); clearMessages(); setLocalError(null); }} silent>
+          <PixelButton key={m} size="xs" variant={mode === m ? 'primary' : 'secondary'} onClick={() => { setAuthView(m); setLocalError(null); }} silent>
             {m === 'login' ? t('Log in') : t('Create account')}
           </PixelButton>
         ))}
@@ -99,6 +255,11 @@ function AuthForm() {
       >
         {isBusy ? t('Connecting…') : mode === 'login' ? t('Log in') : t('Create account')}
       </PixelButton>
+      {mode === 'login' && (
+        <button type="button" className="self-start text-[16px] text-neon underline" onClick={() => setAuthView('forgot')}>
+          {t('Forgot password?')}
+        </button>
+      )}
       <p className="text-[15px] leading-tight text-dim">{t('Free account. A Miner Pass subscription unlocks cloud saves so your farm follows you to any device.')}</p>
     </form>
   );

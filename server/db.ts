@@ -53,11 +53,26 @@ db.exec(`
     summary TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS email_tokens (
+    token_hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS email_tokens_user ON email_tokens(user_id, kind);
+
   CREATE TABLE IF NOT EXISTS webhook_events (
     id TEXT PRIMARY KEY,
     received_at INTEGER NOT NULL
   );
 `);
+
+// Migration: email verification. Accounts that predate it default to verified (1) so nobody is locked
+// out; new sign-ups are inserted with 0 explicitly.
+if (!(db.prepare('PRAGMA table_info(users)').all() as { name: string }[]).some((c) => c.name === 'email_verified')) {
+  db.exec('ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 1');
+}
 
 export interface UserRow {
   id: string;
@@ -70,6 +85,7 @@ export interface UserRow {
   sub_status: string;
   period_end: number;
   cancel_at_period_end: number;
+  email_verified: number;
 }
 
 export interface SaveSummary {
@@ -94,7 +110,15 @@ const q = {
   userById: db.prepare('SELECT * FROM users WHERE id = ?'),
   userByEmail: db.prepare('SELECT * FROM users WHERE email = ?'),
   userByCustomer: db.prepare('SELECT * FROM users WHERE stripe_customer_id = ?'),
-  insertUser: db.prepare('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)'),
+  insertUser: db.prepare('INSERT INTO users (id, email, password_hash, created_at, email_verified) VALUES (?, ?, ?, ?, 0)'),
+  markVerified: db.prepare('UPDATE users SET email_verified = 1 WHERE id = ?'),
+  purgeUnverified: db.prepare('DELETE FROM users WHERE email_verified = 0 AND created_at < ?'),
+  deleteUserSessions: db.prepare('DELETE FROM sessions WHERE user_id = ?'),
+  insertEmailToken: db.prepare('INSERT INTO email_tokens (token_hash, user_id, kind, created_at, expires_at) VALUES (?, ?, ?, ?, ?)'),
+  deleteEmailTokensOfKind: db.prepare('DELETE FROM email_tokens WHERE user_id = ? AND kind = ?'),
+  deleteEmailTokens: db.prepare('DELETE FROM email_tokens WHERE user_id = ?'),
+  takeEmailToken: db.prepare('DELETE FROM email_tokens WHERE token_hash = ? AND kind = ? RETURNING user_id, expires_at'),
+  purgeEmailTokens: db.prepare('DELETE FROM email_tokens WHERE expires_at <= ?'),
   deleteUser: db.prepare('DELETE FROM users WHERE id = ?'),
   setCustomer: db.prepare('UPDATE users SET stripe_customer_id = ? WHERE id = ?'),
   setSubscription: db.prepare(
@@ -134,6 +158,9 @@ export const users = {
   remove: (id: string) => q.deleteUser.run(id),
   setCustomer: (id: string, customerId: string) => q.setCustomer.run(customerId, id),
   setPasswordHash: (id: string, hash: string) => q.setPassword.run(hash, id),
+  markVerified: (id: string) => q.markVerified.run(id),
+  /** Unverified sign-ups older than the cutoff never proved their mailbox: free the address. */
+  purgeUnverified: (olderThanMs: number) => q.purgeUnverified.run(Date.now() - olderThanMs),
   /** Demo subscriptions are void once real billing is enabled. Returns rows changed. */
   expireDemoSubscriptions: () => Number(q.expireDemoSubs.run().changes),
   setSubscription: (
@@ -147,6 +174,24 @@ export const sessions = {
   user: (tokenHash: string) => asUser(q.sessionUser.get(tokenHash, Date.now())),
   remove: (tokenHash: string) => q.deleteSession.run(tokenHash),
   purgeExpired: () => q.purgeSessions.run(Date.now()),
+  removeAllForUser: (userId: string) => q.deleteUserSessions.run(userId),
+};
+
+export type EmailTokenKind = 'verify' | 'reset';
+
+export const emailTokens = {
+  /** Stores a new token, invalidating older ones of the same kind for that user. */
+  replace: (tokenHash: string, userId: string, kind: EmailTokenKind, expiresAt: number) => {
+    q.deleteEmailTokensOfKind.run(userId, kind);
+    q.insertEmailToken.run(tokenHash, userId, kind, Date.now(), expiresAt);
+  },
+  /** Single use: the row is deleted as it is read. Returns the user id when the token was valid and unexpired. */
+  take: (tokenHash: string, kind: EmailTokenKind): string | null => {
+    const row = q.takeEmailToken.get(tokenHash, kind) as { user_id: string; expires_at: number } | undefined;
+    return row && row.expires_at > Date.now() ? row.user_id : null;
+  },
+  removeAllForUser: (userId: string) => q.deleteEmailTokens.run(userId),
+  purgeExpired: () => q.purgeEmailTokens.run(Date.now()),
 };
 
 export const saves = {

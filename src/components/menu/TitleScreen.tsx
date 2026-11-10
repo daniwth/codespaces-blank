@@ -66,6 +66,7 @@ export function TitleScreen() {
       busy: a.busy,
       error: a.error,
       serverUp: a.serverUp,
+      linkOutcome: a.linkOutcome,
     })),
   );
   const playAsGuest = useAccountStore((a) => a.playAsGuest);
@@ -81,13 +82,23 @@ export function TitleScreen() {
   // Signing in from the Account window brings the player back to the menu (and its cloud offer).
   const wasSignedIn = useRef(!!account.email);
   useEffect(() => {
-    if (account.email && !wasSignedIn.current && dialog === 'account') setDialog(null);
+    // ...except after opening an email link, where the dialog is what shows the result.
+    if (account.email && !wasSignedIn.current && dialog === 'account' && !account.linkOutcome) setDialog(null);
     wasSignedIn.current = !!account.email;
-  }, [account.email, dialog]);
+  }, [account.email, account.linkOutcome, dialog]);
+
+  // A `?verify=` / `?reset=` link opens the Account dialog straight away.
+  useEffect(() => {
+    if (account.linkOutcome) setDialog('account');
+  }, [account.linkOutcome]);
 
   const needsIdentity = !account.guest && !account.signedIn;
   const level = levelFromEarnings(bnToNumber(save.lifetime));
-  const close = () => setDialog(null);
+  const dismissLink = useAccountStore((a) => a.dismissLink);
+  const close = () => {
+    setDialog(null);
+    dismissLink();
+  };
 
   const loadCloud = async () => {
     setDialog(null);

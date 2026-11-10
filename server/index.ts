@@ -6,27 +6,30 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 import {
-  burnPasswordCheck, createSession, hashPassword, needsRehash, newUserId, normalizeEmail, requireUser, revokeSession,
-  validateCredentials, verifyPassword,
+  burnPasswordCheck, consumeEmailToken, createSession, hashPassword, issueEmailToken, needsRehash, newUserId, normalizeEmail,
+  requireUser, revokeSession, validateCredentials, validatePassword, verifyPassword,
 } from './auth.ts';
 import {
   cancelBillingForDeletion, demoCancel, handleWebhook, isPlanId, onBillingStartup, openPortal, PLANS, publicUser,
   startCheckout, subscriptionOf,
 } from './billing.ts';
-import { billingMode, config, devBilling } from './config.ts';
-import { purgeWebhookEvents, saves, sessions, transaction, users } from './db.ts';
+import { billingMode, config, devBilling, mailMode } from './config.ts';
+import { emailTokens, purgeWebhookEvents, saves, sessions, transaction, users, type UserRow } from './db.ts';
 import {
   clientIp, createRateLimiter, HttpError, PAGE_CSP, readJson, readRawBody, SECURITY_HEADERS, sendError, sendJson, str,
 } from './http.ts';
+import { alreadyRegisteredMail, dispatchMail, resetMail, verifyMail } from './mail.ts';
 import { inspectSave } from './saves.ts';
 
 /** Account creation per IP. */
 const registerLimiter = createRateLimiter(10, 60_000);
+/** Resend-verification and forgot-password requests per IP (429 does not depend on the account existing). */
+const mailRequestLimiter = createRateLimiter(5, 10 * 60_000);
 /**
- * "Email already registered" answers per IP. Registration has no email step to hide this behind,
- * so probing for accounts is capped hard (and answered as slowly as a real sign-up).
+ * Emails sent to one address per kind, so nobody can mail-bomb a victim. Over the cap the request
+ * is still answered normally (202) and the email is silently skipped.
  */
-const takenEmailLimiter = createRateLimiter(5, 60 * 60_000);
+const mailTargetLimiter = createRateLimiter(3, 60 * 60_000);
 /** All login attempts per IP (throttles credential stuffing across many emails). */
 const loginIpLimiter = createRateLimiter(30, 60_000);
 /**
@@ -36,6 +39,23 @@ const loginIpLimiter = createRateLimiter(30, 60_000);
 const loginFailLimiter = createRateLimiter(10, 10 * 60_000);
 const sensitiveLimiter = createRateLimiter(10, 60_000);
 const saveLimiter = createRateLimiter(30, 60_000);
+
+/** True while `key` is under its cap (counts one use); never throws. */
+const allow = (limiter: ReturnType<typeof createRateLimiter>, key: string): boolean => {
+  try {
+    limiter.hit(key);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** Emails a fresh single-use verification link. Returns the dev link when allowed. */
+function sendVerification(user: UserRow): string | undefined {
+  if (!allow(mailTargetLimiter, `verify:${user.email}`)) return undefined;
+  const link = `${config.appUrl}/?verify=${issueEmailToken(user.id, 'verify')}`;
+  return dispatchMail(verifyMail(user.email, link), link);
+}
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
 
@@ -48,30 +68,91 @@ const routes: Record<string, Handler> = {
       plans: Object.values(PLANS).map(({ stripePriceId: _price, ...p }) => p),
     }),
 
+  // The answer never depends on whether the email is already registered (same status, same body shape,
+  // password hashed before the lookup so the timing matches); the outcome only travels by email.
   'POST /api/auth/register': async (req, res) => {
     registerLimiter.hit(clientIp(req));
     const body = await readJson(req);
     const email = normalizeEmail(str(body.email, 'email', 254));
     const password = str(body.password, 'password', 200);
     validateCredentials(email, password);
-    const ip = clientIp(req);
-    takenEmailLimiter.check(ip);
     const passwordHash = await hashPassword(password);
-    if (users.byEmail(email)) {
-      takenEmailLimiter.hit(ip);
-      throw new HttpError(409, 'email_taken', 'An account with this email already exists.');
+    let user = users.byEmail(email);
+    let created = false;
+    if (!user) {
+      try {
+        users.insert(newUserId(), email, passwordHash);
+        created = true;
+      } catch {
+        // Lost a race with a concurrent sign-up for the same address: handled as an existing account.
+      }
+      user = users.byEmail(email);
     }
-    const id = newUserId();
-    try {
-      users.insert(id, email, passwordHash);
-    } catch {
-      takenEmailLimiter.hit(ip);
-      throw new HttpError(409, 'email_taken', 'An account with this email already exists.');
-    }
-    const session = createSession(id);
-    const user = users.byId(id);
     if (!user) throw new HttpError(500, 'internal', 'Could not create account.');
-    sendJson(res, 201, { token: session.token, expiresAt: session.expiresAt, user: publicUser(user) });
+    let devLink: string | undefined;
+    if (created) {
+      devLink = sendVerification(user);
+    } else if (user.email_verified === 0) {
+      // A sign-up nobody confirmed holds no data: the latest password wins, so whoever owns the
+      // mailbox ends up with the password they chose (an earlier squatter cannot pre-set it).
+      users.setPasswordHash(user.id, passwordHash);
+      devLink = sendVerification(user);
+    } else if (allow(mailTargetLimiter, `already:${email}`)) {
+      devLink = dispatchMail(alreadyRegisteredMail(email, `${config.appUrl}/`), `${config.appUrl}/`);
+    }
+    sendJson(res, 202, { accepted: true, ...(devLink ? { devLink } : {}) });
+  },
+
+  'POST /api/auth/verify': async (req, res) => {
+    sensitiveLimiter.hit(`verify:${clientIp(req)}`);
+    const body = await readJson(req);
+    const userId = consumeEmailToken(str(body.token, 'token', 128), 'verify');
+    if (!userId) throw new HttpError(400, 'invalid_token', 'This link is invalid or has expired.');
+    users.markVerified(userId);
+    const user = users.byId(userId);
+    if (!user) throw new HttpError(400, 'invalid_token', 'This link is invalid or has expired.');
+    const session = createSession(user.id);
+    sendJson(res, 200, { token: session.token, expiresAt: session.expiresAt, user: publicUser(user) });
+  },
+
+  'POST /api/auth/resend': async (req, res) => {
+    mailRequestLimiter.hit(`resend:${clientIp(req)}`);
+    const body = await readJson(req);
+    const user = users.byEmail(normalizeEmail(str(body.email, 'email', 254)));
+    const devLink = user && user.email_verified === 0 ? sendVerification(user) : undefined;
+    sendJson(res, 202, { accepted: true, ...(devLink ? { devLink } : {}) });
+  },
+
+  'POST /api/auth/forgot': async (req, res) => {
+    mailRequestLimiter.hit(`forgot:${clientIp(req)}`);
+    const body = await readJson(req);
+    const user = users.byEmail(normalizeEmail(str(body.email, 'email', 254)));
+    let devLink: string | undefined;
+    if (user && allow(mailTargetLimiter, `reset:${user.email}`)) {
+      const link = `${config.appUrl}/?reset=${issueEmailToken(user.id, 'reset')}`;
+      devLink = dispatchMail(resetMail(user.email, link), link);
+    }
+    sendJson(res, 202, { accepted: true, ...(devLink ? { devLink } : {}) });
+  },
+
+  'POST /api/auth/reset': async (req, res) => {
+    sensitiveLimiter.hit(`reset:${clientIp(req)}`);
+    const body = await readJson(req);
+    const token = str(body.token, 'token', 128);
+    const password = str(body.password, 'password', 200);
+    validatePassword(password);
+    const passwordHash = await hashPassword(password);
+    const done = transaction(() => {
+      const userId = consumeEmailToken(token, 'reset');
+      if (!userId) return false;
+      users.setPasswordHash(userId, passwordHash);
+      users.markVerified(userId); // reading the reset email proves the mailbox
+      sessions.removeAllForUser(userId);
+      emailTokens.removeAllForUser(userId);
+      return true;
+    });
+    if (!done) throw new HttpError(400, 'invalid_token', 'This link is invalid or has expired.');
+    sendJson(res, 200, { ok: true });
   },
 
   'POST /api/auth/login': async (req, res) => {
@@ -89,6 +170,8 @@ const routes: Record<string, Handler> = {
       throw new HttpError(401, 'bad_credentials', 'Wrong email or password.');
     }
     loginFailLimiter.reset(failKey);
+    // Only reachable with the right password, so this reveals nothing to someone who does not hold it.
+    if (!user.email_verified) throw new HttpError(403, 'email_not_verified', 'Confirm your email first: check your inbox or request a new link.');
     if (needsRehash(user.password_hash)) users.setPasswordHash(user.id, await hashPassword(password));
     const session = createSession(user.id);
     sendJson(res, 200, { token: session.token, expiresAt: session.expiresAt, user: publicUser(user) });
@@ -230,11 +313,13 @@ const server = createServer({ maxHeaderSize: 8 * 1024 }, async (req, res) => {
 
 setInterval(() => {
   sessions.purgeExpired();
+  emailTokens.purgeExpired();
+  users.purgeUnverified(7 * 86_400_000);
   purgeWebhookEvents(90 * 86_400_000);
 }, 3_600_000).unref();
 onBillingStartup();
 
 server.listen(config.port, () => {
   console.log(`[server] Hash Harvest accounts on http://localhost:${config.port}`);
-  console.log(`[server] billing mode: ${billingMode}${config.trustProxyHops ? ` · trusting ${config.trustProxyHops} proxy hop(s)` : ''}`);
+  console.log(`[server] billing mode: ${billingMode} · mail mode: ${mailMode}${config.trustProxyHops ? ` · trusting ${config.trustProxyHops} proxy hop(s)` : ''}`);
 });

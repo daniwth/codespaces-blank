@@ -7,6 +7,11 @@ import { useGameStore } from './useGameStore';
 
 export type SyncState = 'idle' | 'syncing' | 'ok' | 'error' | 'conflict';
 
+/** Which screen the signed-out account form shows. */
+export type AuthView = 'login' | 'register' | 'check-email' | 'forgot' | 'forgot-sent' | 'reset' | 'verifying';
+/** Result of opening a `?verify=` / `?reset=` link; lets the title menu surface the Account dialog. */
+export type LinkOutcome = 'verified' | 'verify-failed' | 'reset-ready' | null;
+
 interface AccountState {
   // persisted
   token: string | null;
@@ -30,6 +35,15 @@ interface AccountState {
   busy: boolean;
   error: string | null;
   notice: string | null;
+  /** Machine-readable code of the last failed action (e.g. `email_not_verified`). */
+  errorCode: string | null;
+  authView: AuthView;
+  /** Address the last verification / reset email went to. */
+  pendingEmail: string | null;
+  /** Email link returned by a local dev server (never present in production). */
+  devLink: string | null;
+  resetToken: string | null;
+  linkOutcome: LinkOutcome;
   cloud: CloudSaveMeta | null;
   syncState: SyncState;
   conflict: CloudSaveMeta | null;
@@ -37,6 +51,13 @@ interface AccountState {
   init: () => Promise<void>;
   refresh: () => Promise<void>;
   register: (email: string, password: string) => Promise<boolean>;
+  setAuthView: (view: AuthView) => void;
+  resendVerification: () => Promise<boolean>;
+  forgotPassword: (email: string) => Promise<boolean>;
+  resetPassword: (password: string) => Promise<boolean>;
+  /** Handles `?verify=<token>` and `?reset=<token>` on page load, then cleans the URL. */
+  consumeEmailLink: () => Promise<void>;
+  dismissLink: () => void;
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
   deleteAccount: (password: string) => Promise<boolean>;
@@ -88,13 +109,13 @@ export const useAccountStore = create<AccountState>()(
     (set, get) => {
       /** Wraps an action with busy/error handling and session-expiry detection. */
       const run = async <T,>(fn: () => Promise<T>): Promise<T | null> => {
-        set({ busy: true, error: null, notice: null });
+        set({ busy: true, error: null, errorCode: null, notice: null });
         try {
           return await fn();
         } catch (err) {
           if (sessionExpired(err)) set({ ...SIGNED_OUT });
           if (err instanceof ApiError && err.code === 'offline') set({ serverUp: false });
-          set({ error: message(err) });
+          set({ error: message(err), errorCode: err instanceof ApiError ? err.code : null });
           sfxBus.emit('error');
           return null;
         } finally {
@@ -121,6 +142,12 @@ export const useAccountStore = create<AccountState>()(
         busy: false,
         error: null,
         notice: null,
+        errorCode: null,
+        authView: 'login',
+        pendingEmail: null,
+        devLink: null,
+        resetToken: null,
+        linkOutcome: null,
         cloud: null,
         syncState: 'idle',
         conflict: null,
@@ -151,16 +178,74 @@ export const useAccountStore = create<AccountState>()(
         register: async (email, password) => {
           const res = await run(() => cloudApi.register(email, password));
           if (!res) return false;
-          set({ guest: false });
-          afterAuth(res.token, res.user);
-          useGameStore.getState().pushLog(tr('Account created: {email}', { email: res.user.email }), 'good');
+          // Same answer whether or not the address was already registered: the outcome arrives by email.
+          set({ guest: false, authView: 'check-email', pendingEmail: email.trim().toLowerCase(), devLink: res.devLink ?? null });
           sfxBus.emit('success');
           return true;
         },
 
+        setAuthView: (view) => set({ authView: view, error: null, errorCode: null, notice: null, devLink: null }),
+
+        resendVerification: async () => {
+          const email = get().pendingEmail;
+          if (!email) return false;
+          const res = await run(() => cloudApi.resendVerification(email));
+          if (!res) return false;
+          set({ devLink: res.devLink ?? null, notice: tr('If that account still needs confirming, a new link is on its way.') });
+          return true;
+        },
+
+        forgotPassword: async (email) => {
+          const res = await run(() => cloudApi.forgotPassword(email));
+          if (!res) return false;
+          set({ authView: 'forgot-sent', pendingEmail: email.trim().toLowerCase(), devLink: res.devLink ?? null });
+          return true;
+        },
+
+        resetPassword: async (password) => {
+          const { resetToken } = get();
+          if (!resetToken) return false;
+          const res = await run(() => cloudApi.resetPassword(resetToken, password));
+          if (!res) return false;
+          set({ resetToken: null, authView: 'login', linkOutcome: null, notice: tr('Password updated. Log in with your new password.') });
+          sfxBus.emit('success');
+          return true;
+        },
+
+        consumeEmailLink: async () => {
+          const params = new URLSearchParams(window.location.search);
+          const verify = params.get('verify');
+          const reset = params.get('reset');
+          if (!verify && !reset) return;
+          params.delete('verify');
+          params.delete('reset');
+          const rest = params.toString();
+          window.history.replaceState({}, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`);
+          if (reset) {
+            set({ resetToken: reset.slice(0, 128), authView: 'reset', linkOutcome: 'reset-ready', error: null, notice: null });
+            return;
+          }
+          set({ authView: 'verifying', linkOutcome: 'verified' });
+          const res = await run(() => cloudApi.verifyEmail((verify ?? '').slice(0, 128)));
+          if (!res) {
+            set({ authView: 'login', linkOutcome: 'verify-failed' });
+            return;
+          }
+          set({ baseRevision: null, pendingChecksum: null, syncState: 'idle', conflict: null, guest: false, authView: 'login', pendingEmail: null });
+          afterAuth(res.token, res.user);
+          set({ notice: tr('Email confirmed. You are signed in.') });
+          useGameStore.getState().pushLog(tr('Account created: {email}', { email: res.user.email }), 'good');
+          sfxBus.emit('success');
+        },
+
+        dismissLink: () => set({ linkOutcome: null }),
+
         login: async (email, password) => {
           const res = await run(() => cloudApi.login(email, password));
-          if (!res) return false;
+          if (!res) {
+            if (get().errorCode === 'email_not_verified') set({ authView: 'check-email', pendingEmail: email.trim().toLowerCase(), devLink: null });
+            return false;
+          }
           // New device / account: progress has no known cloud base yet.
           set({ baseRevision: null, pendingChecksum: null, syncState: 'idle', conflict: null, guest: false });
           afterAuth(res.token, res.user);
@@ -274,7 +359,7 @@ export const useAccountStore = create<AccountState>()(
         },
 
         setAutoSync: (on) => set({ autoSync: on }),
-        clearMessages: () => set({ error: null, notice: null }),
+        clearMessages: () => set({ error: null, errorCode: null, notice: null }),
         playAsGuest: () => set({ guest: true, error: null, notice: null }),
         detachLocalSave: () => set({ baseRevision: null, pendingChecksum: null, syncState: 'idle', conflict: null }),
       };

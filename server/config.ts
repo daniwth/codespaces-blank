@@ -22,6 +22,11 @@ export const config = {
     priceMonthly: env.STRIPE_PRICE_MONTHLY ?? '',
     priceYearly: env.STRIPE_PRICE_YEARLY ?? '',
   },
+  mail: {
+    apiUrl: env.MAIL_API_URL ?? '',
+    apiKey: env.MAIL_API_KEY ?? '',
+    from: env.MAIL_FROM ?? '',
+  },
 } as const;
 
 /**
@@ -44,6 +49,32 @@ function resolveBillingMode(): 'stripe' | 'demo' {
 
 export const billingMode = resolveBillingMode();
 export const devBilling = billingMode === 'demo';
+
+/**
+ * Mail mode. `log` prints emails (links included) to the server console and is only the default
+ * outside production; `http` POSTs JSON to MAIL_API_URL (Resend-style). Production without a
+ * working mailer refuses to start: registration and password reset depend on email.
+ */
+function resolveMailMode(): 'log' | 'http' {
+  const production = env.NODE_ENV === 'production';
+  const requested = env.MAIL_MODE || (production ? '' : 'log');
+  if (requested === 'http') {
+    if (!config.mail.apiUrl || !config.mail.apiKey || !config.mail.from) {
+      throw new Error('MAIL_MODE=http requires MAIL_API_URL, MAIL_API_KEY and MAIL_FROM.');
+    }
+    return 'http';
+  }
+  if (requested === 'log') {
+    if (production) throw new Error('Refusing to start: MAIL_MODE=log never delivers email. Configure MAIL_MODE=http in production.');
+    return 'log';
+  }
+  if (requested) throw new Error(`Unknown MAIL_MODE "${requested}" (use log | http).`);
+  throw new Error('Refusing to start: no mailer configured in production. Set MAIL_MODE=http with MAIL_API_URL, MAIL_API_KEY and MAIL_FROM.');
+}
+
+export const mailMode = resolveMailMode();
+/** API responses may carry the email link (`devLink`) only outside production and in log mode. */
+export const devLinks = mailMode === 'log' && env.NODE_ENV !== 'production';
 
 /** Must match SAVE_SALT in src/config/gameBalance.ts (integrity check, not a secret). */
 export const SAVE_SALT = 'HHT::pixel-rigs::v1';

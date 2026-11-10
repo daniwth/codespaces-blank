@@ -93,9 +93,19 @@ interface AuthResponse {
   user: AccountUser;
 }
 
+/** Answer of the email-sending endpoints; `devLink` only exists on a local server in log-mail mode. */
+export interface MailAccepted {
+  accepted: true;
+  devLink?: string;
+}
+
 export const cloudApi = {
   plans: () => request<{ devBilling: boolean; plans: Plan[] }>('GET', '/plans', null),
-  register: (email: string, password: string) => request<AuthResponse>('POST', '/auth/register', null, { email, password }),
+  register: (email: string, password: string) => request<MailAccepted>('POST', '/auth/register', null, { email, password }),
+  verifyEmail: (token: string) => request<AuthResponse>('POST', '/auth/verify', null, { token }),
+  resendVerification: (email: string) => request<MailAccepted>('POST', '/auth/resend', null, { email }),
+  forgotPassword: (email: string) => request<MailAccepted>('POST', '/auth/forgot', null, { email }),
+  resetPassword: (token: string, password: string) => request<{ ok: boolean }>('POST', '/auth/reset', null, { token, password }),
   login: (email: string, password: string) => request<AuthResponse>('POST', '/auth/login', null, { email, password }),
   logout: (token: string) => request<{ ok: boolean }>('POST', '/auth/logout', token),
   me: (token: string) => request<{ user: AccountUser; save: CloudSaveMeta | null }>('GET', '/me', token),

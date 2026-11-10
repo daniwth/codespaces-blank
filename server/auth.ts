@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from 'no
 import type { IncomingMessage } from 'node:http';
 import { promisify } from 'node:util';
 import { config } from './config.ts';
-import { sessions, type UserRow } from './db.ts';
+import { emailTokens, sessions, type EmailTokenKind, type UserRow } from './db.ts';
 import { createSemaphore, HttpError } from './http.ts';
 
 const scryptAsync = promisify(scrypt) as (password: string, salt: Buffer, keylen: number, opts: { N: number; r: number; p: number; maxmem: number }) => Promise<Buffer>;
@@ -16,10 +16,14 @@ const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,24}$/;
 
 export const normalizeEmail = (email: string): string => email.trim().toLowerCase();
 
-export function validateCredentials(email: string, password: string): void {
-  if (!EMAIL_RE.test(email)) throw new HttpError(400, 'invalid_email', 'Enter a valid email address.');
+export function validatePassword(password: string): void {
   if (password.length < 8) throw new HttpError(400, 'weak_password', 'Password must be at least 8 characters.');
   if (password.length > 200) throw new HttpError(400, 'weak_password', 'Password is too long.');
+}
+
+export function validateCredentials(email: string, password: string): void {
+  if (!EMAIL_RE.test(email)) throw new HttpError(400, 'invalid_email', 'Enter a valid email address.');
+  validatePassword(password);
 }
 
 /** Encodes as scrypt$N$r$p$salt$hash (base64url). */
@@ -60,6 +64,19 @@ export function createSession(userId: string): { token: string; expiresAt: numbe
   sessions.insert(hashToken(token), userId, expiresAt);
   return { token, expiresAt };
 }
+
+export const VERIFY_TTL_MS = 24 * 3_600_000;
+export const RESET_TTL_MS = 3_600_000;
+
+/** Creates a single-use emailed token (stored as SHA-256) and invalidates older ones of the same kind. */
+export function issueEmailToken(userId: string, kind: EmailTokenKind): string {
+  const token = randomBytes(32).toString('base64url');
+  emailTokens.replace(hashToken(token), userId, kind, Date.now() + (kind === 'verify' ? VERIFY_TTL_MS : RESET_TTL_MS));
+  return token;
+}
+
+/** Consumes a token; returns the user id, or null when it is unknown, used or expired. */
+export const consumeEmailToken = (token: string, kind: EmailTokenKind): string | null => emailTokens.take(hashToken(token), kind);
 
 const bearer = (req: IncomingMessage): string | null => {
   const header = req.headers.authorization;

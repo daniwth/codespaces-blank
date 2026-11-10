@@ -13,6 +13,7 @@ export function useCloudSync(): void {
   useEffect(() => {
     const account = useAccountStore.getState();
     void account.init().then(() => {
+      void useAccountStore.getState().consumeEmailLink();
       const params = new URLSearchParams(window.location.search);
       const checkout = params.get('checkout');
       if (checkout || params.has('billing')) {

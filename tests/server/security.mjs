@@ -7,12 +7,13 @@ import { spawn } from 'node:child_process';
 import { createHmac } from 'node:crypto';
 import { createServer } from 'node:http';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-/** Base port (5 consecutive ports are used); override with SEC_PORT_BASE for parallel runs. */
+/** Base port (7 consecutive ports are used); override with SEC_PORT_BASE for parallel runs. */
 const BASE = Number(process.env.SEC_PORT_BASE ?? 8781);
-const P = { fake: BASE, demo: BASE + 1, prod: BASE + 2, live: BASE + 3 };
+const P = { fake: BASE, demo: BASE + 1, prod: BASE + 2, live: BASE + 3, mail: BASE + 4, mailApi: BASE + 5, httpMail: BASE + 6 };
 const results = [];
 const check = async (name, fn) => {
   try {
@@ -59,6 +60,26 @@ const fake = createServer(async (req, res) => {
 });
 await new Promise((r) => fake.listen(P.fake, r));
 
+// ── Fake transactional-mail API (Resend-style) ──
+const inbox = [];
+let mailApiDown = false;
+const mailApi = createServer(async (req, res) => {
+  let body = '';
+  for await (const c of req) body += c;
+  if (mailApiDown) {
+    res.writeHead(500).end();
+    return;
+  }
+  inbox.push({ url: req.url, method: req.method, auth: req.headers.authorization, type: req.headers['content-type'], body: JSON.parse(body) });
+  res.writeHead(200, { 'Content-Type': 'application/json' }).end('{"id":"mail_1"}');
+});
+await new Promise((r) => mailApi.listen(P.mailApi, r));
+const waitInbox = async (n) => {
+  for (let i = 0; i < 100 && inbox.length < n; i += 1) await new Promise((r) => setTimeout(r, 30));
+  return inbox.length >= n;
+};
+const linkParam = (link, name) => new URL(link).searchParams.get(name);
+
 const SECRET = 'whsec_test';
 const mkSub = (id, userId, status, price = 'price_month', extra = {}) => {
   const s = { id, customer: 'cus_test', status, cancel_at_period_end: false, metadata: { userId }, items: { data: [{ current_period_end: Math.floor(Date.now() / 1000) + 30 * 86400, price: { id: price } }] }, ...extra };
@@ -88,6 +109,14 @@ const stop = async (p) => {
 const api = (port) => async (method, path, body, headers = {}) => {
   const res = await fetch(`http://localhost:${port}/api${path}`, { method, headers: { 'Content-Type': 'application/json', ...headers }, body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body) });
   return { status: res.status, json: await res.json().catch(() => null), headers: res.headers };
+};
+/** Registers and confirms an account through the emailed (dev) link; returns the verification session. */
+const signup = async (call, email, password = 'password123', headers = {}) => {
+  const reg = await call('POST', '/auth/register', { email, password }, headers);
+  assert(reg.status === 202 && reg.json?.devLink, `register ${email}: ${reg.status} ${JSON.stringify(reg.json)}`);
+  const ver = await call('POST', '/auth/verify', { token: linkParam(reg.json.devLink, 'verify') });
+  assert(ver.status === 200 && ver.json?.token, `verify ${email}: ${ver.status} ${JSON.stringify(ver.json)}`);
+  return ver.json;
 };
 const signed = (event) => {
   const payload = JSON.stringify(event);
@@ -134,7 +163,7 @@ try {
   await check('demo: cancel then re-subscribe resumes instead of stacking', async () => {
     await stop(demo);
     demo = await start(P.demo, { STRIPE_SECRET_KEY: '', TRUST_PROXY: '1' });
-    const reg = await d('POST', '/auth/register', { email: 'demo@x.io', password: 'password123' }, { 'X-Forwarded-For': '203.0.113.9' });
+    const reg = { json: await signup(d, 'demo@x.io', 'password123', { 'X-Forwarded-For': '203.0.113.9' }) };
     const auth = { Authorization: `Bearer ${reg.json.token}` };
     await d('POST', '/billing/checkout', { plan: 'monthly' }, auth);
     await d('POST', '/billing/cancel', {}, auth);
@@ -143,7 +172,7 @@ try {
   });
 
   await check('a third party cannot lock a victim out (TRUST_PROXY=1)', async () => {
-    await d('POST', '/auth/register', { email: 'victim@x.io', password: 'password123' }, { 'X-Forwarded-For': '198.51.100.1' });
+    await signup(d, 'victim@x.io', 'password123', { 'X-Forwarded-For': '198.51.100.1' });
     for (let i = 0; i < 12; i += 1) await d('POST', '/auth/login', { email: 'victim@x.io', password: 'wrong-pass' }, { 'X-Forwarded-For': '192.0.2.66' });
     const victim = await d('POST', '/auth/login', { email: 'victim@x.io', password: 'password123' }, { 'X-Forwarded-For': '198.51.100.1' });
     assert(victim.status === 200, `victim got ${victim.status}`);
@@ -168,7 +197,7 @@ try {
     assert(login.json.user.subscription.active === false, JSON.stringify(login.json.user.subscription));
   });
 
-  const reg = await s('POST', '/auth/register', { email: 'payer@x.io', password: 'password123' });
+  const reg = { json: await signup(s, 'payer@x.io') };
   const uid = reg.json.user.id;
   const auth = { Authorization: `Bearer ${reg.json.token}` };
   const hook = (event) => {
@@ -224,7 +253,7 @@ try {
   });
 
   await check('subscriptions to other products never grant a Miner Pass', async () => {
-    const other = await s('POST', '/auth/register', { email: 'other@x.io', password: 'password123' });
+    const other = { json: await signup(s, 'other@x.io') };
     mkSub('sub_X', other.json.user.id, 'active', 'price_SOMETHING_ELSE');
     await hook({ id: 'evt_5', type: 'customer.subscription.created', data: { object: { id: 'sub_X' } } });
     const me = await s('GET', '/me', undefined, { Authorization: `Bearer ${other.json.token}` });
@@ -250,21 +279,231 @@ try {
     assert(subs.get('sub_A').status === 'canceled', 'subscription still billable');
   });
 
-  await check('probing for registered emails is capped per IP', async () => {
-    const mk = () => s('POST', '/auth/register', { email: 'probe@x.io', password: 'password123' });
-    assert((await mk()).status === 201, 'setup register failed');
-    const codes = [];
-    for (let i = 0; i < 6; i += 1) codes.push((await mk()).status);
-    assert(codes.slice(0, 5).every((c) => c === 409) && codes[5] === 429, `got ${codes}`);
+  await stop(live);
+
+  // ── Email verification & password reset (log mailer, dev links) ──
+  const mailSrv = await start(P.mail, { STRIPE_SECRET_KEY: '', TRUST_PROXY: '1', MAIL_MODE: 'log' });
+  const m = api(P.mail);
+  let ipSeq = 0;
+  const freshIp = () => ({ 'X-Forwarded-For': `203.0.113.${(ipSeq += 1)}` });
+  const db = new DatabaseSync(join(dataDir, 'hash-harvest.db'));
+  const login = (email, password, headers) => m('POST', '/auth/login', { email, password }, headers ?? freshIp());
+
+  await check('register answers identically for a new and an already-registered email (no token, no oracle)', async () => {
+    const ip = freshIp();
+    const fresh = await m('POST', '/auth/register', { email: 'oracle@x.io', password: 'password123' }, ip);
+    await m('POST', '/auth/verify', { token: linkParam(fresh.json.devLink, 'verify') });
+    const again = await m('POST', '/auth/register', { email: 'oracle@x.io', password: 'another-pass1' }, ip);
+    const unknown = await m('POST', '/auth/register', { email: 'oracle2@x.io', password: 'password123' }, ip);
+    assert(fresh.status === 202 && again.status === 202 && unknown.status === 202, `${fresh.status}/${again.status}/${unknown.status}`);
+    const shape = (r) => Object.keys(r.json).sort().join(',');
+    assert(shape(fresh) === shape(again) && shape(again) === shape(unknown), `body shapes differ: ${shape(fresh)} | ${shape(again)} | ${shape(unknown)}`);
+    assert(!('token' in fresh.json) && !('user' in again.json), 'register must not issue a session');
+    assert(!JSON.stringify(again.json).includes('verify='), 'existing account leaked a verification token');
+    // The "you already have an account" mail changes nothing: the original password still works, the new one does not.
+    assert((await login('oracle@x.io', 'password123')).status === 200, 'original password stopped working');
+    assert((await login('oracle@x.io', 'another-pass1')).status === 401, 'register changed an existing password');
   });
 
-  await stop(live);
+  await check('unverified login is refused only after the right password; wrong/unknown stay generic', async () => {
+    const ip = freshIp();
+    await m('POST', '/auth/register', { email: 'pending@x.io', password: 'password123' }, ip);
+    const wrong = await login('pending@x.io', 'wrong-pass1', ip);
+    const unknown = await login('ghost@x.io', 'wrong-pass1', ip);
+    const right = await login('pending@x.io', 'password123', ip);
+    assert(wrong.status === 401 && wrong.json.error.code === 'bad_credentials', JSON.stringify(wrong.json));
+    assert(unknown.status === 401 && unknown.json.error.message === wrong.json.error.message, 'unknown email answered differently');
+    assert(right.status === 403 && right.json.error.code === 'email_not_verified' && !right.json.token, JSON.stringify(right.json));
+  });
+
+  await check('verification token: hashed at rest, single-use, returns a working session', async () => {
+    const ip = freshIp();
+    const reg = await m('POST', '/auth/register', { email: 'verify1@x.io', password: 'password123' }, ip);
+    const token = linkParam(reg.json.devLink, 'verify');
+    assert(reg.json.devLink.startsWith('http://localhost:5173/?verify='), reg.json.devLink);
+    const rows = db.prepare('SELECT token_hash FROM email_tokens').all().map((r) => r.token_hash);
+    assert(!rows.includes(token) && rows.some((h) => /^[0-9a-f]{64}$/.test(h)), 'token stored in clear text');
+    const ok = await m('POST', '/auth/verify', { token }, ip);
+    assert(ok.status === 200 && ok.json.user.email === 'verify1@x.io', JSON.stringify(ok.json));
+    assert((await m('GET', '/me', undefined, { Authorization: `Bearer ${ok.json.token}` })).status === 200, 'session does not work');
+    const reuse = await m('POST', '/auth/verify', { token }, ip);
+    assert(reuse.status === 400 && reuse.json.error.code === 'invalid_token', `reuse: ${reuse.status}`);
+    assert((await m('POST', '/auth/verify', { token: 'x'.repeat(43) }, ip)).status === 400, 'garbage token accepted');
+    assert((await login('verify1@x.io', 'password123', ip)).status === 200, 'cannot log in after verifying');
+  });
+
+  await check('verification token expires after 24 h', async () => {
+    const ip = freshIp();
+    const reg = await m('POST', '/auth/register', { email: 'verify-old@x.io', password: 'password123' }, ip);
+    const uid = db.prepare("SELECT id FROM users WHERE email = 'verify-old@x.io'").get().id;
+    const row = db.prepare("SELECT expires_at, created_at FROM email_tokens WHERE user_id = ? AND kind = 'verify'").get(uid);
+    const ttl = row.expires_at - row.created_at;
+    assert(Math.abs(ttl - 86_400_000) < 5000, `ttl ${ttl}`);
+    db.prepare('UPDATE email_tokens SET expires_at = ? WHERE user_id = ?').run(Date.now() - 1000, uid);
+    const r = await m('POST', '/auth/verify', { token: linkParam(reg.json.devLink, 'verify') }, ip);
+    assert(r.status === 400 && r.json.error.code === 'invalid_token', `expired token accepted: ${r.status}`);
+    assert((await login('verify-old@x.io', 'password123', ip)).status === 403, 'expired link verified the account');
+  });
+
+  await check('re-registering an unverified address: newest password and link win, older link dies', async () => {
+    const ip = freshIp();
+    const first = await m('POST', '/auth/register', { email: 'squat@x.io', password: 'squatter-pass1' }, ip);
+    const second = await m('POST', '/auth/register', { email: 'squat@x.io', password: 'owner-pass123' }, ip);
+    assert((await m('POST', '/auth/verify', { token: linkParam(first.json.devLink, 'verify') }, ip)).status === 400, 'old link still valid');
+    assert((await m('POST', '/auth/verify', { token: linkParam(second.json.devLink, 'verify') }, ip)).status === 200, 'new link rejected');
+    assert((await login('squat@x.io', 'squatter-pass1', ip)).status === 401, 'squatter password survived');
+    assert((await login('squat@x.io', 'owner-pass123', ip)).status === 200, 'owner password rejected');
+  });
+
+  await check('resend verification: always 202, fresh link replaces the old one, per-IP and per-address caps', async () => {
+    const ip = freshIp();
+    await signup(m, 'resend-ok@x.io', 'password123', ip);
+    await m('POST', '/auth/register', { email: 'resend-me@x.io', password: 'password123' }, ip);
+    const old = (await m('POST', '/auth/resend', { email: 'resend-me@x.io' }, ip));
+    const verified = await m('POST', '/auth/resend', { email: 'resend-ok@x.io' }, ip);
+    const unknown = await m('POST', '/auth/resend', { email: 'nobody@x.io' }, ip);
+    assert([old.status, verified.status, unknown.status].every((c) => c === 202), `${old.status}/${verified.status}/${unknown.status}`);
+    assert(verified.json.devLink === undefined && unknown.json.devLink === undefined, 'link for a verified/unknown account');
+    const newer = await m('POST', '/auth/resend', { email: 'resend-me@x.io' }, ip);
+    assert((await m('POST', '/auth/verify', { token: linkParam(old.json.devLink, 'verify') }, ip)).status === 400, 'older link survived a resend');
+    // register + 2 resends used the 3 mails per hour: the 4th request is still 202 but sends nothing.
+    const capped = await m('POST', '/auth/resend', { email: 'resend-me@x.io' }, freshIp());
+    assert(capped.status === 202 && capped.json.devLink === undefined, `per-address cap: ${capped.status} ${JSON.stringify(capped.json)}`);
+    assert((await m('POST', '/auth/verify', { token: linkParam(newer.json.devLink, 'verify') }, ip)).status === 200, 'latest link rejected');
+    const flood = freshIp();
+    const codes = [];
+    for (let i = 0; i < 7; i += 1) codes.push((await m('POST', '/auth/resend', { email: `flood${i}@x.io` }, flood)).status);
+    assert(codes.slice(0, 5).every((c) => c === 202) && codes[6] === 429, `per-IP cap: ${codes}`);
+  });
+
+  await check('forgot password: always 202, mails only real accounts, newest token wins', async () => {
+    const ip = freshIp();
+    await signup(m, 'forgetful@x.io', 'password123', ip);
+    const unknown = await m('POST', '/auth/forgot', { email: 'nobody-here@x.io' }, ip);
+    const first = await m('POST', '/auth/forgot', { email: 'forgetful@x.io' }, ip);
+    const second = await m('POST', '/auth/forgot', { email: 'Forgetful@X.io' }, ip);
+    assert(unknown.status === 202 && first.status === 202 && second.status === 202, 'not always 202');
+    assert(unknown.json.accepted === true && unknown.json.devLink === undefined, 'unknown email produced a link');
+    assert(first.json.devLink.startsWith('http://localhost:5173/?reset='), first.json.devLink);
+    const t1 = linkParam(first.json.devLink, 'reset');
+    assert((await m('POST', '/auth/reset', { token: t1, password: 'brand-new-pass' }, ip)).status === 400, 'older reset token still valid');
+    // 3 mails per hour for this address: the 4th request is still 202 but sends nothing.
+    const third = await m('POST', '/auth/forgot', { email: 'forgetful@x.io' }, ip);
+    const fourth = await m('POST', '/auth/forgot', { email: 'forgetful@x.io' }, ip);
+    assert(third.status === 202 && third.json.devLink, 'third request should still mail');
+    assert(fourth.status === 202 && fourth.json.devLink === undefined, `per-address cap: ${fourth.status} ${JSON.stringify(fourth.json)}`);
+    const flood = freshIp();
+    const codes = [];
+    for (let i = 0; i < 7; i += 1) codes.push((await m('POST', '/auth/forgot', { email: `f${i}@x.io` }, flood)).status);
+    assert(codes.slice(0, 5).every((c) => c === 202) && codes[6] === 429, `per-IP cap: ${codes}`);
+  });
+
+  await check('reset: sets the password, revokes every session, token is single-use', async () => {
+    const ip = freshIp();
+    const a = await signup(m, 'resetme@x.io', 'old-password1', ip);
+    const b = await login('resetme@x.io', 'old-password1', ip);
+    const forgot = await m('POST', '/auth/forgot', { email: 'resetme@x.io' }, ip);
+    const token = linkParam(forgot.json.devLink, 'reset');
+    const rows = db.prepare('SELECT token_hash FROM email_tokens WHERE kind = ?').all('reset').map((r) => r.token_hash);
+    assert(!rows.includes(token), 'reset token stored in clear text');
+    const weak = await m('POST', '/auth/reset', { token, password: 'short' }, ip);
+    assert(weak.status === 400 && weak.json.error.code === 'weak_password', `weak: ${weak.status}`);
+    const ok = await m('POST', '/auth/reset', { token, password: 'new-password1' }, ip);
+    assert(ok.status === 200 && !ok.json.token, `reset: ${ok.status} ${JSON.stringify(ok.json)}`);
+    for (const session of [a, b.json]) {
+      assert((await m('GET', '/me', undefined, { Authorization: `Bearer ${session.token}` })).status === 401, 'old session survived the reset');
+    }
+    assert((await m('POST', '/auth/reset', { token, password: 'third-password1' }, ip)).status === 400, 'reset token reused');
+    assert((await login('resetme@x.io', 'old-password1', ip)).status === 401, 'old password still works');
+    assert((await login('resetme@x.io', 'new-password1', ip)).status === 200, 'new password rejected');
+  });
+
+  await check('reset token expires after 1 h and a reset confirms the mailbox', async () => {
+    const ip = freshIp();
+    await m('POST', '/auth/register', { email: 'reset-late@x.io', password: 'password123' }, ip);
+    const forgot = await m('POST', '/auth/forgot', { email: 'reset-late@x.io' }, ip);
+    const token = linkParam(forgot.json.devLink, 'reset');
+    const uid = db.prepare("SELECT id FROM users WHERE email = 'reset-late@x.io'").get().id;
+    const row = db.prepare("SELECT expires_at, created_at FROM email_tokens WHERE user_id = ? AND kind = 'reset'").get(uid);
+    assert(Math.abs(row.expires_at - row.created_at - 3_600_000) < 5000, 'reset ttl is not 1 h');
+    db.prepare("UPDATE email_tokens SET expires_at = ? WHERE user_id = ? AND kind = 'reset'").run(Date.now() - 1000, uid);
+    assert((await m('POST', '/auth/reset', { token, password: 'new-password1' }, ip)).status === 400, 'expired reset token accepted');
+    const again = await m('POST', '/auth/forgot', { email: 'reset-late@x.io' }, freshIp());
+    assert((await m('POST', '/auth/reset', { token: linkParam(again.json.devLink, 'reset'), password: 'new-password1' }, ip)).status === 200, 'fresh token rejected');
+    assert((await login('reset-late@x.io', 'new-password1', ip)).status === 200, 'account stayed unverified after reading the reset mail');
+  });
+
+  await check('accounts created before verification existed are treated as verified', async () => {
+    const id = 'usr_legacy';
+    db.prepare("INSERT INTO users (id, email, password_hash, created_at) VALUES (?, 'legacy@x.io', 'x', 0)").run(id);
+    assert(db.prepare('SELECT email_verified AS v FROM users WHERE id = ?').get(id).v === 1, 'column default is not verified');
+    db.prepare('DELETE FROM users WHERE id = ?').run(id);
+  });
+
+  await check('per-IP register limit stays, but probing taken emails no longer locks out new sign-ups', async () => {
+    const ip = freshIp();
+    await signup(m, 'taken@x.io', 'password123', ip);
+    const codes = [];
+    for (let i = 0; i < 6; i += 1) codes.push((await m('POST', '/auth/register', { email: 'taken@x.io', password: 'password123' }, ip)).status);
+    const brandNew = await m('POST', '/auth/register', { email: 'newcomer@x.io', password: 'password123' }, ip);
+    assert(codes.every((c) => c === 202) && brandNew.status === 202, `${codes} then ${brandNew.status}`);
+    const rest = [];
+    for (let i = 0; i < 4; i += 1) rest.push((await m('POST', '/auth/register', { email: `cap${i}@x.io`, password: 'password123' }, ip)).status);
+    assert(rest.includes(429), `register limit disappeared: ${rest}`);
+  });
+
+  db.close();
+  await stop(mailSrv);
+
+  // ── Production: HTTP mailer, no dev links ──
+  const prodEnv = { STRIPE_SECRET_KEY: '', BILLING_MODE: 'demo', NODE_ENV: 'production' };
+  await check('production refuses to start without a mailer (or with the log mailer)', async () => {
+    const none = await start(P.prod, prodEnv).then(() => 'started', (e) => e.out);
+    assert(none !== 'started' && /no mailer configured/.test(none), `unexpected: ${none}`);
+    const log = await start(P.prod, { ...prodEnv, MAIL_MODE: 'log' }).then(() => 'started', (e) => e.out);
+    assert(log !== 'started' && /MAIL_MODE=log never delivers/.test(log), `unexpected: ${log}`);
+    const partial = await start(P.prod, { ...prodEnv, MAIL_MODE: 'http', MAIL_API_URL: `http://localhost:${P.mailApi}/emails` }).then(() => 'started', (e) => e.out);
+    assert(partial !== 'started' && /MAIL_API_KEY/.test(partial), `unexpected: ${partial}`);
+  });
+
+  const httpMail = await start(P.httpMail, { ...prodEnv, MAIL_MODE: 'http', MAIL_API_URL: `http://localhost:${P.mailApi}/emails`, MAIL_API_KEY: 'key_test_123', MAIL_FROM: 'Hash Harvest <noreply@example.com>', APP_URL: 'https://hash.example.com' });
+  const h = api(P.httpMail);
+
+  await check('production: no devLink anywhere; the mailer receives a Bearer-authenticated JSON email', async () => {
+    const before = inbox.length;
+    const reg = await h('POST', '/auth/register', { email: 'prod@x.io', password: 'password123' });
+    assert(reg.status === 202 && !('devLink' in reg.json) && !JSON.stringify(reg.json).includes('verify='), JSON.stringify(reg.json));
+    assert(await waitInbox(before + 1), 'no verification email was sent');
+    const mail = inbox[before];
+    assert(mail.method === 'POST' && mail.url === '/emails' && mail.auth === 'Bearer key_test_123' && /application\/json/.test(mail.type), JSON.stringify(mail));
+    assert(mail.body.from === 'Hash Harvest <noreply@example.com>' && Array.isArray(mail.body.to) && mail.body.to[0] === 'prod@x.io', JSON.stringify(mail.body));
+    const link = /https:\/\/hash\.example\.com\/\?verify=[\w-]+/.exec(mail.body.text)?.[0];
+    assert(typeof mail.body.subject === 'string' && link, `no link in mail: ${mail.body.text}`);
+    const ver = await h('POST', '/auth/verify', { token: linkParam(link, 'verify') });
+    assert(ver.status === 200, `verify via emailed link: ${ver.status}`);
+    const forgot = await h('POST', '/auth/forgot', { email: 'prod@x.io' });
+    assert(forgot.status === 202 && !('devLink' in forgot.json), JSON.stringify(forgot.json));
+    assert(await waitInbox(before + 2), 'no reset email was sent');
+    assert(/\/\?reset=[\w-]+/.test(inbox[before + 1].body.text), 'reset email has no link');
+    const dup = await h('POST', '/auth/register', { email: 'prod@x.io', password: 'password123' });
+    assert(dup.status === 202 && !('devLink' in dup.json), 'existing email answered differently');
+    assert(await waitInbox(before + 3) && /already/i.test(inbox[before + 2].body.subject), 'no "already registered" email');
+  });
+
+  await check('production: a mail API outage still answers 202 and never leaks details', async () => {
+    mailApiDown = true;
+    const r = await h('POST', '/auth/register', { email: 'prod-down@x.io', password: 'password123' });
+    mailApiDown = false;
+    assert(r.status === 202 && JSON.stringify(r.json) === '{"accepted":true}', JSON.stringify(r.json));
+  });
+  await stop(httpMail);
 } catch (err) {
   results.push(false);
   console.error(err);
 } finally {
   procs.forEach((p) => p.kill());
   fake.close();
+  mailApi.close();
   rmSync(dataDir, { recursive: true, force: true });
 }
 const failed = results.filter((r) => !r).length;
