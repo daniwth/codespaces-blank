@@ -59,5 +59,19 @@ coste de las monedas (comprar y vender no suma) y los $CC solo cuentan si se min
 proporcional hasta el plazo, pero reinicia la racha de "bajo X °C" y anula el evento que se estaba vigilando.
 Los contratos completados no caducan. Se puede cambiar uno cada 3 min por unos 2 min de ingresos. The Halving reparte un tablón nuevo.
 
+**Laboratorio de I+D:** pestaña Lab con 6 proyectos (hashrate, refrigeración, electricidad, vida de la pasta, línea
+eléctrica y precios de hardware). Se pagan en efectivo, tardan tiempo real (también offline), uno cada vez; se pueden
+cancelar con reembolso o acelerar con gemas. The Halving los borra.
+
+**Hoja de ruta:** 29 objetivos guiados en orden, con barra en el HUD, botón de reclamar y lista completa en Trofeos
+junto a las gráficas de la sesión. Sus premios son regalos (no cuentan como ganancias) y sobreviven a The Halving.
+
+**Drones de suministros:** cada pocos minutos un dron cruza la sala con una caja (efectivo, monedas, Overdrive x2 de
+hashrate o una gema). Solo aparecen mientras juegas. **Bonus diario:** escalera de 7 días con racha.
+
+**Forja de silicio y compra múltiple:** en Rigs, 3 GPUs libres del mismo modelo y grado se funden en 1 del grado
+siguiente. La Tienda compra x1/x5/x10/MAX y muestra descuentos (investigación y el evento Oferta flash) y la factura
+eléctrica estimada de cada GPU. "Autorrellenar todo" y "Cambiar pasta a todas" evitan ir rack por rack.
+
 **Guardado:** autoguardado en localStorage cada 2 s. Las exportaciones son JSON en Base64 firmado con SHA-256;
 las partidas manipuladas se rechazan al importarlas.

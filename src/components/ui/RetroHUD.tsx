@@ -17,6 +17,7 @@ import { formatCash, formatHashrate, formatMultiplier, formatNumber, formatPower
 import { Meter } from './Meter';
 import { SpriteImg } from './SpriteImg';
 import { ChallengeBanner } from './ChallengeBanner';
+import { GoalBar } from './GoalBar';
 import { PixelButton } from './PixelButton';
 
 function Stat({ icon, label, value, sub, color, glow }: { icon: ReactNode; label: string; value: string; sub?: ReactNode; color: string; glow?: boolean }) {
@@ -208,6 +209,7 @@ export function RetroHUD() {
       </div>
 
       <ChallengeBanner />
+      <GoalBar />
 
       <div className="grid grid-cols-1 gap-x-5 gap-y-2 border-t-2 border-[#1b1838] pt-2 md:grid-cols-2 2xl:grid-cols-[1fr_1fr_1.2fr]">
         <div className="flex items-center gap-2">

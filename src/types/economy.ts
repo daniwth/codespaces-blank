@@ -79,7 +79,8 @@ export type NetworkEventId =
   | 'heatwave'
   | 'cold_snap'
   | 'bull_run'
-  | 'meme_mania';
+  | 'meme_mania'
+  | 'flash_sale';
 
 export interface NetworkEventDef {
   id: NetworkEventId;

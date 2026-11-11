@@ -1,7 +1,7 @@
 import Decimal from 'break_infinity.js';
 import type { BigNumLike } from './bignum';
 import { toDecimal } from './bignum';
-import { tr } from '../i18n';
+import { tr, useLangStore } from '../i18n';
 
 const METRIC_SUFFIXES = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi', 'Sx', 'Sp', 'Oc', 'No', 'Dc', 'UDc', 'DDc', 'TDc', 'QaDc', 'QiDc'];
 const HASH_UNITS = ['H/s', 'KH/s', 'MH/s', 'GH/s', 'TH/s', 'PH/s', 'EH/s', 'ZH/s', 'YH/s'];
@@ -97,8 +97,14 @@ export function formatAgo(timestamp: number, now = Date.now()): string {
   if (sec < 86_400) return tr('{n} h ago', { n: Math.floor(sec / 3600) });
   const days = Math.floor(sec / 86_400);
   if (days < 30) return days === 1 ? tr('yesterday') : tr('{n} days ago', { n: days });
-  return new Date(timestamp).toLocaleDateString();
+  return formatDate(timestamp);
 }
+
+/** Calendar date in the game's language (not the browser's). */
+export const formatDate = (timestamp: number | string): string => new Date(timestamp).toLocaleDateString(useLangStore.getState().lang);
+
+/** Clock time in the game's language. */
+export const formatClock = (timestamp: number | string): string => new Date(timestamp).toLocaleTimeString(useLangStore.getState().lang);
 
 /** Color ramp used by LEDs, bars and text: green → orange → red. */
 export function tempColor(celsius: number): string {

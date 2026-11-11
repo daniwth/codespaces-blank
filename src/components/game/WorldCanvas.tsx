@@ -1,4 +1,4 @@
-import { Lock, MapPin, Package } from 'lucide-react';
+import { Lock, MapPin, Package, Radar } from 'lucide-react';
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { COOLER_BY_ID, GPU_BY_ID, PSU_BY_ID, RACK_BY_ID } from '../../config/hardwareCatalog';
 import { ROOM_BY_ID, ROOM_ORDER } from '../../config/roomsCatalog';
@@ -16,7 +16,7 @@ import {
   sprites,
 } from '../../engine/SpriteManager';
 import { padCount } from '../../store/slices/roomsSlice';
-import type { GameStore } from '../../store/storeTypes';
+import type { Airdrop, GameStore } from '../../store/storeTypes';
 import { useGameShallow, useGameStore } from '../../store/useGameStore';
 import type { RackInstance, RackStatus } from '../../types/hardware';
 import type { RoomId } from '../../types/player';
@@ -261,6 +261,43 @@ function drawRoomLife(ctx: CanvasRenderingContext2D, roomId: RoomId, t: number, 
 
 const shadeTail = (c: string) => (c === '#fb923c' ? '#c2410c' : c === '#facc15' ? '#a16207' : '#4d7c0f');
 
+/** Where the supply drone is (world px): it crosses the room once, bobbing, during its lifetime. */
+function dronePos(drop: Airdrop, now: number): { x: number; y: number } {
+  const p = Math.max(0, Math.min(1, (now - drop.spawnedAt) / Math.max(1, drop.expiresAt - drop.spawnedAt)));
+  const span = WORLD_W + 40;
+  return { x: drop.id % 2 ? -20 + p * span : WORLD_W + 20 - p * span, y: 36 + Math.sin(p * Math.PI * 5) * 9 };
+}
+
+/** Quadcopter carrying a mystery crate on a rope. */
+function drawDrone(ctx: CanvasRenderingContext2D, x: number, y: number, t: number): void {
+  const spin = Math.floor(t * 24) % 2;
+  // Ground shadow sells the height.
+  ctx.globalAlpha = 0.25;
+  px(ctx, x - 6, y + 34, 13, 2, '#000000');
+  ctx.globalAlpha = 1;
+  // Rope and crate.
+  px(ctx, x, y + 4, 1, 6, '#94a3b8');
+  px(ctx, x - 5, y + 10, 11, 8, '#92400e');
+  px(ctx, x - 5, y + 10, 11, 1, '#f59e0b');
+  px(ctx, x - 5, y + 17, 11, 1, '#451a03');
+  px(ctx, x - 5, y + 10, 1, 8, '#b45309');
+  px(ctx, x + 5, y + 10, 1, 8, '#78350f');
+  drawPixelText(ctx, '?', x - 1, y + 12, '#fef08a');
+  // Arms, body and cockpit.
+  px(ctx, x - 10, y, 21, 1, '#64748b');
+  px(ctx, x - 5, y - 1, 11, 5, '#1e293b');
+  px(ctx, x - 4, y - 2, 9, 1, '#334155');
+  px(ctx, x - 3, y, 7, 2, '#22d3ee');
+  px(ctx, x - 3, y, 2, 1, '#cffafe');
+  // Motors and spinning rotors.
+  [-10, 10].forEach((ox) => {
+    px(ctx, x + ox, y - 2, 1, 2, '#94a3b8');
+    px(ctx, x + ox - (spin ? 2 : 4), y - 3, spin ? 5 : 9, 1, spin ? '#f8fafc' : '#cbd5e1');
+  });
+  // Blinking beacon.
+  px(ctx, x, y + 4, 1, 1, Math.floor(t * 4) % 2 ? '#f43f5e' : '#7f1d1d');
+}
+
 export function WorldCanvas() {
   const t = useT();
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -273,6 +310,8 @@ export function WorldCanvas() {
   const inspector = useRef<Inspector | null>(null);
   /** Solo-block celebration start time (-1 = starts on the next frame). */
   const celebration = useRef<number | null>(null);
+  /** Last drawn drone position: where the reward text pops when it is caught. */
+  const droneAt = useRef({ x: WORLD_W / 2, y: 40 });
   const hoverRef = useRef<HoverTarget | null>(null);
   const [hover, setHover] = useState<{ target: HoverTarget; left: number; top: number } | null>(null);
   const [placing, setPlacing] = useState<{ pad: number; left: number; top: number } | null>(null);
@@ -282,8 +321,9 @@ export function WorldCanvas() {
     ownedRooms: s.ownedRooms,
     racks: s.racks,
     talents: s.talents,
+    airdrop: s.airdrop?.id ?? 0,
   }));
-  const { setActiveRoom, selectRack, placeRack, setSideTab } = useGameStore.getState();
+  const { setActiveRoom, selectRack, placeRack, setSideTab, claimAirdrop } = useGameStore.getState();
 
   // ── FX bus: solo block celebration & raid inspections ──
   useEffect(
@@ -293,6 +333,16 @@ export function WorldCanvas() {
           const prev = inspections.current.get(fx.roomId);
           const live = prev && prev.until > Date.now();
           inspections.current.set(fx.roomId, { until: Math.max(fx.until, prev?.until ?? 0), taped: live ? prev.taped : new Set() });
+          return;
+        }
+        if (fx.kind === 'airdrop') {
+          const { x, y } = droneAt.current;
+          const cx = Math.max(40, Math.min(WORLD_W - 40, x));
+          particles.current.text(cx, y + 6, fx.label, fx.color);
+          if (useGameStore.getState().settings.particles) {
+            for (let i = 0; i < 16; i += 1) particles.current.sparkle(cx + (Math.random() - 0.5) * 24, y + 4 + Math.random() * 16, i % 2 ? fx.color : '#fef08a');
+            for (let i = 0; i < 6; i += 1) particles.current.coin(cx, y + 12, 12, 9);
+          }
           return;
         }
         if (fx.kind !== 'block') return;
@@ -617,6 +667,19 @@ export function WorldCanvas() {
         }
       }
 
+      // Supply drone
+      const drop = s.airdrop;
+      const wall = Date.now();
+      if (drop && wall < drop.expiresAt) {
+        const pos = dronePos(drop, wall);
+        const dx = Math.round(pos.x);
+        const dy = Math.round(pos.y);
+        droneAt.current = { x: dx, y: dy };
+        drawDrone(ctx, dx, dy, t);
+        if (Math.floor(t * 2.5) % 2 === 0) drawPixelText(ctx, tr('CATCH!'), Math.max(16, Math.min(WORLD_W - 16, dx)), dy - 12, '#fef08a', { align: 'center', shadow: '#000000' });
+        if (fx && Math.random() < dt * 5) particles.current.sparkle(dx + (Math.random() - 0.5) * 8, dy + 20, '#fef08a');
+      }
+
       // Particles
       particles.current.update(dt);
       particles.current.draw(
@@ -779,7 +842,21 @@ export function WorldCanvas() {
     }
   };
 
+  /** True when the click landed on the drone or its crate (generous box: it is a moving target). */
+  const hitsDrone = (clientX: number, clientY: number): boolean => {
+    const pc = pcRef.current;
+    const drop = useGameStore.getState().airdrop;
+    if (!pc || !drop || Date.now() >= drop.expiresAt) return false;
+    const { x, y } = pc.toWorld(clientX, clientY);
+    const pos = dronePos(drop, Date.now());
+    return Math.abs(x - pos.x) <= 18 && y >= pos.y - 10 && y <= pos.y + 24;
+  };
+
   const onClick = (e: ReactMouseEvent<HTMLCanvasElement>) => {
+    if (hitsDrone(e.clientX, e.clientY)) {
+      claimAirdrop();
+      return;
+    }
     const target = hitTest(e.clientX, e.clientY);
     if (!target) {
       setPlacing(null);
@@ -827,6 +904,12 @@ export function WorldCanvas() {
           onClick={onClick}
           aria-label={t('Mining room view')}
         />
+
+        {ui.airdrop > 0 && (
+          <PixelButton size="sm" variant="gold" className="blink absolute left-1/2 top-2 z-10 -translate-x-1/2" icon={<Radar size={12} />} onClick={() => claimAirdrop()} data-testid="airdrop-catch" silent>
+            {t('Catch the drone')}
+          </PixelButton>
+        )}
 
         {hover && !placing && <HoverCard target={hover.target} left={hover.left} top={hover.top} />}
 

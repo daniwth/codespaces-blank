@@ -38,7 +38,11 @@ import {
   talentModifiers,
 } from './prestigeTree';
 import { COIN_INFO, COIN_MARKET, MINEABLE, MINEABLE_COIN_IDS, hashDifficulty } from './altcoins';
+import { AIRDROP, AIRDROP_KINDS, type AirdropKind } from './airdrops';
 import { CHALLENGES, POWER_CAP_MUL } from './challenges';
+import { DAILY_MIN_CASH, DAILY_REWARDS } from './daily';
+import { RESEARCH, researchCost, researchTime } from './research';
+import { ROADMAP } from './roadmap';
 import { ROOM_BY_ID, ROOM_CATALOG } from './roomsCatalog';
 import type { WikiRow, WikiTable } from './wikiTypes';
 import { tr, useLangStore, type Lang } from '../i18n';
@@ -588,6 +592,10 @@ const EVENT_EFFECT: Record<NetworkEventId, readonly [string, string]> = {
     `The average $CC and $NOVA price drifts toward x${EVENT_EFFECTS.bullMeanMul} ($BYT only toward x${EVENT_EFFECTS.bytBullMeanMul}).`,
   ],
   meme_mania: [`La volatilidad de $MEME se multiplica por ${EVENT_EFFECTS.memeVolMul}.`, `$MEME volatility is multiplied by ${EVENT_EFFECTS.memeVolMul}.`],
+  flash_sale: [
+    `GPUs, fuentes, refrigeradores y racks cuestan un ${pct(1 - EVENT_EFFECTS.flashSaleMul)} menos en la tienda.`,
+    `GPUs, PSUs, coolers and racks cost ${pct(1 - EVENT_EFFECTS.flashSaleMul)} less in the Shop.`,
+  ],
 };
 
 export function eventTable(lang: Lang = curLang()): WikiTable {
@@ -775,6 +783,8 @@ const TALENT_TEXT: Record<TalentId, readonly [string, string]> = {
   vip_slots: ['Un pad extra para racks en cada sala.', 'One extra rack pad in every room.'],
   quantum_entanglement: ['Multiplicador de hashrate de fin de partida (se multiplica con Hash Amplifier).', 'Endgame hashrate multiplier (stacks multiplicatively with Hash Amplifier).'],
   room_keeper: ['Conservas las salas compradas en cada Halving.', 'You keep your purchased rooms through every Halving.'],
+  drone_uplink: ['Los drones de suministros traen cajas más grandes (dinero, monedas y Overdrive más largo).', 'Supply drones carry bigger crates (cash, coins and a longer Overdrive).'],
+  lab_grant: ['Los proyectos del Lab terminan antes.', 'Lab projects finish sooner.'],
 };
 
 export const talentTotalCost = (id: TalentId): number => {
@@ -890,7 +900,7 @@ export function achievementTable(lang: Lang = curLang()): WikiTable {
     id: 'achievements',
     caption: x('Logros', 'Achievements'),
     columns: [{ label: x('Logro', 'Achievement') }, { label: x('Objetivo', 'Goal') }, { label: x('Gemas', 'Gems'), align: 'right' }],
-    rows: ACHIEVEMENTS.map((a) => ({ id: a.id, cells: [nm(a.name), lang === 'es' ? ACHIEVEMENT_ES[a.id] ?? a.description : a.description, String(a.gems)] })),
+    rows: ACHIEVEMENTS.map((a) => ({ id: a.id, cells: [nm(a.name), lang === 'es' ? ACHIEVEMENT_ES[a.id] ?? nm(a.description) : a.description, String(a.gems)] })),
     note: x(
       `${ACHIEVEMENTS.length} logros, ${total} gemas en total. Se conservan para siempre (también tras The Halving).`,
       `${ACHIEVEMENTS.length} achievements, ${total} gems in total. They are kept forever (also after The Halving).`,
@@ -962,5 +972,123 @@ export function gemSourceTable(lang: Lang = curLang()): WikiTable {
         };
       }),
     ],
+  };
+}
+
+// ───────────────────────── Lab, roadmap, drones and daily bonus ─────────────────────────
+
+export function researchTable(lang: Lang = curLang()): WikiTable {
+  const x = pick(lang);
+  const nm = namer(lang);
+  return {
+    id: 'research',
+    caption: x('Proyectos del Laboratorio', 'Lab projects'),
+    columns: [
+      { label: x('Proyecto', 'Project') }, { label: x('Por nivel', 'Per level') }, { label: x('Niveles', 'Levels'), align: 'right' },
+      { label: x('Coste nv. 1 → máx.', 'Cost lv. 1 → max'), align: 'right' }, { label: x('Tiempo nv. 1 → máx.', 'Time lv. 1 → max'), align: 'right' },
+    ],
+    rows: RESEARCH.map((r) => {
+      const one = r.effectOf(1);
+      return {
+        id: r.id,
+        color: r.color,
+        icon: { kind: 'swatch', color: r.color },
+        cells: [
+          nm(r.name),
+          tr(one.key, one.params, lang),
+          String(r.maxLevel),
+          `${formatCash(researchCost(r, 0))} → ${formatCash(researchCost(r, r.maxLevel - 1))}`,
+          `${formatDuration(researchTime(r, 0))} → ${formatDuration(researchTime(r, r.maxLevel - 1))}`,
+        ],
+      };
+    }),
+    note: x(
+      'Un proyecto cada vez. Cancelar devuelve el coste completo. El Halving borra todos los niveles.',
+      'One project at a time. Cancelling refunds the full cost. The Halving wipes every level.',
+    ),
+  };
+}
+
+export function roadmapTable(lang: Lang = curLang()): WikiTable {
+  const x = pick(lang);
+  const nm = namer(lang);
+  return {
+    id: 'roadmap',
+    caption: x('Hoja de ruta', 'Roadmap'),
+    columns: [{ label: '#', align: 'right' }, { label: x('Objetivo', 'Goal') }, { label: x('Cómo', 'How') }, { label: x('Recompensa', 'Reward'), align: 'right' }],
+    rows: ROADMAP.map((g, i) => ({
+      id: g.id,
+      cells: [
+        String(i + 1),
+        nm(g.title),
+        nm(g.hint),
+        [g.cash > 0 ? formatCash(g.cash) : '', g.gems > 0 ? `${g.gems} ${x('gemas', 'gems')}` : ''].filter(Boolean).join(' + '),
+      ],
+    })),
+    note: x(
+      `${ROADMAP.length} objetivos, ${ROADMAP.reduce((a, g) => a + g.gems, 0)} gemas en total. Se reclaman en orden y sobreviven al Halving.`,
+      `${ROADMAP.length} goals, ${ROADMAP.reduce((a, g) => a + g.gems, 0)} gems in total. They are claimed in order and survive The Halving.`,
+    ),
+  };
+}
+
+const AIRDROP_TEXT: Record<AirdropKind, { color: string; name: readonly [string, string]; reward: readonly [string, string] }> = {
+  cash: {
+    color: '#facc15',
+    name: ['Efectivo', 'Cash'],
+    reward: [
+      `${AIRDROP.cashIncomeSec} s de tu ingreso neto estimado (mínimo ${formatCash(AIRDROP.minCash)}).`,
+      `${AIRDROP.cashIncomeSec} s of your estimated net income (at least ${formatCash(AIRDROP.minCash)}).`,
+    ],
+  },
+  coins: {
+    color: '#22d3ee',
+    name: ['Monedas', 'Coins'],
+    reward: [
+      `${AIRDROP.coinsSec} s de minado en la moneda que estés minando (efectivo si no tienes hashrate).`,
+      `${AIRDROP.coinsSec} s of mining in the coin you are mining (cash if you have no hashrate).`,
+    ],
+  },
+  overdrive: {
+    color: '#a3e635',
+    name: ['Overdrive', 'Overdrive'],
+    reward: [
+      `Hashrate x${AIRDROP.overdriveMul} durante ${AIRDROP.overdriveSec} s; se acumula hasta ${AIRDROP.overdriveMaxSec} s.`,
+      `Hashrate x${AIRDROP.overdriveMul} for ${AIRDROP.overdriveSec} s; it stacks up to ${AIRDROP.overdriveMaxSec} s.`,
+    ],
+  },
+  gem: { color: '#e879f9', name: ['Gema', 'Gem'], reward: [`${AIRDROP.gems} gema.`, `${AIRDROP.gems} gem.`] },
+};
+
+export function airdropTable(lang: Lang = curLang()): WikiTable {
+  const x = pick(lang);
+  const total = AIRDROP_KINDS.reduce((a, k) => a + AIRDROP.weights[k], 0);
+  return {
+    id: 'airdrops',
+    caption: x('Cajas de los drones', 'Drone crates'),
+    columns: [{ label: x('Caja', 'Crate') }, { label: x('Probabilidad', 'Odds'), align: 'right' }, { label: x('Contenido', 'Contents') }],
+    rows: AIRDROP_KINDS.map((k) => ({
+      id: k,
+      color: AIRDROP_TEXT[k].color,
+      icon: { kind: 'swatch', color: AIRDROP_TEXT[k].color },
+      cells: [x(...AIRDROP_TEXT[k].name), pct(AIRDROP.weights[k] / total), x(...AIRDROP_TEXT[k].reward)],
+    })),
+  };
+}
+
+export function dailyTable(lang: Lang = curLang()): WikiTable {
+  const x = pick(lang);
+  return {
+    id: 'daily',
+    caption: x('Bonus diario', 'Daily bonus'),
+    columns: [{ label: x('Día', 'Day'), align: 'right' }, { label: x('Efectivo', 'Cash') }, { label: x('Gemas', 'Gems'), align: 'right' }],
+    rows: DAILY_REWARDS.map((r, i) => ({
+      id: `day${i + 1}`,
+      cells: [String(i + 1), x(`${r.incomeMin} min de ingreso neto`, `${r.incomeMin} min of net income`), r.gems > 0 ? String(r.gems) : '—'],
+    })),
+    note: x(
+      `El efectivo nunca baja de ${formatCash(DAILY_MIN_CASH)}. Tras el día ${DAILY_REWARDS.length} la escalera vuelve a empezar.`,
+      `Cash never drops below ${formatCash(DAILY_MIN_CASH)}. After day ${DAILY_REWARDS.length} the ladder starts over.`,
+    ),
   };
 }

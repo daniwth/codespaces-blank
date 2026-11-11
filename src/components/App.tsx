@@ -1,5 +1,5 @@
 import confetti from 'canvas-confetti';
-import { Award, ClipboardList, Cloud, Coins, Crown, LineChart, Network, Server, Settings, ShoppingCart } from 'lucide-react';
+import { Award, ClipboardList, Cloud, Coins, Crown, FlaskConical, LineChart, Network, Server, Settings, ShoppingCart } from 'lucide-react';
 import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import { useT } from '../i18n';
 import { useSfxBridge } from '../hooks/useAudioFx';
@@ -11,6 +11,7 @@ import { useGameShallow, useGameStore } from '../store/useGameStore';
 import { fxBus } from '../utils/eventBus';
 import { BiosOverclockModal } from './game/BiosOverclockModal';
 import { EventLog } from './game/EventLog';
+import { DailyModal } from './game/DailyModal';
 import { OfflineModal } from './game/OfflineModal';
 import { RackDetailModal } from './game/RackDetailModal';
 import { WorldCanvas } from './game/WorldCanvas';
@@ -18,6 +19,7 @@ import { MarketTerminal } from './market/MarketTerminal';
 import { AchievementsPanel } from './panels/AchievementsPanel';
 import { ContractsPanel } from './panels/ContractsPanel';
 import { InventoryPanel } from './panels/InventoryPanel';
+import { LabPanel } from './panels/LabPanel';
 import { PoolsPanel } from './panels/PoolsPanel';
 import { SettingsPanel } from './panels/SettingsPanel';
 import { VipPanel } from './panels/VipPanel';
@@ -33,6 +35,7 @@ const Wiki = lazy(() => import('./wiki/Wiki'));
 const TABS: { id: SideTab; label: string; icon: ReactNode; color: string }[] = [
   { id: 'shop', label: 'Shop', icon: <ShoppingCart size={14} />, color: '#facc15' },
   { id: 'rigs', label: 'Rigs', icon: <Server size={14} />, color: '#22d3ee' },
+  { id: 'lab', label: 'Lab', icon: <FlaskConical size={14} />, color: '#c084fc' },
   { id: 'market', label: 'Market', icon: <LineChart size={14} />, color: '#4ade80' },
   { id: 'pools', label: 'Pools', icon: <Network size={14} />, color: '#a3e635' },
   { id: 'contracts', label: 'Contracts', icon: <ClipboardList size={14} />, color: '#fb923c' },
@@ -90,6 +93,9 @@ function GameScreen({ loopMode }: { loopMode: LoopMode | null }) {
   const ui = useGameShallow((s) => ({ sideTab: s.sideTab, selectedRack: s.selectedRack, biosGpu: s.biosGpu }));
   const setSideTab = useGameStore((s) => s.setSideTab);
   const contractsReady = useGameStore((s) => s.contracts.slots.filter((c) => c.completedAt !== null).length);
+  const goalReady = useGameStore((s) => (s.roadmap.ready ? 1 : 0));
+  /** Tabs with something waiting: a number badge, or a plain dot for "look here". */
+  const badges: Partial<Record<SideTab, number>> = { contracts: contractsReady, trophies: goalReady };
 
   const tab = TABS.find((x) => x.id === ui.sideTab) ?? TABS[0];
 
@@ -108,7 +114,7 @@ function GameScreen({ loopMode }: { loopMode: LoopMode | null }) {
                 key={tb.id}
                 type="button"
                 onClick={() => setSideTab(tb.id)}
-                aria-label={tb.id === 'contracts' && contractsReady ? t('{tab} ({n} ready to claim)', { tab: t(tb.label), n: contractsReady }) : t(tb.label)}
+                aria-label={badges[tb.id] ? t('{tab} ({n} ready to claim)', { tab: t(tb.label), n: badges[tb.id] ?? 0 }) : t(tb.label)}
                 aria-current={ui.sideTab === tb.id ? 'page' : undefined}
                 title={t(tb.label)}
                 className="relative flex items-center gap-1 px-2 py-1.5 font-pixel text-[8px] uppercase transition-colors"
@@ -120,9 +126,9 @@ function GameScreen({ loopMode }: { loopMode: LoopMode | null }) {
               >
                 {tb.icon}
                 <span className="hidden sm:inline">{t(tb.label)}</span>
-                {tb.id === 'contracts' && contractsReady > 0 && (
+                {(badges[tb.id] ?? 0) > 0 && (
                   <span className="blink absolute -right-1 -top-1 grid size-3.5 place-items-center bg-lime font-pixel text-[7px] text-void" aria-hidden="true">
-                    {contractsReady}
+                    {badges[tb.id]}
                   </span>
                 )}
               </button>
@@ -134,6 +140,7 @@ function GameScreen({ loopMode }: { loopMode: LoopMode | null }) {
           <div className="retro-scroll min-h-0 flex-1 overflow-y-auto p-3">
             {ui.sideTab === 'shop' && <HardwareShop />}
             {ui.sideTab === 'rigs' && <InventoryPanel />}
+            {ui.sideTab === 'lab' && <LabPanel />}
             {ui.sideTab === 'market' && <MarketTerminal />}
             {ui.sideTab === 'pools' && <PoolsPanel />}
             {ui.sideTab === 'contracts' && <ContractsPanel />}
@@ -148,6 +155,7 @@ function GameScreen({ loopMode }: { loopMode: LoopMode | null }) {
 
       {ui.selectedRack && <RackDetailModal rackUid={ui.selectedRack} />}
       {ui.biosGpu && <BiosOverclockModal gpuUid={ui.biosGpu} />}
+      <DailyModal />
       <OfflineModal />
       <LotteryToast />
       <ContractToast />

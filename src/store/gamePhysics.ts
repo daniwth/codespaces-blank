@@ -19,7 +19,8 @@ import {
 } from '../config/altcoins';
 import { challengeRules } from '../config/challenges';
 import { ROOM_BY_ID } from '../config/roomsCatalog';
-import { talentModifiers, type TalentModifiers } from '../config/prestigeTree';
+import { runModifiers, type RunModifiers } from '../config/modifiers';
+import type { TalentModifiers } from '../config/prestigeTree';
 import {
   EVENT_EFFECTS,
   EVENT_INTERVAL,
@@ -50,6 +51,7 @@ export type SimInput = Pick<
   | 'gpus' | 'psus' | 'coolers' | 'racks' | 'ownedRooms' | 'roomTemps' | 'technicians'
   | 'pool' | 'market' | 'bots' | 'event' | 'nextEventAt' | 'talents' | 'vip'
   | 'cash' | 'cc' | 'ccCostBasis' | 'meme' | 'memeCostBasis' | 'alts' | 'minedCoin' | 'lastTick' | 'challenge'
+  | 'research' | 'boost'
 >;
 
 export type MessageTone = 'info' | 'good' | 'warn' | 'bad';
@@ -103,6 +105,8 @@ export interface LiveMetrics {
   gridDemand: number;
   difficulty: number;
   hottest: number;
+  /** Hashrate multiplier of the Overdrive surge right now (1 = none). */
+  surge: number;
   rooms: Partial<Record<RoomId, RoomLive>>;
   racks: Record<string, RackLive>;
   gpus: Record<string, GpuLive>;
@@ -196,7 +200,7 @@ export const pasteFactor = (paste: number): number =>
 
 // ───────────────────────── Market helpers ─────────────────────────
 
-export const sellPrice = (market: MarketState, coin: CoinId, mods: TalentModifiers): number =>
+export const sellPrice = (market: MarketState, coin: CoinId, mods: Pick<TalentModifiers, 'sellBonus'>): number =>
   market[coin].price * (1 + mods.sellBonus) * (1 - MARKET.fee);
 
 export const buyPrice = (market: MarketState, coin: CoinId): number => market[coin].price * (1 + MARKET.fee);
@@ -361,7 +365,7 @@ const emptyYields = (): Record<MineableCoin, CoinYield> => ({
 });
 
 function emptyLive(): LiveMetrics {
-  return { totalHash: 0, ccPerSec: 0, minedCoin: 'CC', coinPerSec: 0, yields: emptyYields(), electricityPerSec: 0, gridDemand: 1, difficulty: 1, hottest: 0, rooms: {}, racks: {}, gpus: {} };
+  return { totalHash: 0, ccPerSec: 0, minedCoin: 'CC', coinPerSec: 0, yields: emptyYields(), electricityPerSec: 0, gridDemand: 1, difficulty: 1, hottest: 0, surge: 1, rooms: {}, racks: {}, gpus: {} };
 }
 
 interface StepAccumulator {
@@ -391,7 +395,7 @@ export function realizedEarnings(proceeds: number, holding: number, costBasis: n
   return { earned: Math.max(0, proceeds - basis), basis };
 }
 
-function sellCoin(w: World, coin: CoinId, amount: number, mods: TalentModifiers, acc: StepAccumulator): number {
+function sellCoin(w: World, coin: CoinId, amount: number, mods: RunModifiers, acc: StepAccumulator): number {
   if (amount <= 0) return 0;
   const proceeds = amount * sellPrice(w.market, coin, mods);
   const { earned, basis } = realizedEarnings(proceeds, holdingOf(w, coin), costOf(w, coin), amount);
@@ -418,7 +422,7 @@ function stepEvents(w: World, rooms: RoomId[], now: number, acc: StepAccumulator
     w.nextEventAt = now + randRange(EVENT_INTERVAL[0], EVENT_INTERVAL[1]) * 1000;
   }
   if (!w.event && now >= w.nextEventAt) {
-    const pool: NetworkEventId[] = ['difficulty_spike', 'heatwave', 'cold_snap', 'bull_run', 'meme_mania', ...(rooms.length ? (['blackout'] as const) : [])];
+    const pool: NetworkEventId[] = ['difficulty_spike', 'heatwave', 'cold_snap', 'bull_run', 'meme_mania', 'flash_sale', ...(rooms.length ? (['blackout'] as const) : [])];
     const id = pick(pool);
     const def = NETWORK_EVENTS[id];
     const duration = randRange(def.duration[0], def.duration[1]) * 1000;
@@ -431,9 +435,14 @@ function stepEvents(w: World, rooms: RoomId[], now: number, acc: StepAccumulator
   }
 }
 
-function step(w: World, input: SimInput, dt: number, now: number, mods: TalentModifiers, opts: SimOptions, acc: StepAccumulator, live: LiveMetrics): void {
+function step(w: World, input: SimInput, dt: number, now: number, mods: RunModifiers, opts: SimOptions, acc: StepAccumulator, live: LiveMetrics): void {
   const rules = challengeRules(input.challenge?.id);
   const rooms = usableRooms(input);
+  // Overdrive (airdrop): a short hashrate surge that ends on its own, also mid-catch-up.
+  const surge = input.boost && now < input.boost.until ? Math.max(1, input.boost.mul) : 1;
+  // Line Upgrade research is void while a challenge squeezes the power budget.
+  const lineMul = rules.powerCapMul < 1 || rules.singleRoom ? 1 : mods.lineMul;
+  const pasteLife = PHYSICS.pasteLifetimeSec * mods.pasteLifeMul;
   const gpuOc = (g: GpuInstance): OverclockSettings => (rules.lockOverclock ? STOCK_OC : g.oc);
   if (!opts.offline) stepEvents(w, rooms, now, acc);
   const ev = opts.offline ? null : w.event;
@@ -471,7 +480,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
 
   rooms.forEach((roomId) => {
     const room = ROOM_BY_ID[roomId];
-    const lineW = room.maxPowerW * rules.powerCapMul;
+    const lineW = room.maxPowerW * rules.powerCapMul * lineMul;
     const racks = racksByRoom[roomId] ?? [];
     const blackout = ev?.id === 'blackout' && ev.roomId === roomId;
     const baseAmbient = room.ambient + ambientDelta;
@@ -538,7 +547,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
         const running = powered && !g.shutdown;
         const powerMul = ocPowerMul(gpuOc(g));
         const heat = running ? model.power * powerMul * mods.heatMul * rackModel.heatMul * brownout : 0;
-        const k = (PHYSICS.baseCooling + fanK / n) * pasteFactor(g.paste) * room.coolingMul;
+        const k = (PHYSICS.baseCooling + fanK / n) * pasteFactor(g.paste) * room.coolingMul * mods.coolingMul;
         const tEq = roomTemp + heat / k;
         g.temp = tEq + (g.temp - tEq) * Math.exp((-k * dt) / model.thermalMass);
 
@@ -560,12 +569,12 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
           g.overheatSeconds += dt;
           g.wear = Math.min(PHYSICS.maxWear, g.wear + (PHYSICS.wearPerMinute * dt) / 60);
         }
-        if (active) g.paste = Math.max(0, g.paste - dt / PHYSICS.pasteLifetimeSec);
+        if (active) g.paste = Math.max(0, g.paste - dt / pasteLife);
         if (techPaste > 0) g.paste = Math.min(1, g.paste + techPaste * dt);
         if (techRepair > 0 && g.wear > 0) g.wear = Math.max(0, g.wear - techRepair * dt);
 
         const hash = active
-          ? model.hashrate * (1 + (rules.lockOverclock ? 0 : g.ocBonus)) * (throttled ? 0.5 : 1) * (1 - g.wear) * brownout * mods.hashMul
+          ? model.hashrate * (1 + (rules.lockOverclock ? 0 : g.ocBonus)) * (throttled ? 0.5 : 1) * (1 - g.wear) * brownout * mods.hashMul * surge
           : 0;
         rackHash += hash;
         rackMax = Math.max(rackMax, g.temp);
@@ -583,7 +592,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
         capacity: topo.capacity,
         hash: rackHash,
         maxTemp: rackMax,
-        cooling: (PHYSICS.baseCooling * n + topo.fanCooling) * room.coolingMul,
+        cooling: (PHYSICS.baseCooling * n + topo.fanCooling) * room.coolingMul * mods.coolingMul,
         tariff,
         powerCost: wall * paidShare * tariff * price,
       };
@@ -708,13 +717,19 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: TalentMo
   live.electricityPerSec = electricityRate;
   live.gridDemand = farmPaidWall > 0 ? farmBilledWall / farmPaidWall : 1;
   live.hottest = hottest;
+  live.surge = surge;
   acc.peakTemp = Math.max(acc.peakTemp, hottest);
 }
 
 /** Advance the world by `dtSec` seconds ending at `now` (epoch ms). */
 export function simulate(input: SimInput, dtSec: number, now: number, opts: SimOptions): SimOutput {
   const w = cloneWorld(input);
-  const mods = talentModifiers(input.talents);
+  // A research project that finishes inside this window (offline catch-up) counts from its end time on.
+  const mods = runModifiers(input.talents, input.research.levels);
+  const pending = input.research.active;
+  const modsAfter = pending
+    ? runModifiers(input.talents, { ...input.research.levels, [pending.id]: (input.research.levels[pending.id] ?? 0) + 1 })
+    : mods;
   const acc: StepAccumulator = { ccMined: 0, coinMined: 0, electricity: 0, earnedCash: 0, gems: 0, blocks: 0, raids: 0, overheats: 0, bestTrade: 0, peakTemp: 0, botEarned: 0, messages: [], sounds: [] };
   const live = emptyLive();
   const cash0 = w.cash;
@@ -733,7 +748,8 @@ export function simulate(input: SimInput, dtSec: number, now: number, opts: SimO
   const h = total / steps;
   const start = now - total * 1000;
   for (let i = 1; i <= steps; i += 1) {
-    step(w, input, h, start + i * h * 1000, mods, opts, acc, live);
+    const stepNow = start + i * h * 1000;
+    step(w, input, h, stepNow, pending && stepNow >= pending.endsAt ? modsAfter : mods, opts, acc, live);
   }
 
   const gpuUpdates: Record<string, GpuThermalUpdate> = {};

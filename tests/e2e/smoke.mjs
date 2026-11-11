@@ -177,7 +177,7 @@ try {
   });
 
   await check('every side panel renders', async () => {
-    for (const tab of ['Shop', 'Rigs', 'Market', 'Pools', 'Contracts', 'Halving', 'VIP', 'Trophies', 'Account', 'System']) {
+    for (const tab of ['Shop', 'Rigs', 'Lab', 'Market', 'Pools', 'Contracts', 'Halving', 'VIP', 'Trophies', 'Account', 'System']) {
       await page.locator(`nav[aria-label="Panels"] button:has-text("${tab}")`).click();
       await page.waitForTimeout(150);
     }
@@ -915,6 +915,79 @@ try {
       await context.close();
     }
   });
+
+  // ───────────── v7: Lab, roadmap, drones, daily bonus, Forge, bulk buying ─────────────
+  const V7_SEED = `
+    const g = Object.values(state.gpus)[0];
+    for (let i = 0; i < 3; i += 1) state.gpus['spare' + i] = { ...g, uid: 'spare' + i, quality: 'bronze', wear: 0 };
+    state.cash = '100000';
+    state.lifetimeEarnings = '5';
+    state.nextAirdropAt = 0;
+  `;
+  for (const view of [{ name: 'desktop', viewport: { width: 1600, height: 1000 } }, { name: '390 px', viewport: { width: 390, height: 844 } }]) {
+    await check(`v7: goal bar, daily bonus, drone, Lab, Forge and bulk buying (${view.name})`, async () => {
+      const { context, p } = await fresh({ viewport: view.viewport });
+      const pageErrors = [];
+      p.on('pageerror', (e) => pageErrors.push(e.message));
+      try {
+        await bootPatched(p, V7_SEED);
+        const panel = (tab) => p.locator(`nav[aria-label="Panels"] button[title="${tab}"]`);
+
+        // Roadmap: the first goal is met by the seed, claiming it moves to the second.
+        const title = p.getByTestId('goal-title');
+        await p.getByTestId('goal-claim').click({ timeout: 8000 });
+        await p.waitForFunction(() => document.querySelector('[data-testid="goal-title"]')?.textContent !== 'First sale', null, { timeout: 3000 });
+        assert((await title.textContent()) !== 'First sale', 'goal did not advance after the claim');
+
+        // Supply drone: due at once, catch it with the button.
+        await p.getByTestId('airdrop-catch').click({ timeout: 8000 });
+        await p.getByText(/DRONE CRATE/).first().waitFor({ timeout: 3000 });
+        assert((await p.getByTestId('airdrop-catch').count()) === 0, 'drone still there after catching it');
+
+        // Daily bonus: claim once, then it reports as claimed.
+        await p.getByTestId('daily-open').click();
+        await p.getByTestId('daily-ladder').waitFor({ timeout: 3000 });
+        await p.getByTestId('daily-claim').click();
+        await p.getByText('Claimed. Come back tomorrow!').waitFor({ timeout: 3000 });
+        await p.screenshot({ path: join(ART, `v7-daily-${view.name === 'desktop' ? 'desktop' : 'mobile'}.png`) });
+        await p.keyboard.press('Escape');
+        assert((await p.getByTestId('daily-ladder').count()) === 0, 'Escape did not close the daily bonus');
+
+        // Lab: start a project, see it running, cancel it for a refund.
+        await panel('Lab').click();
+        await p.getByTestId('research-airflow').locator('button').click();
+        await p.getByTestId('lab-active').waitFor({ timeout: 3000 });
+        await p.screenshot({ path: join(ART, `v7-lab-${view.name === 'desktop' ? 'desktop' : 'mobile'}.png`) });
+        await p.getByTestId('lab-active').locator('button:has-text("Cancel")').click();
+        await p.getByText('The Lab is idle. Pick a project below.').waitFor({ timeout: 3000 });
+
+        // Forge: the three seeded spares fuse into one better card.
+        await panel('Rigs').click();
+        const group = p.locator('[data-testid^="forge-"]').first();
+        await group.locator('button:has-text("Fuse")').click();
+        await p.getByText(/SILICON FORGE: 3x/).first().waitFor({ timeout: 3000 });
+        await p.getByTestId('autofill-all').click();
+        await p.getByText(/Auto-fill: \d+ parts installed/).first().waitFor({ timeout: 3000 });
+
+        // Shop: x5 buys five coolers in one click.
+        await panel('Shop').click();
+        await p.locator('button:has-text("Cooling")').first().click();
+        await p.getByTestId('qty-5').click();
+        await p.locator('div.bg-panel-2 button:has-text("Buy x5")').first().click();
+        await p.getByText(/Bought 5x /).first().waitFor({ timeout: 3000 });
+
+        // Progress panel: roadmap list and stats.
+        await panel('Trophies').click();
+        await p.getByTestId('roadmap-current').waitFor({ timeout: 3000 });
+        await p.screenshot({ path: join(ART, `v7-progress-${view.name === 'desktop' ? 'desktop' : 'mobile'}.png`), fullPage: true });
+        const overflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        assert(overflow <= 1, `page scrolls horizontally by ${overflow}px`);
+        assert(pageErrors.length === 0, pageErrors.join(' | '));
+      } finally {
+        await context.close();
+      }
+    });
+  }
 } catch (err) {
   results.push({ name: 'harness', ok: false, err: err.message });
   console.error(err);

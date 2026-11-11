@@ -278,7 +278,7 @@ describe('challenge persistence', () => {
     delete v5.challengeRecords;
     v5.saveVersion = 5;
     const migrated = migrateSave(v5, 5);
-    expect(SAVE_VERSION).toBe(6);
+    expect(SAVE_VERSION).toBeGreaterThanOrEqual(6);
     expect(migrated.saveVersion).toBe(SAVE_VERSION);
     expect(migrated.challenge).toBeNull();
     expect(migrated.challengeRecords).toEqual({});

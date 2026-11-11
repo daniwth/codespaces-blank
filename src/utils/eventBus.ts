@@ -40,7 +40,9 @@ export type SfxCue =
   | 'boot'
   | 'start'
   | 'contract'
-  | 'claim';
+  | 'claim'
+  | 'drone'
+  | 'fuse';
 
 export type VisualFx =
   | { kind: 'confetti'; intensity: number }
@@ -48,7 +50,9 @@ export type VisualFx =
   | { kind: 'sell'; amount: number }
   | { kind: 'lottery'; quality: string }
   /** Darknet raid: electrical inspection of `roomId` until epoch ms `until`. */
-  | { kind: 'raid'; roomId: RoomId; until: number };
+  | { kind: 'raid'; roomId: RoomId; until: number }
+  /** A supply drone was caught: `label` floats up from where it was. */
+  | { kind: 'airdrop'; label: string; color: string };
 
 export const sfxBus = createBus<SfxCue>();
 export const fxBus = createBus<VisualFx>();

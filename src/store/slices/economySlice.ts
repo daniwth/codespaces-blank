@@ -1,6 +1,7 @@
 import { tr } from '../../i18n';
 import { ACHIEVEMENTS, VIP_COSTS } from '../../config/gameBalance';
-import { CHALLENGE_BY_ID } from '../../config/challenges';
+import { CHALLENGE_BY_ID, CHALLENGE_IDS } from '../../config/challenges';
+import { ROADMAP } from '../../config/roadmap';
 import { MAX_TECHNICIANS, RACK_BY_ID } from '../../config/hardwareCatalog';
 import { PRESTIGE_TREE, TALENT_BY_ID, scForEarnings, talentCost, talentLevel } from '../../config/prestigeTree';
 import type { RackInstance } from '../../types/hardware';
@@ -28,6 +29,14 @@ export function achievementContext(s: GameStore): AchievementContext {
     stableOverclocks: s.stats.stableOverclocks,
     bestTrade: s.stats.bestTrade,
     contractsCompleted: s.stats.contractsCompleted,
+    roadmapStep: s.roadmap.step,
+    roadmapTotal: ROADMAP.length,
+    researchDone: s.stats.researchDone,
+    fusions: s.stats.fusions,
+    airdrops: s.stats.airdrops,
+    bestStreak: s.stats.bestStreak,
+    altsHeld: (s.alts.BYT.amount > 0 ? 1 : 0) + (s.alts.NOVA.amount > 0 ? 1 : 0),
+    challengesCleared: CHALLENGE_IDS.filter((id) => (s.challengeRecords[id]?.clears ?? 0) > 0).length,
   };
 }
 
@@ -67,6 +76,8 @@ export function createEconomySlice(set: SetState, get: GetState): EconomySlice {
         stats: { ...s.stats, halvings: s.stats.halvings + 1 },
         settings: s.settings,
         challengeRecords: s.challengeRecords,
+        roadmap: s.roadmap,
+        daily: s.daily,
       }, nextChallenge ?? null);
       bumpWorldEpoch();
       set({ ...fresh, selectedRack: null, biosGpu: null, sideTab: 'halving' });

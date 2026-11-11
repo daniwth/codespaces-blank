@@ -10,10 +10,10 @@ const walk = (dir: string): string[] =>
     return statSync(p).isDirectory() ? walk(p) : /\.(ts|tsx)$/.test(p) ? [p] : [];
   });
 
-/** Every literal `t('…')` / `tr('…')` in the source must have a Spanish entry. */
+/** Every literal `t('…')` / `tr('…')` / `logT('…')` in the source must have a Spanish entry. */
 describe('i18n coverage', () => {
   const missing: string[] = [];
-  const re = /\b(?:t|tr)\(\s*(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)"|`([^`$]*)`)/g;
+  const re = /\b(?:t|tr|logT)\(\s*(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)"|`([^`$]*)`)/g;
   for (const file of walk('src').filter((f) => !f.includes('/i18n/'))) {
     const src = readFileSync(file, 'utf8');
     for (const m of src.matchAll(re)) {

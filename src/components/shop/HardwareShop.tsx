@@ -4,13 +4,17 @@ import { COOLER_CATALOG, GPU_CATALOG, MAX_TECHNICIANS, PSU_CATALOG, RACK_CATALOG
 import { ROOM_CATALOG, ROOM_ORDER } from '../../config/roomsCatalog';
 import { talentModifiers } from '../../config/prestigeTree';
 import { PHYSICS } from '../../config/gameBalance';
+import type { ComponentKind } from '../../store/slices/hardwareSlice';
 import { useT } from '../../i18n';
 import { sprites } from '../../engine/SpriteManager';
-import { gridTariff } from '../../store/gamePhysics';
+import { gridTariff, wattPrice } from '../../store/gamePhysics';
+import { hardwarePrice, hardwarePriceMul } from '../../store/pricing';
+import { MAX_BULK } from '../../store/slices/hardwareSlice';
+import { runModifiers } from '../../config/modifiers';
 import { challengeBlocks } from '../../store/slices/challengesSlice';
 import { technicianCost } from '../../store/slices/roomsSlice';
 import { useGameShallow, useGameStore } from '../../store/useGameStore';
-import { bnGte } from '../../utils/bignum';
+import { bnGte, bnToNumber } from '../../utils/bignum';
 import { cn } from '../../utils/cn';
 import { formatCash, formatHashrate, formatMultiplier, formatPercent, formatPower, formatTemp } from '../../utils/formatters';
 import { PixelButton } from '../ui/PixelButton';
@@ -18,6 +22,8 @@ import { SpriteImg } from '../ui/SpriteImg';
 import { SLOT, slotted } from '../panels/richText';
 
 type Category = 'gpu' | 'cooling' | 'power' | 'racks' | 'rooms' | 'crew';
+type Qty = 1 | 5 | 10 | 'max';
+const QTYS: Qty[] = [1, 5, 10, 'max'];
 
 const CATEGORIES: { id: Category; label: string; icon: ReactNode }[] = [
   { id: 'gpu', label: 'GPUs', icon: <Cpu size={12} /> },
@@ -28,8 +34,8 @@ const CATEGORIES: { id: Category; label: string; icon: ReactNode }[] = [
   { id: 'crew', label: 'Crew', icon: <HardHat size={12} /> },
 ];
 
-function Card({ icon, title, tier, children, price, affordable, onBuy, owned, cta, disabled }: {
-  icon: ReactNode; title: string; tier?: number; children: ReactNode; price: string; affordable: boolean; onBuy: () => void; owned?: number; cta?: string; disabled?: boolean;
+function Card({ icon, title, tier, children, price, listPrice, affordable, onBuy, owned, cta, disabled }: {
+  icon: ReactNode; title: string; tier?: number; children: ReactNode; price: string; listPrice?: string; affordable: boolean; onBuy: () => void; owned?: number; cta?: string; disabled?: boolean;
 }) {
   const t = useT();
   return (
@@ -45,6 +51,7 @@ function Card({ icon, title, tier, children, price, affordable, onBuy, owned, ct
       </div>
       <PixelButton size="xs" variant={affordable ? 'gold' : 'secondary'} disabled={!affordable || disabled} onClick={onBuy} className="shrink-0 flex-col gap-0.5" silent>
         <span>{cta ?? t('Buy')}</span>
+        {listPrice && <span className="font-term text-[13px] normal-case line-through opacity-70">{listPrice}</span>}
         <span className="font-term text-[15px] normal-case">{price}</span>
       </PixelButton>
     </div>
@@ -64,9 +71,31 @@ export function HardwareShop() {
     technicians: st.technicians,
     talents: st.talents,
     roomsLocked: challengeBlocks(st, 'singleRoom'),
+    research: st.research,
+    event: st.event,
+    activeRoom: st.activeRoom,
   }));
   const actions = useGameStore.getState();
+  const [qty, setQty] = useState<Qty>(1);
   const can = (price: number) => bnGte(s.cash, price);
+  const priceMul = hardwarePriceMul(s);
+  const cash = bnToNumber(s.cash);
+  /** Props of a hardware card for the chosen quantity: unit count, total and struck list price. */
+  const deal = (kind: ComponentKind, modelId: string, list: number) => {
+    const unit = hardwarePrice(list, s);
+    const n = qty === 'max' ? Math.max(1, Math.min(MAX_BULK, Math.floor(cash / unit))) : qty;
+    return {
+      price: formatCash(unit * n),
+      listPrice: priceMul < 1 ? formatCash(list * n) : undefined,
+      affordable: can(unit * (qty === 'max' ? 1 : n)),
+      cta: n > 1 ? t('Buy x{n}', { n }) : undefined,
+      onBuy: () => void actions.buyMany(kind, modelId, n),
+    };
+  };
+  const run = runModifiers(s.talents, s.research.levels);
+  // $ per second one wall watt costs in the room on screen (each model then adds its own grid tariff).
+  const wattCost = wattPrice(s.activeRoom, { electricityMul: run.electricityMul });
+  const bulk = cat === 'gpu' || cat === 'cooling' || cat === 'power' || cat === 'racks';
   const count = <T extends { modelId: string }>(rec: Record<string, T>, id: string) => Object.values(rec).filter((x) => x.modelId === id).length;
   const mods = talentModifiers(s.talents);
 
@@ -80,6 +109,24 @@ export function HardwareShop() {
         ))}
       </div>
 
+      {bulk && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[15px] leading-tight">
+          <span className="font-silk text-[10px] uppercase text-dim">{t('Quantity')}</span>
+          <span className="flex gap-0.5" role="group" aria-label={t('Quantity')}>
+            {QTYS.map((q) => (
+              <PixelButton key={q} size="xs" variant={qty === q ? 'gold' : 'secondary'} aria-pressed={qty === q} onClick={() => setQty(q)} data-testid={`qty-${q}`} silent>
+                {q === 'max' ? t('MAX') : `x${q}`}
+              </PixelButton>
+            ))}
+          </span>
+          {priceMul < 1 && (
+            <span className={cn('ml-auto px-1.5 py-0.5 font-pixel text-[8px] text-void', s.event?.id === 'flash_sale' ? 'blink bg-gold' : 'bg-neon')} data-testid="shop-discount">
+              {s.event?.id === 'flash_sale' ? t('FLASH SALE -{pct}%', { pct: Math.round((1 - priceMul) * 100) }) : t('-{pct}% hardware', { pct: Math.round((1 - priceMul) * 100) })}
+            </span>
+          )}
+        </div>
+      )}
+
       <div className="flex flex-col gap-1.5">
         {cat === 'gpu' &&
           GPU_CATALOG.map((g) => (
@@ -88,14 +135,15 @@ export function HardwareShop() {
               icon={<SpriteImg src={sprites.gpuIcon(g.id)} width={84} alt={t(g.name)} />}
               title={`${g.brand} ${t(g.name)}`}
               tier={g.tier}
-              price={formatCash(g.price)}
-              affordable={can(g.price)}
               owned={count(s.gpus, g.id)}
-              onBuy={() => actions.buyGpu(g.id)}
+              {...deal('gpu', g.id, g.price)}
             >
               <div className="text-lime">{formatHashrate(g.hashrate)}</div>
               <div className="text-dim">
-                {t('{power} · {eff} · ROI ~{sec}s', { power: formatPower(g.power), eff: formatHashrate(g.hashrate / g.power).replace('/s', '/W'), sec: Math.round(g.price / ((g.hashrate / 1e6) * PHYSICS.rewardPerMHs)) })}
+                {t('{power} · {eff} · ROI ~{sec}s', { power: formatPower(g.power), eff: formatHashrate(g.hashrate / g.power).replace('/s', '/W'), sec: Math.round(hardwarePrice(g.price, s) / ((g.hashrate / 1e6) * PHYSICS.rewardPerMHs)) })}
+              </div>
+              <div className="text-dim" title={t('Estimated power bill of this card in the room on screen, with its grid tariff.')}>
+                {slotted(t('power bill ~{x}/s here', { x: SLOT }), <span className="text-hot">{formatCash(g.power * gridTariff(g.id) * wattCost)}</span>)}
               </div>
               <div className="text-dim" title={t('Grid demand: dense, high-hash hardware is billed at a higher rate per watt.')}>
                 {slotted(t('grid tariff {x} per watt', { x: SLOT }), <span className="text-amber">{formatMultiplier(gridTariff(g.id))}</span>)}
@@ -110,10 +158,8 @@ export function HardwareShop() {
               icon={<SpriteImg src={sprites.coolerIcon(c.id)} width={45} alt={t(c.name)} />}
               title={t(c.name)}
               tier={c.tier}
-              price={formatCash(c.price)}
-              affordable={can(c.price)}
               owned={count(s.coolers, c.id)}
-              onBuy={() => actions.buyCooler(c.id)}
+              {...deal('cooler', c.id, c.price)}
             >
               <div className="text-neon">{t('{n} W/°C heat transfer', { n: c.cooling })}</div>
               <div className="text-dim">
@@ -129,10 +175,8 @@ export function HardwareShop() {
               icon={<SpriteImg src={sprites.psuIcon(p.id)} width={84} height={30} alt={t(p.name)} />}
               title={t(p.name)}
               tier={p.tier}
-              price={formatCash(p.price)}
-              affordable={can(p.price)}
               owned={count(s.psus, p.id)}
-              onBuy={() => actions.buyPsu(p.id)}
+              {...deal('psu', p.id, p.price)}
             >
               <div className="text-amber">{t('{cap} max load', { cap: formatPower(p.capacity) })}</div>
               <div className="text-dim">{t('{pct} efficiency (wall losses become heat)', { pct: formatPercent(p.efficiency) })}</div>
@@ -145,10 +189,8 @@ export function HardwareShop() {
               key={r.id}
               icon={<SpriteImg src={sprites.rackIcon(r.id)} width={30} height={48} alt={t(r.name)} />}
               title={t(r.name)}
-              price={formatCash(r.price)}
-              affordable={can(r.price)}
               owned={count(s.racks, r.id)}
-              onBuy={() => actions.buyRack(r.id)}
+              {...deal('rack', r.id, r.price)}
             >
               <div className="text-ink">
                 {r.fanSlots > 1 ? t('{slots} GPU slots · {bays} fan bays · 1 PSU', { slots: r.slots, bays: r.fanSlots }) : t('{slots} GPU slots · {bays} fan bay · 1 PSU', { slots: r.slots, bays: r.fanSlots })}

@@ -4,6 +4,7 @@ import { SAVE_VERSION } from '../../config/gameBalance';
 import { factoryReset, goToMainMenu } from '../../store/session';
 import { gameStorage, useGameShallow, useGameStore } from '../../store/useGameStore';
 import type { LoopMode } from '../../hooks/useGameLoop';
+import { formatDate } from '../../utils/formatters';
 import { PixelButton } from '../ui/PixelButton';
 import { LANGS, tr, useLangStore, useT } from '../../i18n';
 
@@ -149,7 +150,7 @@ export function SettingsPanel({ loopMode, inMenu = false }: { loopMode: LoopMode
       <p className="text-[15px] leading-tight text-dim">
         {t('Simulation')}:{' '}
         {inMenu ? t('paused on the title screen') : loopMode === 'worker' ? t('Web Worker (off-thread)') : loopMode === 'main-thread' ? t('main-thread fallback') : t('starting…')} ·{' '}
-        {t('Farm founded {date}', { date: new Date(createdAt).toLocaleDateString() })}
+        {t('Farm founded {date}', { date: formatDate(createdAt) })}
       </p>
     </div>
   );

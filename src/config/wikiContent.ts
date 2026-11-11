@@ -22,6 +22,9 @@ import {
 } from './gameBalance';
 import { GPU_CATALOG, MAX_TECHNICIANS, OC_LIMITS, TECHNICIAN_BASE_COST, TECHNICIAN_COST_GROWTH } from './hardwareCatalog';
 import { BASE_OFFLINE_HOURS, HALVING_BASE_SC, HALVING_MIN_EARNINGS, TALENT_BY_ID, earningsForSc } from './prestigeTree';
+import { AIRDROP } from './airdrops';
+import { RUSH_SECONDS_PER_GEM } from './research';
+import { ROADMAP } from './roadmap';
 import { MAX_PADS } from './roomsCatalog';
 import * as T from './wikiTables';
 import type { WikiSection } from './wikiTypes';
@@ -677,6 +680,80 @@ export function sectionsEs(): WikiSection[] {
             p('La pestaña **VIP** canjea gemas por mejoras permanentes:'),
             table(T.vipTable(L)),
             tip(`Un Gold Edition Rack con GPUs de tier alto ahorra una fortuna en luz y no gasta la línea de la sala. Es la mejor compra a largo plazo (${VIP_COSTS.goldRack} gemas).`),
+          ],
+        },
+      ],
+    },
+    {
+      id: 'lab',
+      title: 'Laboratorio, objetivos y drones',
+      icon: 'lab',
+      color: '#c084fc',
+      summary: 'Investigación, la hoja de ruta, los drones de suministros, el bonus diario y la Forja de silicio.',
+      entries: [
+        {
+          id: 'research',
+          title: 'Laboratorio de I+D',
+          keywords: ['laboratorio', 'investigacion', 'research', 'lab', 'firmware', 'i+d'],
+          blocks: [
+            p('La pestaña **Lab** vende mejoras para toda la partida. Pagas en efectivo, el proyecto tarda un tiempo real y después su bonificación se aplica a toda la granja. Los proyectos siguen avanzando con el juego cerrado.'),
+            table(T.researchTable(L)),
+            list(
+              'Solo hay un proyecto en marcha a la vez. Cada nivel cuesta y tarda más que el anterior.',
+              `**Acelerar** lo termina al momento con gemas: 1 gema por cada ${min(RUSH_SECONDS_PER_GEM)} restantes (redondeando hacia arriba).`,
+              '**Cancelar** devuelve el coste completo: solo pierdes el tiempo.',
+              `El talento ${n(TALENT_BY_ID.lab_grant.name)} acorta todos los proyectos un ${pct(TALENT_BY_ID.lab_grant.effect)} por nivel.`,
+              'Mejora de acometida no hace nada durante los retos Límite de potencia y Una sola sala.',
+            ),
+            warn('El Halving borra el Laboratorio: se pierden los niveles y el proyecto en curso. Termina lo que hayas empezado antes de reiniciar.'),
+          ],
+        },
+        {
+          id: 'roadmap',
+          title: 'Hoja de ruta',
+          keywords: ['objetivo', 'meta', 'goal', 'roadmap', 'hoja de ruta', 'tutorial', 'guia'],
+          blocks: [
+            p(`La barra bajo el panel superior muestra tu **objetivo** actual, cuánto llevas y su recompensa. Son ${ROADMAP.length} objetivos que te llevan por todos los sistemas del juego, en orden. Cuando cumplas uno, pulsa **Reclamar**; **Ir** abre el panel donde se hace.`),
+            table(T.roadmapTable(L)),
+            info('El efectivo de los objetivos es un regalo: como los premios de contratos, no cuenta como ganancias para los niveles ni para el Halving. La lista completa está en la pestaña Trofeos, junto a las gráficas de la sesión.'),
+          ],
+        },
+        {
+          id: 'drones',
+          title: 'Drones de suministros y Overdrive',
+          keywords: ['dron', 'drone', 'airdrop', 'caja', 'crate', 'overdrive', 'suministros'],
+          blocks: [
+            p(`Cada ${AIRDROP.interval[0]}–${AIRDROP.interval[1]} s un **dron de suministros** cruza la sala con una caja sorpresa. Se queda ${AIRDROP.lifetimeSec} s: púlsalo (o el botón **Atrapa el dron**) antes de que se vaya.`),
+            table(T.airdropTable(L)),
+            list(
+              `**Overdrive** multiplica por ${AIRDROP.overdriveMul} el hashrate de toda la granja. Más hashrate es también más calor y más consumo, así que deja algo de margen.`,
+              `El talento ${n(TALENT_BY_ID.drone_uplink.name)} hace cada caja un ${pct(TALENT_BY_ID.drone_uplink.effect)} más grande por nivel (también alarga el Overdrive).`,
+              'Los drones solo vienen mientras juegas: offline no llega ninguno.',
+            ),
+          ],
+        },
+        {
+          id: 'daily',
+          title: 'Bonus diario',
+          keywords: ['diario', 'daily', 'racha', 'streak', 'regalo', 'gift'],
+          blocks: [
+            p('El botón del regalo de la barra de objetivos abre el **bonus diario**: una reclamación por día natural. Los días consecutivos suben una escalera de 7 días; si te saltas uno, vuelves al día 1.'),
+            table(T.dailyTable(L)),
+          ],
+        },
+        {
+          id: 'forge',
+          title: 'Forja de silicio y compra múltiple',
+          keywords: ['forja', 'forge', 'fusionar', 'fuse', 'cantidad', 'bulk', 'x10', 'autocompletar'],
+          blocks: [
+            p('En **Rigs → Forja de silicio** fundes 3 GPUs libres (sin montar en un rack) del mismo modelo y grado en 1 del grado siguiente: Bronce → Plata → Oro → Dios del Silicio. La tarjeta nueva sale con pasta nueva, sin desgaste y con su propio margen de overclock recién sorteado.'),
+            list(
+              'Se usan primero las unidades más desgastadas.',
+              'La Forja está cerrada durante el reto Solo Bronce.',
+              'La Tienda tiene un selector de cantidad (x1, x5, x10, MAX): las compras múltiples de GPUs sortean la Lotería de silicio para cada tarjeta y resumen el resultado.',
+              '**Autorrellenar todo** monta las mejores piezas libres en todos los racks colocados, y **Cambiar pasta a todas** renueva la pasta de todas las GPUs montadas por debajo del 60%.',
+            ),
+            tip('Comprar tarjetas baratas en cantidad y fusionar las Bronce es una forma fiable de conseguir silicio Oro para overclock.'),
           ],
         },
       ],

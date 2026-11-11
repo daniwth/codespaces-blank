@@ -6,6 +6,10 @@ import { CONTRACT_KINDS } from '../../src/config/contracts';
 import { ACHIEVEMENTS, NETWORK_EVENTS, PHYSICS, POOL_ORDER } from '../../src/config/gameBalance';
 import { COOLER_CATALOG, GPU_BY_ID, GPU_CATALOG, PSU_CATALOG, QUALITY_ORDER, RACK_BY_ID, RACK_CATALOG } from '../../src/config/hardwareCatalog';
 import { PRESTIGE_TREE, earningsForSc, scForEarnings } from '../../src/config/prestigeTree';
+import { AIRDROP_KINDS } from '../../src/config/airdrops';
+import { DAILY_REWARDS } from '../../src/config/daily';
+import { RESEARCH } from '../../src/config/research';
+import { ROADMAP } from '../../src/config/roadmap';
 import { ROOM_CATALOG } from '../../src/config/roomsCatalog';
 import '../../src/i18n/es';
 import { getWikiSections } from '../../src/config/wikiContent';
@@ -42,6 +46,10 @@ describe('wiki tables are generated from the catalogs', () => {
     ['contract kinds', T.contractKindTable, CONTRACT_KINDS],
     ['challenges', T.challengeTable, CHALLENGES.map((c) => c.id)],
     ['mineable coins', T.altcoinTable, MINEABLE_COIN_IDS],
+    ['research', T.researchTable, RESEARCH.map((r) => r.id)],
+    ['roadmap', T.roadmapTable, ROADMAP.map((g) => g.id)],
+    ['drone crates', T.airdropTable, AIRDROP_KINDS],
+    ['daily bonus', T.dailyTable, DAILY_REWARDS.map((_r, i) => `day${i + 1}`)],
   ] as const)('%s: one row per catalog entry, in catalog order', (_name, build, ids) => {
     const table = build();
     expect(table.rows.map((r) => r.id)).toEqual([...ids]);
@@ -188,9 +196,9 @@ describe('wiki constants mirror the game code', () => {
 });
 
 describe('wiki content and search', () => {
-  it('has the 14 sections with unique ids and non-empty entries', () => {
-    expect(WIKI_SECTIONS).toHaveLength(14);
-    expect(new Set(WIKI_SECTIONS.map((s) => s.id)).size).toBe(14);
+  it('has the 15 sections with unique ids and non-empty entries', () => {
+    expect(WIKI_SECTIONS).toHaveLength(15);
+    expect(new Set(WIKI_SECTIONS.map((s) => s.id)).size).toBe(15);
     WIKI_SECTIONS.forEach((s) => {
       expect(s.entries.length).toBeGreaterThan(0);
       expect(new Set(s.entries.map((e) => e.id)).size).toBe(s.entries.length);
@@ -280,7 +288,7 @@ describe('wiki is bilingual', () => {
   const en = getWikiSections('en');
 
   it('both languages have identical page ids, section counts and block structure', () => {
-    expect(en).toHaveLength(14);
+    expect(en).toHaveLength(15);
     expect(shape(en)).toEqual(shape(es));
   });
 

@@ -1,16 +1,38 @@
+import type { AirdropKind } from '../config/airdrops';
 import type { CoinId, MineableCoin, PoolMode, TradeResult, TradingBot } from '../types/economy';
 import type { ComponentKind, GpuInstance, OverclockSettings, SiliconQuality } from '../types/hardware';
-import type { ChallengeId, GameData, GameSettings, RoomId, TalentId } from '../types/player';
+import type { ChallengeId, GameData, GameSettings, ResearchId, RoomId, TalentId } from '../types/player';
 import type { LiveMetrics, MessageTone, SimOutput } from './gamePhysics';
+import type { LogParams } from './logLine';
 
 export interface LogEntry {
   id: number;
   t: number;
+  /** Text as written when the line was logged (used when there is no `key`). */
   text: string;
   tone: MessageTone;
+  /** English template + raw params: the log re-renders in the current language (see `logLine`). */
+  key?: string;
+  params?: LogParams;
 }
 
-export type SideTab = 'shop' | 'rigs' | 'market' | 'pools' | 'contracts' | 'halving' | 'vip' | 'trophies' | 'account' | 'system';
+export type SideTab = 'shop' | 'rigs' | 'lab' | 'market' | 'pools' | 'contracts' | 'halving' | 'vip' | 'trophies' | 'account' | 'system';
+
+/** Supply drone currently over the room (session state, never saved). */
+export interface Airdrop {
+  id: number;
+  kind: AirdropKind;
+  spawnedAt: number;
+  expiresAt: number;
+}
+
+/** One sample of the session history behind the Stats charts. */
+export interface HistoryPoint {
+  t: number;
+  hash: number;
+  /** Net income in $/s: mined value at the current price minus the power bill. */
+  net: number;
+}
 
 /** Top-level screen: the title menu (simulation paused) or the running game. */
 export type AppScreen = 'menu' | 'game';
@@ -55,6 +77,11 @@ export interface UiState {
   screen: AppScreen;
   /** "How to play" wiki overlay (reachable from the menu and in game). */
   wikiOpen: boolean;
+  airdrop: Airdrop | null;
+  /** Hashrate / net income samples of this session (Stats charts). */
+  history: HistoryPoint[];
+  /** Daily bonus dialog. */
+  dailyOpen: boolean;
 }
 
 export type OcResult = 'stable' | 'crash' | 'invalid';
@@ -76,6 +103,14 @@ export interface HardwareSlice {
   resetOverclock: (gpuUid: string) => void;
   repasteGpu: (gpuUid: string) => boolean;
   repairGpu: (gpuUid: string) => boolean;
+  /** Buy up to `qty` units of one catalog item (as many as the cash allows). Returns how many were bought. */
+  buyMany: (kind: ComponentKind, modelId: string, qty: number) => number;
+  /** Silicon Forge: melt 3 spare GPUs of one model and grade into 1 of the next grade. */
+  fuseGpus: (modelId: string, quality: SiliconQuality) => GpuInstance | null;
+  /** Auto-fill every placed rack from storage. Returns the parts installed. */
+  autoFillAll: () => number;
+  /** Re-paste every mounted GPU whose paste is below 60% (as many as the cash allows). Returns how many. */
+  repasteAll: () => number;
 }
 
 export interface RoomsSlice {
@@ -129,11 +164,37 @@ export interface ChallengesSlice {
   checkChallenge: () => boolean;
 }
 
+export interface ResearchSlice {
+  /** Pay for the next level of a project and start its timer (one project at a time). */
+  startResearch: (id: ResearchId) => boolean;
+  /** Stop the project in progress and refund its cost. */
+  cancelResearch: () => boolean;
+  /** Finish the project in progress right now for gems. */
+  rushResearch: () => boolean;
+  /** Grant the level of a finished project (called every tick and after offline catch-up). */
+  checkResearch: (now?: number) => boolean;
+}
+
+export interface ProgressSlice {
+  /** Flag the current roadmap goal as ready to claim once its condition holds (called every tick). */
+  checkRoadmap: () => boolean;
+  claimRoadmap: () => boolean;
+  /** Claim today's daily bonus (once per local calendar day). */
+  claimDaily: () => boolean;
+  setDailyOpen: (open: boolean) => void;
+  /** Spawn and expire the supply drone (called every online tick). */
+  tickAirdrop: (now: number) => void;
+  /** Catch the drone that is over the room. */
+  claimAirdrop: () => boolean;
+}
+
 export interface CoreActions {
   applyTick: (out: SimOutput) => void;
   applyOffline: (out: SimOutput, requestedSeconds: number) => void;
   dismissOffline: () => void;
   pushLog: (text: string, tone?: MessageTone) => void;
+  /** Log a translatable line: English template + raw params (string params are translated when shown). */
+  logT: (key: string, params?: LogParams, tone?: MessageTone) => void;
   setSideTab: (tab: SideTab) => void;
   selectRack: (uid: string | null) => void;
   openBios: (uid: string | null) => void;
@@ -151,7 +212,8 @@ export interface CoreActions {
   setWikiOpen: (open: boolean) => void;
 }
 
-export type GameStore = GameData & UiState & HardwareSlice & RoomsSlice & MarketSlice & EconomySlice & ContractsSlice & ChallengesSlice & CoreActions;
+export type GameStore = GameData & UiState & HardwareSlice & RoomsSlice & MarketSlice & EconomySlice & ContractsSlice & ChallengesSlice
+  & ResearchSlice & ProgressSlice & CoreActions;
 
 export type SetState = (partial: Partial<GameStore> | ((state: GameStore) => Partial<GameStore>)) => void;
 export type GetState = () => GameStore;

@@ -10,6 +10,7 @@ import {
   Coins,
   Cpu,
   Crown,
+  FlaskConical,
   Gauge,
   HardHat,
   Info,
@@ -18,6 +19,7 @@ import {
   LineChart,
   Moon,
   Network,
+  Radar,
   Rocket,
   Save,
   Search,
@@ -43,12 +45,12 @@ import { highlightRegex, searchWiki } from './wikiSearch';
 
 const SECTION_ICONS: Record<WikiSectionIcon, LucideIcon> = {
   start: Rocket, hardware: Cpu, thermal: Thermometer, bios: Gauge, rooms: Building2, crew: HardHat, pools: Network,
-  market: LineChart, contracts: ClipboardList, halving: Coins, vip: Crown, trophies: Award, save: Save, tips: Lightbulb,
+  market: LineChart, contracts: ClipboardList, halving: Coins, vip: Crown, lab: FlaskConical, trophies: Award, save: Save, tips: Lightbulb,
 };
 
 const TALENT_ICONS: Record<TalentIcon, LucideIcon> = {
   zap: Zap, leaf: Leaf, snowflake: Snowflake, coins: Coins, moon: Moon, cpu: Cpu,
-  trending: TrendingUp, wrench: Wrench, crown: Crown, atom: Atom, building: Building2,
+  trending: TrendingUp, wrench: Wrench, crown: Crown, atom: Atom, building: Building2, radar: Radar, flask: FlaskConical,
 };
 
 const TONES: Record<WikiTone, { icon: LucideIcon; color: string; bg: string; label: string }> = {

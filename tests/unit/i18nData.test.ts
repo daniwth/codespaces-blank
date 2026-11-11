@@ -5,6 +5,8 @@ import { CONTRACT_DEFS, CONTRACT_DIFFICULTY } from '../../src/config/contracts';
 import { ACHIEVEMENTS, NETWORK_EVENTS, POOLS } from '../../src/config/gameBalance';
 import { COOLER_CATALOG, GPU_CATALOG, PSU_CATALOG, QUALITY_DEFS, RACK_CATALOG } from '../../src/config/hardwareCatalog';
 import { PRESTIGE_TREE } from '../../src/config/prestigeTree';
+import { RESEARCH } from '../../src/config/research';
+import { ROADMAP } from '../../src/config/roadmap';
 import { ROOM_CATALOG } from '../../src/config/roomsCatalog';
 import { tr, useLangStore } from '../../src/i18n';
 import { ES } from '../../src/i18n/es';
@@ -28,6 +30,8 @@ const needed: string[] = [
   ...CHALLENGES.flatMap((c) => [c.name, c.tagline, c.description]),
   ...Object.values(CONTRACT_DEFS).map((c) => c.name),
   ...Object.values(CONTRACT_DIFFICULTY).map((d) => d.label),
+  ...RESEARCH.flatMap((r) => [r.name, r.description, r.effectOf(1).key]),
+  ...ROADMAP.flatMap((g) => [g.title, g.hint]),
 ];
 
 describe('i18n config data', () => {

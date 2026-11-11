@@ -1,12 +1,18 @@
 import { SAVE_VERSION } from '../config/gameBalance';
 import { COOLER_BY_ID, GPU_BY_ID, OC_LIMITS, PSU_BY_ID, QUALITY_ORDER, RACK_BY_ID } from '../config/hardwareCatalog';
+import { AIRDROP } from '../config/airdrops';
 import { ALT_COIN_IDS, COIN_IDS, emptyAlts, isCoinId, isMineableCoin } from '../config/altcoins';
 import { CHALLENGE_IDS, isChallengeId } from '../config/challenges';
+import { localDay } from '../config/daily';
+import { RESEARCH_BY_ID, RESEARCH_IDS, isResearchId } from '../config/research';
+import { ROADMAP } from '../config/roadmap';
 import { ROOM_BY_ID } from '../config/roomsCatalog';
 import { TALENT_BY_ID } from '../config/prestigeTree';
 import type { AltWallets, Candle, CoinMarket, MarketState, MineableCoin, TradingBot } from '../types/economy';
 import type { CoolerInstance, GpuInstance, PsuInstance, RackInstance, SiliconQuality } from '../types/hardware';
-import type { ActiveChallenge, ChallengeRecords, GameData, RoomId, TalentId, TalentLevels } from '../types/player';
+import type {
+  ActiveChallenge, ChallengeRecords, DailyState, GameData, HashBoost, ResearchLevels, ResearchState, RoadmapState, RoomId, TalentId, TalentLevels,
+} from '../types/player';
 import { clamp } from '../utils/random';
 import { contractContext, sanitizeBoard } from './contracts';
 import { STOCK_OC } from './gamePhysics';
@@ -171,6 +177,42 @@ function sanitizeChallengeRecords(raw: unknown): ChallengeRecords {
   return out;
 }
 
+/** Research levels are clamped to their caps; a project in progress must still have a level left to grant. */
+function sanitizeResearch(raw: unknown, now: number): ResearchState {
+  const src = isObject(raw) ? raw : {};
+  const rawLevels = isObject(src.levels) ? src.levels : {};
+  const levels: ResearchLevels = {};
+  RESEARCH_IDS.forEach((id) => {
+    const lvl = clamp(Math.floor(finite(rawLevels[id], 0)), 0, RESEARCH_BY_ID[id].maxLevel);
+    if (lvl > 0) levels[id] = lvl;
+  });
+  const a = src.active;
+  if (!isObject(a) || !isResearchId(a.id) || (levels[a.id] ?? 0) >= RESEARCH_BY_ID[a.id].maxLevel) return { levels, active: null };
+  // No project lasts longer than a week: a tampered end date cannot freeze the Lab forever.
+  const endsAt = Math.min(finite(a.endsAt, now), now + 7 * 86_400_000);
+  return { levels, active: { id: a.id, startedAt: Math.min(finite(a.startedAt, endsAt), endsAt), endsAt } };
+}
+
+function sanitizeBoost(raw: unknown, now: number): HashBoost | null {
+  if (!isObject(raw)) return null;
+  const until = Math.min(finite(raw.until, 0), now + AIRDROP.overdriveMaxSec * 1000);
+  if (until <= now) return null;
+  return { mul: clamp(finite(raw.mul, AIRDROP.overdriveMul), 1, AIRDROP.overdriveMul), until };
+}
+
+function sanitizeRoadmap(raw: unknown): RoadmapState {
+  if (!isObject(raw)) return { step: 0, ready: false };
+  const step = clamp(Math.floor(finite(raw.step, 0)), 0, ROADMAP.length);
+  return { step, ready: raw.ready === true && step < ROADMAP.length };
+}
+
+/** A claim day in the future (clock moved back, tampering) would lock the bonus: it is clamped to today. */
+function sanitizeDaily(raw: unknown, now: number): DailyState {
+  if (!isObject(raw)) return { lastDay: 0, streak: 0 };
+  const lastDay = clamp(Math.floor(finite(raw.lastDay, 0)), 0, localDay(now));
+  return { lastDay, streak: lastDay > 0 ? clamp(Math.floor(finite(raw.streak, 1)), 1, 100_000) : 0 };
+}
+
 function sanitizeTalents(raw: unknown): TalentLevels {
   if (!isObject(raw)) return {};
   const out: TalentLevels = {};
@@ -184,6 +226,7 @@ function sanitizeTalents(raw: unknown): TalentLevels {
 /** Rebuilds every dynamic record from scratch so a tampered save can never crash the game. */
 function sanitize(data: GameData, source: Json): GameData {
   const defaults = createInitialData();
+  const now = Date.now();
   const useSource = (key: string) => isObject(source[key]);
 
   const gpus: Record<string, GpuInstance> = {};
@@ -230,8 +273,14 @@ function sanitize(data: GameData, source: Json): GameData {
     market: sanitizeMarket(source.market, defaults.market),
     alts: sanitizeAlts(source.alts),
     minedCoin: (isMineableCoin(source.minedCoin) ? source.minedCoin : 'CC') as MineableCoin,
-    challenge: sanitizeChallenge(source.challenge, Date.now()),
+    challenge: sanitizeChallenge(source.challenge, now),
     challengeRecords: sanitizeChallengeRecords(source.challengeRecords),
+    research: sanitizeResearch(source.research, now),
+    boost: sanitizeBoost(source.boost, now),
+    // A drone is never more than one interval away, whatever the save says.
+    nextAirdropAt: Math.min(finite(data.nextAirdropAt, now), now + AIRDROP.interval[1] * 1000),
+    roadmap: sanitizeRoadmap(source.roadmap),
+    daily: sanitizeDaily(source.daily, now),
     achievements: (Array.isArray(data.achievements) ? data.achievements : []).filter((a): a is string => typeof a === 'string'),
     technicians: clamp(Math.floor(finite(data.technicians, 0)), 0, 6),
     meme: Math.max(0, finite(data.meme, 0)),
@@ -255,6 +304,8 @@ function sanitize(data: GameData, source: Json): GameData {
  * v4 → v5: added runStartedAt (for the Halving $SC/h readout); older runs are dated from their last tick.
  * v5 → v6: added challenge runs (challenge, challengeRecords): older saves are free runs with no clears;
  *            and altcoins ($BYT/$NOVA wallets, minedCoin and their markets): older saves hold none and mine $CC.
+ * v6 → v7: added Lab research, the Overdrive surge and supply drones, the roadmap, the daily bonus and four
+ *            stats counters: older saves start with no research, the roadmap at its first goal and no streak.
  */
 export function migrateSave(raw: unknown, fromVersion: number): GameData {
   const defaults = createInitialData();
@@ -274,6 +325,14 @@ export function migrateSave(raw: unknown, fromVersion: number): GameData {
     source.challengeRecords = {};
     source.alts = emptyAlts();
     source.minedCoin = 'CC';
+  }
+  // Nothing of the v7 systems existed: sanitize() fills research, roadmap, daily and drones with their defaults.
+  if (fromVersion < 7) {
+    delete source.research;
+    delete source.boost;
+    delete source.roadmap;
+    delete source.daily;
+    delete source.nextAirdropAt;
   }
   const merged = mergeTyped(defaults, source);
   merged.saveVersion = SAVE_VERSION;

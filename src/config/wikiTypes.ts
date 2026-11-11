@@ -59,7 +59,7 @@ export interface WikiEntry {
 
 export type WikiSectionIcon =
   | 'start' | 'hardware' | 'thermal' | 'bios' | 'rooms' | 'crew' | 'pools'
-  | 'market' | 'contracts' | 'halving' | 'vip' | 'trophies' | 'save' | 'tips';
+  | 'market' | 'contracts' | 'halving' | 'vip' | 'lab' | 'trophies' | 'save' | 'tips';
 
 export interface WikiSection {
   id: string;

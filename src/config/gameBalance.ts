@@ -1,7 +1,7 @@
 import type { NetworkEventDef, NetworkEventId, PoolDefinition, PoolMode } from '../types/economy';
 import type { AchievementDef } from '../types/player';
 
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
 export const SAVE_KEY = 'hash-harvest-tycoon';
 export const SAVE_SALT = 'HHT::pixel-rigs::v1';
 
@@ -94,6 +94,10 @@ export const NETWORK_EVENTS: Record<NetworkEventId, NetworkEventDef> = {
     id: 'meme_mania', name: 'Meme Mania', positive: true, color: '#e879f9',
     description: '$MEME volatility goes parabolic.', duration: [45, 90],
   },
+  flash_sale: {
+    id: 'flash_sale', name: 'Flash Sale', positive: true, color: '#facc15',
+    description: 'Suppliers dump stock: GPUs, PSUs, coolers and racks are 20% off.', duration: [45, 75],
+  },
 };
 
 export const EVENT_INTERVAL: [number, number] = [90, 180];
@@ -107,6 +111,8 @@ export const EVENT_EFFECTS = {
   bytBullMeanMul: 1.15,
   bytDifficultyMul: 1.15,
   memeVolMul: 2.6,
+  /** Flash Sale: multiplier on hardware prices in the Shop. */
+  flashSaleMul: 0.8,
 };
 
 export const MARKET = {
@@ -161,4 +167,14 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'tech3', name: 'Crew Chief', description: 'Hire 3 technicians.', gems: 3, check: (c) => c.technicians >= 3 },
   { id: 'trade', name: 'Diamond Hands', description: 'Profit $1K in a single trade.', gems: 3, check: (c) => c.bestTrade >= 1_000 },
   { id: 'contracts10', name: 'Reliable Contractor', description: 'Claim 10 contracts.', gems: 3, check: (c) => c.contractsCompleted >= 10 },
+  { id: 'rooms5', name: 'Deep Six', description: 'Own all 5 rooms.', gems: 10, check: (c) => c.roomsOwned >= 5 },
+  { id: 'halving10', name: 'Serial Halver', description: 'Perform The Halving 10 times.', gems: 10, check: (c) => c.halvings >= 10 },
+  { id: 'research10', name: 'Lab Rat', description: 'Complete 10 research levels.', gems: 4, check: (c) => c.researchDone >= 10 },
+  { id: 'fusion5', name: 'Silicon Alchemist', description: 'Fuse GPUs 5 times in the Silicon Forge.', gems: 4, check: (c) => c.fusions >= 5 },
+  { id: 'airdrops10', name: 'Drone Hunter', description: 'Catch 10 supply drones.', gems: 3, check: (c) => c.airdrops >= 10 },
+  { id: 'streak7', name: 'Regular', description: 'Claim the daily bonus 7 days in a row.', gems: 7, check: (c) => c.bestStreak >= 7 },
+  { id: 'alts', name: 'Diversified', description: 'Hold $BYT and $NOVA at the same time.', gems: 3, check: (c) => c.altsHeld >= 2 },
+  { id: 'challenge1', name: 'Challenger', description: 'Complete a challenge run.', gems: 4, check: (c) => c.challengesCleared >= 1 },
+  { id: 'challenge4', name: 'Iron Miner', description: 'Complete every challenge run.', gems: 12, check: (c) => c.challengesCleared >= 4 },
+  { id: 'roadmap', name: 'Roadmap Graduate', description: 'Claim every goal of the roadmap.', gems: 10, check: (c) => c.roadmapTotal > 0 && c.roadmapStep >= c.roadmapTotal },
 ];

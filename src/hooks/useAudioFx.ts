@@ -231,6 +231,19 @@ class AudioEngine {
       case 'boot':
         this.tone({ freq: 1000, type: 'square', dur: 0.14, gain: 0.1 });
         break;
+      case 'drone':
+        // Rotor buzz sweeping in, then a two-note "incoming" chirp.
+        this.tone({ freq: 90, to: 140, type: 'sawtooth', dur: 0.5, gain: 0.07 });
+        this.noise({ dur: 0.5, gain: 0.05, filter: 'bandpass', freq: 600 });
+        this.tone({ freq: 1175, type: 'square', dur: 0.07, gain: 0.1, delay: 0.3 });
+        this.tone({ freq: 1568, type: 'square', dur: 0.12, gain: 0.1, delay: 0.38 });
+        break;
+      case 'fuse':
+        // Furnace whoosh, a hammer hit and a bright rising ring.
+        this.noise({ dur: 0.35, gain: 0.18, filter: 'lowpass', freq: 500 });
+        this.tone({ freq: 180, to: 60, type: 'square', dur: 0.12, gain: 0.2, delay: 0.3 });
+        this.arp([659, 988, 1319, 1976], 0.06, 'triangle', 0.16);
+        break;
       case 'start':
         // Title screen "insert coin": PC speaker beep, then a rising power-on arpeggio.
         this.tone({ freq: 1000, type: 'square', dur: 0.08, gain: 0.08 });

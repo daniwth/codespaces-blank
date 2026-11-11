@@ -5,7 +5,7 @@ import { useAccountStore } from '../../store/useAccountStore';
 import type { CloudSaveMeta, Plan } from '../../services/cloudApi';
 import { useT } from '../../i18n';
 import { cn } from '../../utils/cn';
-import { formatCash, formatDuration } from '../../utils/formatters';
+import { formatCash, formatClock, formatDate, formatDuration } from '../../utils/formatters';
 import { PixelButton } from '../ui/PixelButton';
 
 const money = (cents: number, currency: string) => new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(cents / 100);
@@ -333,7 +333,7 @@ export function AccountPanel() {
             <div className="grid size-9 place-items-center bg-[#0e7490] font-pixel text-[12px] text-white">{s.user.email[0]?.toUpperCase()}</div>
             <div className="min-w-0 flex-1 leading-tight">
               <div className="truncate">{s.user.email}</div>
-              <div className="text-[15px] text-dim">{t('Member since {date}', { date: new Date(s.user.createdAt).toLocaleDateString() })}</div>
+              <div className="text-[15px] text-dim">{t('Member since {date}', { date: formatDate(s.user.createdAt) })}</div>
             </div>
             <PixelButton size="xs" variant="ghost" icon={<LogOut size={10} />} onClick={() => void s.logout()}>
               {t('Log out')}
@@ -349,8 +349,8 @@ export function AccountPanel() {
                 <span className="gold-shimmer font-pixel text-[10px]">● {t('ACTIVE')} · {sub.plan === 'yearly' ? t('YEARLY') : sub.plan === 'monthly' ? t('MONTHLY') : ''}</span>
                 <span className="text-[16px] text-amber/90">
                   {sub.cancelAtPeriodEnd
-                    ? t('Ends on {date}', { date: sub.periodEnd ? new Date(sub.periodEnd).toLocaleDateString() : '—' })
-                    : t('Renews on {date}', { date: sub.periodEnd ? new Date(sub.periodEnd).toLocaleDateString() : '—' })}
+                    ? t('Ends on {date}', { date: sub.periodEnd ? formatDate(sub.periodEnd) : '—' })
+                    : t('Renews on {date}', { date: sub.periodEnd ? formatDate(sub.periodEnd) : '—' })}
                 </span>
                 {!sub.cancelAtPeriodEnd && (
                   <PixelButton size="xs" variant="secondary" disabled={s.busy} onClick={() => void s.manageBilling()}>
@@ -377,7 +377,7 @@ export function AccountPanel() {
                 {s.syncState === 'syncing'
                   ? t('syncing…')
                   : s.syncState === 'ok'
-                    ? t('synced {time}', { time: s.lastSyncAt ? new Date(s.lastSyncAt).toLocaleTimeString() : '' })
+                    ? t('synced {time}', { time: s.lastSyncAt ? formatClock(s.lastSyncAt) : '' })
                     : s.syncState === 'error'
                       ? t('error')
                       : s.syncState === 'conflict'

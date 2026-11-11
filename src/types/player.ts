@@ -30,6 +30,43 @@ export interface ChallengeRecord {
 
 export type ChallengeRecords = Partial<Record<ChallengeId, ChallengeRecord>>;
 
+/** Run-scoped research projects bought with cash in the Lab (wiped by The Halving). */
+export type ResearchId = 'firmware' | 'airflow' | 'pfc' | 'paste' | 'grid' | 'logistics';
+
+export type ResearchLevels = Partial<Record<ResearchId, number>>;
+
+export interface ActiveResearch {
+  id: ResearchId;
+  /** Epoch ms. The level is granted once `endsAt` passes (also while offline). */
+  startedAt: number;
+  endsAt: number;
+}
+
+export interface ResearchState {
+  levels: ResearchLevels;
+  /** Project in progress: the Lab works on one at a time. */
+  active: ActiveResearch | null;
+}
+
+/** Temporary hashrate surge (Overdrive airdrop). */
+export interface HashBoost {
+  mul: number;
+  /** Epoch ms when the surge ends. */
+  until: number;
+}
+
+/** Guided goal chain: `step` goals claimed so far; `ready` = the current goal is met and waits to be claimed. */
+export interface RoadmapState {
+  step: number;
+  ready: boolean;
+}
+
+/** Daily bonus streak. `lastDay` is a local calendar day number (0 = never claimed). */
+export interface DailyState {
+  lastDay: number;
+  streak: number;
+}
+
 export interface RoomTheme {
   wall: string;
   wallDark: string;
@@ -70,7 +107,9 @@ export type TalentId =
   | 'tech_union'
   | 'vip_slots'
   | 'quantum_entanglement'
-  | 'room_keeper';
+  | 'room_keeper'
+  | 'drone_uplink'
+  | 'lab_grant';
 
 export type TalentIcon =
   | 'zap'
@@ -83,7 +122,9 @@ export type TalentIcon =
   | 'wrench'
   | 'crown'
   | 'atom'
-  | 'building';
+  | 'building'
+  | 'radar'
+  | 'flask';
 
 export interface TalentNode {
   id: TalentId;
@@ -119,6 +160,16 @@ export interface AchievementContext {
   stableOverclocks: number;
   bestTrade: number;
   contractsCompleted: number;
+  /** Roadmap goals claimed and the length of the roadmap. */
+  roadmapStep: number;
+  roadmapTotal: number;
+  researchDone: number;
+  fusions: number;
+  airdrops: number;
+  bestStreak: number;
+  /** Different altcoins held right now (0-2). */
+  altsHeld: number;
+  challengesCleared: number;
 }
 
 export interface AchievementDef {
@@ -142,6 +193,14 @@ export interface PlayerStats {
   bestTrade: number;
   /** Contracts claimed, across every run. */
   contractsCompleted: number;
+  /** Supply drones caught. */
+  airdrops: number;
+  /** GPU fusions done in the Silicon Forge. */
+  fusions: number;
+  /** Research levels completed, across every run. */
+  researchDone: number;
+  /** Longest daily-bonus streak. */
+  bestStreak: number;
 }
 
 export interface VipState {
@@ -211,4 +270,14 @@ export interface GameData {
   challenge: ActiveChallenge | null;
   /** Completed challenges (survive Halvings). */
   challengeRecords: ChallengeRecords;
+  /** Lab research of the current run (wiped by The Halving). */
+  research: ResearchState;
+  /** Overdrive hashrate surge from an airdrop (null = none). */
+  boost: HashBoost | null;
+  /** Epoch ms when the next supply drone may appear. */
+  nextAirdropAt: number;
+  /** Guided goals (survive Halvings). */
+  roadmap: RoadmapState;
+  /** Daily bonus streak (survives Halvings). */
+  daily: DailyState;
 }

@@ -11,14 +11,17 @@ import { decodeSave, encodeSave } from '../utils/saveCodec';
 import { emptyLive, type SimInput, type SimOutput, type SoundCue } from './gamePhysics';
 import { pruneGpuEdits, reconcileGpuUpdate } from './editLedger';
 import { createInitialData } from './initialState';
+import { fillLog } from './logLine';
 import { migrateSave } from './migrations';
 import { createChallengesSlice } from './slices/challengesSlice';
 import { createContractsSlice } from './slices/contractsSlice';
 import { createEconomySlice } from './slices/economySlice';
 import { createHardwareSlice } from './slices/hardwareSlice';
 import { createMarketSlice } from './slices/marketSlice';
+import { createProgressSlice } from './slices/progressSlice';
+import { createResearchSlice } from './slices/researchSlice';
 import { createRoomsSlice } from './slices/roomsSlice';
-import type { CoreActions, GameStore, GetState, SetState, UiState } from './storeTypes';
+import type { CoreActions, GameStore, GetState, HistoryPoint, SetState, UiState } from './storeTypes';
 import { bumpWorldEpoch } from './worldEpoch';
 
 const DATA_KEYS: (keyof GameData)[] = [
@@ -26,6 +29,7 @@ const DATA_KEYS: (keyof GameData)[] = [
   'runEarnings', 'lifetimeEarnings', 'runStartedAt', 'gpus', 'psus', 'coolers', 'racks', 'ownedRooms', 'activeRoom',
   'roomTemps', 'technicians', 'pool', 'market', 'bots', 'event', 'nextEventAt', 'talents', 'vip',
   'achievements', 'stats', 'settings', 'contracts', 'challenge', 'challengeRecords', 'alts', 'minedCoin',
+  'research', 'boost', 'nextAirdropAt', 'roadmap', 'daily',
 ];
 
 export const extractData = (s: GameStore): GameData => {
@@ -42,6 +46,7 @@ export const selectSimInput = (s: GameStore): SimInput => ({
   roomTemps: s.roomTemps, technicians: s.technicians, pool: s.pool, market: s.market, bots: s.bots,
   event: s.event, nextEventAt: s.nextEventAt, talents: s.talents, vip: s.vip, cash: s.cash, cc: s.cc,
   meme: s.meme, memeCostBasis: s.memeCostBasis, ccCostBasis: s.ccCostBasis, alts: s.alts, minedCoin: s.minedCoin, lastTick: s.lastTick, challenge: s.challenge,
+  research: s.research, boost: s.boost,
 });
 
 /**
@@ -121,7 +126,21 @@ const initialUi = (): UiState => ({
   contractToast: null,
   screen: 'menu',
   wikiOpen: false,
+  airdrop: null,
+  history: [],
+  dailyOpen: false,
 });
+
+/** Stats charts: one sample every few seconds, about half an hour of session history. */
+export const HISTORY_STEP_MS = 5_000;
+export const HISTORY_MAX = 360;
+
+function sampleHistory(history: HistoryPoint[], out: SimOutput): HistoryPoint[] {
+  const last = history[history.length - 1];
+  if (last && out.now - last.t < HISTORY_STEP_MS) return history;
+  const net = out.live.yields[out.live.minedCoin].valuePerSec - out.live.electricityPerSec;
+  return [...history.slice(-(HISTORY_MAX - 1)), { t: out.now, hash: out.live.totalHash, net }];
+}
 
 /** Navigation state that survives a save import / factory reset (only the data is replaced). */
 const keepNav = (s: GameStore): Pick<UiState, 'screen' | 'wikiOpen'> => ({ screen: s.screen, wikiOpen: s.wikiOpen });
@@ -190,6 +209,8 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
         },
         lastTick: out.now,
         live: out.live,
+        // An Overdrive surge that ran out is dropped from the save.
+        boost: s.boost && s.boost.until <= out.now ? null : s.boost,
       };
     });
   };
@@ -197,18 +218,18 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
   return {
     applyTick: (out) => {
       mergeTick(out);
-      const { pushLog, checkAchievements, advanceContractBoard, checkChallenge } = get();
-      out.messages.forEach((m) => {
-        if (!m.key) return pushLog(m.text, m.tone);
-        const params: Record<string, string | number> = {};
-        Object.entries(m.params ?? {}).forEach(([k, v]) => { params[k] = typeof v === 'string' ? tr(v) : v; });
-        pushLog(tr(m.key, params), m.tone);
-      });
+      set((s) => ({ history: sampleHistory(s.history, out) }));
+      const { pushLog, logT, checkAchievements, advanceContractBoard, checkChallenge, checkResearch, checkRoadmap, tickAirdrop } = get();
+      // Simulation messages carry their template: the log re-renders them when the language changes.
+      out.messages.forEach((m) => (m.key ? logT(m.key, m.params, m.tone) : pushLog(m.text, m.tone)));
       advanceContractBoard(out, false);
       out.sounds.forEach((cue) => sfxBus.emit(SOUND_MAP[cue]));
       if (out.blocksFound > 0) fxBus.emit({ kind: 'block' });
       if (out.raids > 0) raidRooms(out, get().racks).forEach((until, roomId) => fxBus.emit({ kind: 'raid', roomId, until }));
+      checkResearch(out.now);
+      tickAirdrop(out.now);
       checkChallenge();
+      checkRoadmap();
       checkAchievements();
     },
 
@@ -228,7 +249,9 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
         },
       });
       get().advanceContractBoard(out, true);
+      get().checkResearch(out.now);
       get().checkChallenge();
+      get().checkRoadmap();
       get().checkAchievements();
     },
 
@@ -237,6 +260,12 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
     pushLog: (text, tone = 'info') => {
       logId += 1;
       const entry = { id: logId, t: Date.now(), text, tone };
+      set((s) => ({ log: [...s.log.slice(-59), entry] }));
+    },
+
+    logT: (key, params, tone = 'info') => {
+      logId += 1;
+      const entry = { id: logId, t: Date.now(), text: fillLog(key, params), tone, key, params };
       set((s) => ({ log: [...s.log.slice(-59), entry] }));
     },
 
@@ -279,7 +308,8 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
     startNewGame: (challenge) => {
       // createInitialData stamps lastTick = now, so the loop credits no offline time.
       bumpWorldEpoch();
-      set({ ...createInitialData({ settings: get().settings }, challenge ?? null), ...initialUi(), screen: 'game' });
+      // The daily bonus follows the player, not the save: a new game cannot claim today's bonus twice.
+      set({ ...createInitialData({ settings: get().settings, daily: get().daily }, challenge ?? null), ...initialUi(), screen: 'game' });
       gameStorage.flush();
       sfxBus.emit('start');
       get().pushLog(tr('New farm founded: one PX-460 on a bench in your bedroom. Happy hashing!'), 'good');
@@ -288,7 +318,7 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
     },
 
     returnToMenu: () => {
-      set({ screen: 'menu', selectedRack: null, biosGpu: null, lottery: null, contractToast: null, offlineReport: null, wikiOpen: false });
+      set({ screen: 'menu', selectedRack: null, biosGpu: null, lottery: null, contractToast: null, offlineReport: null, wikiOpen: false, airdrop: null, dailyOpen: false });
       gameStorage.flush();
     },
 
@@ -310,6 +340,8 @@ export const useGameStore = create<GameStore>()(
         ...createEconomySlice(s, g),
         ...createContractsSlice(s, g),
         ...createChallengesSlice(s, g),
+        ...createResearchSlice(s, g),
+        ...createProgressSlice(s, g),
         ...createCoreActions(s, g),
       };
     },

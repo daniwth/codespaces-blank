@@ -1,4 +1,4 @@
-import { Atom, Building2, Coins, Cpu, Crown, Leaf, Moon, Snowflake, TrendingUp, Wrench, Zap, type LucideIcon } from 'lucide-react';
+import { Atom, Building2, Coins, Cpu, Crown, FlaskConical, Leaf, Moon, Radar, Snowflake, TrendingUp, Wrench, Zap, type LucideIcon } from 'lucide-react';
 import { useState } from 'react';
 import { CHALLENGES } from '../../config/challenges';
 import { HALVING_MIN_EARNINGS, PRESTIGE_TREE, earningsForSc, nextScMilestone, talentCost, talentLevel } from '../../config/prestigeTree';
@@ -15,7 +15,7 @@ import { SLOT, slotted } from '../panels/richText';
 
 const ICONS: Record<TalentIcon, LucideIcon> = {
   zap: Zap, leaf: Leaf, snowflake: Snowflake, coins: Coins, moon: Moon, cpu: Cpu,
-  trending: TrendingUp, wrench: Wrench, crown: Crown, atom: Atom, building: Building2,
+  trending: TrendingUp, wrench: Wrench, crown: Crown, atom: Atom, building: Building2, radar: Radar, flask: FlaskConical,
 };
 
 // Percentage-based layout: 5 columns × 4 rows.

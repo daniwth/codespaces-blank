@@ -4,7 +4,7 @@ const pct = (v: number) => `${Math.round(v * 100)}%`;
 
 /**
  * Smart Contract ($SC) permanent talent tree, unlocked by The Halving.
- * Priced for the diminishing-returns reward (≈4–9 $SC per run): ~250 $SC buys
+ * Priced for the diminishing-returns reward (≈4–9 $SC per run): ~280 $SC buys
  * the whole tree, so it fills over a few dozen runs with Quantum Entangle last.
  */
 export const PRESTIGE_TREE: TalentNode[] = [
@@ -74,6 +74,18 @@ export const PRESTIGE_TREE: TalentNode[] = [
     maxLevel: 1, costBase: 10, costGrowth: 1, requires: ['market_insight'], effect: 1,
     format: (l) => (l > 0 ? 'Rooms kept' : 'Rooms reset'),
   },
+  {
+    id: 'drone_uplink', name: 'Drone Uplink', icon: 'radar', col: 0, row: 3,
+    description: 'Supply drones carry bigger payloads.',
+    maxLevel: 3, costBase: 3, costGrowth: 1.6, requires: ['offline_ext'], effect: 0.5,
+    format: (l) => `+${pct(l * 0.5)} drone loot`,
+  },
+  {
+    id: 'lab_grant', name: 'R&D Grant', icon: 'flask', col: 4, row: 3,
+    description: 'A standing research grant: Lab projects finish sooner.',
+    maxLevel: 3, costBase: 3, costGrowth: 1.6, requires: ['tech_union'], effect: 0.15,
+    format: (l) => `-${pct(l * 0.15)} research time`,
+  },
 ];
 
 export const TALENT_BY_ID = Object.fromEntries(PRESTIGE_TREE.map((t) => [t.id, t])) as Record<TalentId, TalentNode>;
@@ -133,6 +145,10 @@ export interface TalentModifiers {
   techSpeed: number;
   extraPads: number;
   keepRooms: boolean;
+  /** Multiplier on supply drone rewards. */
+  airdropMul: number;
+  /** Multiplier on Lab research time. */
+  researchTimeMul: number;
 }
 
 export const BASE_OFFLINE_HOURS = 8;
@@ -151,5 +167,7 @@ export function talentModifiers(talents: TalentLevels): TalentModifiers {
     techSpeed: 1 + l('tech_union') * 0.25,
     extraPads: l('vip_slots'),
     keepRooms: l('room_keeper') > 0,
+    airdropMul: 1 + l('drone_uplink') * 0.5,
+    researchTimeMul: 1 - l('lab_grant') * 0.15,
   };
 }

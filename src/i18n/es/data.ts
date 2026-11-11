@@ -178,6 +178,8 @@ const TALENT_FORMAT_ES: Record<string, ReadonlyArray<readonly [RegExp, string]>>
   tech_union: [[/ tech, /, ' téc., '], [/ speed$/, ' velocidad']],
   vip_slots: [[/ rack pads$/, ' bases de rack']],
   quantum_entanglement: [[/ hashrate$/, ' de hashrate']],
+  drone_uplink: [[/ drone loot$/, ' botín de drones']],
+  lab_grant: [[/ research time$/, ' tiempo de investigación']],
   room_keeper: [[/^Rooms kept$/, 'Salas conservadas'], [/^Rooms reset$/, 'Salas reiniciadas']],
 };
 

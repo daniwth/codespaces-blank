@@ -37,7 +37,7 @@ import {
 } from '../config/contracts';
 import { MARKET, PHYSICS, POOLS, levelFromEarnings } from '../config/gameBalance';
 import { GPU_BY_ID, GPU_CATALOG } from '../config/hardwareCatalog';
-import { talentModifiers } from '../config/prestigeTree';
+import { runModifiers } from '../config/modifiers';
 import type { Contract, ContractBoard, ContractDifficulty, ContractKind, ContractReward, EventWatch } from '../types/contracts';
 import type { ActiveNetworkEvent } from '../types/economy';
 import type { GameData } from '../types/player';
@@ -67,7 +67,7 @@ export interface ContractContext {
   runningTiers: number[];
 }
 
-export type ContractDataView = Pick<GameData, 'gpus' | 'racks' | 'pool' | 'lifetimeEarnings' | 'talents'>;
+export type ContractDataView = Pick<GameData, 'gpus' | 'racks' | 'pool' | 'lifetimeEarnings' | 'talents'> & Partial<Pick<GameData, 'research'>>;
 
 function mountedGpuUids(data: Pick<GameData, 'gpus' | 'racks'>): string[] {
   const out: string[] = [];
@@ -89,7 +89,7 @@ export function runningGpuTiers(data: Pick<GameData, 'gpus' | 'racks'>, live: Li
 
 export function contractContext(data: ContractDataView, live?: LiveMetrics): ContractContext {
   const mounted = mountedGpuUids(data);
-  const mods = talentModifiers(data.talents);
+  const mods = runModifiers(data.talents, data.research?.levels);
   let hash: number;
   let runningTiers: number[];
   let hottest = 0;

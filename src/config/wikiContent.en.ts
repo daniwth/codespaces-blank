@@ -19,6 +19,9 @@ import {
 } from './gameBalance';
 import { GPU_CATALOG, MAX_TECHNICIANS, OC_LIMITS, TECHNICIAN_BASE_COST, TECHNICIAN_COST_GROWTH } from './hardwareCatalog';
 import { BASE_OFFLINE_HOURS, HALVING_BASE_SC, HALVING_MIN_EARNINGS, TALENT_BY_ID, earningsForSc } from './prestigeTree';
+import { AIRDROP } from './airdrops';
+import { RUSH_SECONDS_PER_GEM } from './research';
+import { ROADMAP } from './roadmap';
 import { MAX_PADS } from './roomsCatalog';
 import * as T from './wikiTables';
 import {
@@ -671,6 +674,80 @@ export function sectionsEn(): WikiSection[] {
             p('The **VIP** tab exchanges gems for permanent upgrades:'),
             table(T.vipTable(L)),
             tip(`A Gold Edition Rack with high-tier GPUs saves a fortune in electricity and does not use up the room line. It is the best long-term purchase (${VIP_COSTS.goldRack} gems).`),
+          ],
+        },
+      ],
+    },
+    {
+      id: 'lab',
+      title: 'Lab, goals and drones',
+      icon: 'lab',
+      color: '#c084fc',
+      summary: 'Research, the roadmap, supply drones, the daily bonus and the Silicon Forge.',
+      entries: [
+        {
+          id: 'research',
+          title: 'Research Lab',
+          keywords: ['laboratorio', 'investigacion', 'research', 'lab', 'firmware', 'i+d'],
+          blocks: [
+            p('The **Lab** tab sells upgrades for the whole run. You pay cash, the project takes real time and its bonus then applies to the entire farm. Projects keep running while the game is closed.'),
+            table(T.researchTable(L)),
+            list(
+              'Only one project runs at a time. Each level costs and takes more than the previous one.',
+              `**Rush** finishes it at once for gems: 1 gem per ${min(RUSH_SECONDS_PER_GEM)} left (rounded up).`,
+              '**Cancel** returns the full cost: you only lose the time.',
+              `The ${n(TALENT_BY_ID.lab_grant.name)} talent shortens every project by ${pct(TALENT_BY_ID.lab_grant.effect)} per level.`,
+              'Line Upgrade does nothing during the Power Cap and Single Room challenges.',
+            ),
+            warn('The Halving wipes the Lab: levels and the running project are lost. Finish what you started before resetting.'),
+          ],
+        },
+        {
+          id: 'roadmap',
+          title: 'Roadmap',
+          keywords: ['objetivo', 'meta', 'goal', 'roadmap', 'hoja de ruta', 'tutorial', 'guia'],
+          blocks: [
+            p(`The bar under the top panel shows your current **goal**, how far along you are and its reward. There are ${ROADMAP.length} goals that walk you through every system of the game, in order. When one is met, press **Claim**; **Go** opens the panel where it is done.`),
+            table(T.roadmapTable(L)),
+            info('Goal cash is a gift: like contract prizes, it does not count as earnings for levels or The Halving. The full list lives in the Trophies tab, next to the session charts.'),
+          ],
+        },
+        {
+          id: 'drones',
+          title: 'Supply drones and Overdrive',
+          keywords: ['dron', 'drone', 'airdrop', 'caja', 'crate', 'overdrive', 'suministros'],
+          blocks: [
+            p(`Every ${AIRDROP.interval[0]}–${AIRDROP.interval[1]} s a **supply drone** crosses the room with a mystery crate. It stays ${AIRDROP.lifetimeSec} s: click it (or the **Catch the drone** button) before it leaves.`),
+            table(T.airdropTable(L)),
+            list(
+              `**Overdrive** multiplies the hashrate of the whole farm by ${AIRDROP.overdriveMul}. More hashrate also means more heat and power draw, so leave some headroom.`,
+              `The ${n(TALENT_BY_ID.drone_uplink.name)} talent makes every crate ${pct(TALENT_BY_ID.drone_uplink.effect)} bigger per level (longer Overdrive too).`,
+              'Drones only come while you play: none arrive offline.',
+            ),
+          ],
+        },
+        {
+          id: 'daily',
+          title: 'Daily bonus',
+          keywords: ['diario', 'daily', 'racha', 'streak', 'regalo', 'gift'],
+          blocks: [
+            p('The gift button on the goal bar opens the **daily bonus**: one claim per calendar day. Consecutive days climb a 7-day ladder; skipping a day sends you back to day 1.'),
+            table(T.dailyTable(L)),
+          ],
+        },
+        {
+          id: 'forge',
+          title: 'Silicon Forge and bulk buying',
+          keywords: ['forja', 'forge', 'fusionar', 'fuse', 'cantidad', 'bulk', 'x10', 'autocompletar'],
+          blocks: [
+            p('In **Rigs → Silicon Forge** you melt 3 spare GPUs (not mounted in a rack) of the same model and grade into 1 of the next grade: Bronze → Silver → Gold → Silicon God. The new card has fresh paste, no wear and its own freshly rolled overclock headroom.'),
+            list(
+              'The most worn units are used first.',
+              'The Forge is closed during the Bronze Only challenge.',
+              'The Shop has a quantity selector (x1, x5, x10, MAX): bulk GPU purchases roll the Silicon Lottery for every card and summarise the result.',
+              '**Auto-fill all** mounts the best spare parts in every placed rack, and **Re-paste all** renews the paste of every mounted GPU below 60%.',
+            ),
+            tip('Buying cheap cards in bulk and fusing the Bronze ones is a reliable way to get Gold silicon for overclocking.'),
           ],
         },
       ],

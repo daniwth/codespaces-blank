@@ -1,6 +1,7 @@
 import { Terminal } from 'lucide-react';
 import { useEffect, useRef } from 'react';
-import { useT } from '../../i18n';
+import { useLang, useT } from '../../i18n';
+import { logLine } from '../../store/logLine';
 import { useGameStore } from '../../store/useGameStore';
 
 const TONE: Record<string, string> = { info: '#a5b4fc', good: '#a3e635', warn: '#fbbf24', bad: '#f43f5e' };
@@ -8,6 +9,7 @@ const TONE: Record<string, string> = { info: '#a5b4fc', good: '#a3e635', warn: '
 /** Scrolling system log rendered like an old green-screen terminal. */
 export function EventLog() {
   const t = useT();
+  const lang = useLang();
   const log = useGameStore((s) => s.log);
   const ref = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -23,8 +25,8 @@ export function EventLog() {
         {log.length === 0 && <div className="text-[#4ade80]/60">&gt; {t('boot ok. awaiting hashes_')}</div>}
         {log.map((e) => (
           <div key={e.id} className="flex gap-2">
-            <span className="shrink-0 text-[#166534]">{new Date(e.t).toLocaleTimeString([], { hour12: false })}</span>
-            <span style={{ color: TONE[e.tone] }}>{e.text}</span>
+            <span className="shrink-0 text-[#166534]">{new Date(e.t).toLocaleTimeString(lang, { hour12: false })}</span>
+            <span style={{ color: TONE[e.tone] }}>{logLine(e, lang)}</span>
           </div>
         ))}
       </div>

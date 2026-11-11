@@ -1,3 +1,4 @@
+import { AIRDROP } from '../config/airdrops';
 import { COIN_MARKET, emptyAlts } from '../config/altcoins';
 import { GPU_BY_ID, QUALITY_DEFS } from '../config/hardwareCatalog';
 import { MARKET, SAVE_VERSION, STARTING_CASH, EVENT_INTERVAL } from '../config/gameBalance';
@@ -140,9 +141,16 @@ export function createInitialData(carry?: Partial<GameData>, challenge?: Challen
     stats: carry?.stats ?? {
       blocksFound: 0, halvings: 0, raids: 0, bsods: 0, overheats: 0, stableOverclocks: 0,
       gpusBought: 0, playTimeSec: 0, maxHashrate: 0, bestTrade: 0, contractsCompleted: 0,
+      airdrops: 0, fusions: 0, researchDone: 0, bestStreak: 0,
     },
     challenge: challenge ? { id: challenge, startedAt: now } : null,
     challengeRecords: carry?.challengeRecords ?? {},
+    // Lab research and the Overdrive surge belong to the run: every Halving starts them from scratch.
+    research: { levels: {}, active: null },
+    boost: null,
+    nextAirdropAt: now + AIRDROP.firstDelaySec * 1000,
+    roadmap: carry?.roadmap ?? { step: 0, ready: false },
+    daily: carry?.daily ?? { lastDay: 0, streak: 0 },
     settings: carry?.settings ?? { muted: false, volume: 0.6, ambientHum: true, particles: true, offlineProgress: true },
   };
   // A fresh board scaled to this run (The Halving starts a new one: the old targets were sized for the old farm).

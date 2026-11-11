@@ -1,18 +1,27 @@
 import { tr } from '../../i18n';
-import { COOLER_BY_ID, GPU_BY_ID, PSU_BY_ID, QUALITY_DEFS, RACK_BY_ID } from '../../config/hardwareCatalog';
+import { COOLER_BY_ID, GPU_BY_ID, PSU_BY_ID, QUALITY_DEFS, QUALITY_ORDER, RACK_BY_ID } from '../../config/hardwareCatalog';
 import { talentModifiers } from '../../config/prestigeTree';
-import type { ComponentKind, GpuInstance, OverclockSettings, RackInstance } from '../../types/hardware';
-import { bnAdd, bnGte, bnSub } from '../../utils/bignum';
+import { ROOM_ORDER } from '../../config/roomsCatalog';
+import type { ComponentKind, CoolerInstance, GpuInstance, OverclockSettings, PsuInstance, RackInstance, SiliconQuality } from '../../types/hardware';
+import type { GameData, RoomId } from '../../types/player';
+import { bnAdd, bnGte, bnSub, bnToNumber } from '../../utils/bignum';
 import { makeUid, sfxBus, fxBus } from '../../utils/eventBus';
 import { formatCash } from '../../utils/formatters';
 import { aiAutoTune, crashChance, ocHashBonus, STOCK_OC } from '../gamePhysics';
 import { recordGpuEdit } from '../editLedger';
 import { createGpu, createRack, rollQuality } from '../initialState';
 import { PHYSICS } from '../../config/gameBalance';
+import { hardwarePrice } from '../pricing';
 import type { GameStore, GetState, HardwareSlice, SetState } from '../storeTypes';
 import { challengeBlocks } from './challengesSlice';
 
 export const SELL_REFUND = 0.5;
+/** Silicon Forge: spare GPUs of one model and grade melted into one of the next grade. */
+export const FUSE_COUNT = 3;
+/** "Re-paste all" touches every mounted GPU whose paste is below this. */
+export const REPASTE_ALL_BELOW = 0.6;
+/** Largest batch the Shop sells in one click. */
+export const MAX_BULK = 50;
 
 export const repasteCost = (g: GpuInstance): number => Math.max(5, Math.round(GPU_BY_ID[g.modelId].price * 0.03));
 export const repairCost = (g: GpuInstance): number => Math.max(5, Math.round(GPU_BY_ID[g.modelId].price * 0.5 * g.wear));
@@ -25,6 +34,68 @@ export function findMount(state: Pick<GameStore, 'racks'>, kind: 'gpu' | 'cooler
 }
 
 const withoutUid = (slots: (string | null)[], uid: string) => slots.map((s) => (s === uid ? null : s));
+
+type Parts = Pick<GameData, 'racks' | 'gpus' | 'coolers' | 'psus'>;
+
+/** Uids of every part mounted in any rack. */
+export function mountedUids(racks: Record<string, RackInstance>): Set<string> {
+  const set = new Set<string>();
+  Object.values(racks).forEach((r) => {
+    r.gpuSlots.forEach((u) => u && set.add(u));
+    r.fanSlots.forEach((u) => u && set.add(u));
+    if (r.psuUid) set.add(r.psuUid);
+  });
+  return set;
+}
+
+/**
+ * Fills the free slots of one rack with the best spare parts (highest hashrate GPUs, strongest
+ * coolers, biggest PSU). Pure: returns the new rack and how many parts it took; `taken` collects
+ * the uids used so several racks can be filled in a row from the same storage.
+ */
+export function fillRack(rack: RackInstance, s: Parts, taken: Set<string>): { rack: RackInstance; count: number } {
+  const model = RACK_BY_ID[rack.modelId];
+  const free = <T extends { uid: string }>(rec: Record<string, T>): T[] => Object.values(rec).filter((x) => !taken.has(x.uid));
+  const freeGpus = free<GpuInstance>(s.gpus).sort((a, b) => GPU_BY_ID[b.modelId].hashrate - GPU_BY_ID[a.modelId].hashrate);
+  const freeCoolers = free<CoolerInstance>(s.coolers).sort((a, b) => COOLER_BY_ID[b.modelId].cooling - COOLER_BY_ID[a.modelId].cooling);
+  const freePsus = free<PsuInstance>(s.psus).sort((a, b) => PSU_BY_ID[b.modelId].capacity - PSU_BY_ID[a.modelId].capacity);
+  let count = 0;
+  const take = <T extends { uid: string }>(list: T[]): string | null => {
+    const next = list.shift();
+    if (!next) return null;
+    taken.add(next.uid);
+    count += 1;
+    return next.uid;
+  };
+  const gpuSlots = rack.gpuSlots.map((u) => u ?? take(freeGpus));
+  const fanSlots = rack.fanSlots.map((u) => u ?? take(freeCoolers));
+  const psuUid = rack.psuUid ?? (model.selfPowered ? null : take(freePsus));
+  return { rack: count > 0 ? { ...rack, gpuSlots, fanSlots, psuUid } : rack, count };
+}
+
+export interface FusableGroup {
+  modelId: string;
+  quality: SiliconQuality;
+  /** Spare (unmounted) GPUs of this model and grade. */
+  count: number;
+  next: SiliconQuality;
+}
+
+/** Spare GPUs grouped by model and grade, for every grade that can still be fused up. */
+export function fusableGroups(s: Parts): FusableGroup[] {
+  const mounted = mountedUids(s.racks);
+  const counts = new Map<string, FusableGroup>();
+  Object.values(s.gpus).forEach((g) => {
+    const idx = QUALITY_ORDER.indexOf(g.quality);
+    if (mounted.has(g.uid) || idx < 0 || idx >= QUALITY_ORDER.length - 1) return;
+    const key = `${g.modelId}|${g.quality}`;
+    const group = counts.get(key) ?? { modelId: g.modelId, quality: g.quality, count: 0, next: QUALITY_ORDER[idx + 1] };
+    group.count += 1;
+    counts.set(key, group);
+  });
+  return [...counts.values()].sort((a, b) =>
+    GPU_BY_ID[b.modelId].tier - GPU_BY_ID[a.modelId].tier || QUALITY_ORDER.indexOf(b.quality) - QUALITY_ORDER.indexOf(a.quality));
+}
 
 /** Detach a component from any rack in a racks map (returns a new map). */
 function detach(racks: Record<string, RackInstance>, kind: 'gpu' | 'cooler' | 'psu', uid: string): Record<string, RackInstance> {
@@ -54,7 +125,7 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
   return {
     buyGpu: (modelId) => {
       const model = GPU_BY_ID[modelId];
-      if (!model || !spend(model.price, model.name)) return null;
+      if (!model || !spend(hardwarePrice(model.price, get()), model.name)) return null;
       // Bronze Only: the silicon lottery is locked to Bronze.
       const quality = challengeBlocks(get(), 'bronzeOnly') ? 'bronze' : rollQuality(talentModifiers(get().talents).qualityLuck);
       const gpu = createGpu(modelId, quality);
@@ -72,7 +143,7 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
 
     buyPsu: (modelId) => {
       const model = PSU_BY_ID[modelId];
-      if (!model || !spend(model.price, model.name)) return false;
+      if (!model || !spend(hardwarePrice(model.price, get()), model.name)) return false;
       const uid = makeUid('psu');
       set((s) => ({ psus: { ...s.psus, [uid]: { uid, modelId } } }));
       get().pushLog(tr('Bought PSU {name}.', { name: tr(model.name) }));
@@ -82,7 +153,7 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
 
     buyCooler: (modelId) => {
       const model = COOLER_BY_ID[modelId];
-      if (!model || !spend(model.price, model.name)) return false;
+      if (!model || !spend(hardwarePrice(model.price, get()), model.name)) return false;
       const uid = makeUid('cool');
       set((s) => ({ coolers: { ...s.coolers, [uid]: { uid, modelId } } }));
       get().pushLog(tr('Bought cooler {name}.', { name: tr(model.name) }));
@@ -92,7 +163,7 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
 
     buyRack: (modelId) => {
       const model = RACK_BY_ID[modelId];
-      if (!model || model.vip || !spend(model.price, model.name)) return false;
+      if (!model || model.vip || !spend(hardwarePrice(model.price, get()), model.name)) return false;
       const rack = createRack(modelId, model.slots, model.fanSlots);
       set((s) => ({ racks: { ...s.racks, [rack.uid]: rack } }));
       get().pushLog(tr('Bought {name}. Click an empty floor pad to place it.', { name: tr(model.name) }));
@@ -215,44 +286,166 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
       const s = get();
       const rack = s.racks[rackUid];
       if (!rack) return 0;
-      const model = RACK_BY_ID[rack.modelId];
-      const mounted = new Set<string>();
-      Object.values(s.racks).forEach((r) => {
-        r.gpuSlots.forEach((u) => u && mounted.add(u));
-        r.fanSlots.forEach((u) => u && mounted.add(u));
-        if (r.psuUid) mounted.add(r.psuUid);
-      });
-      const freeGpus = Object.values(s.gpus).filter((g) => !mounted.has(g.uid))
-        .sort((a, b) => GPU_BY_ID[b.modelId].hashrate - GPU_BY_ID[a.modelId].hashrate);
-      const freeCoolers = Object.values(s.coolers).filter((c) => !mounted.has(c.uid))
-        .sort((a, b) => COOLER_BY_ID[b.modelId].cooling - COOLER_BY_ID[a.modelId].cooling);
-      const freePsus = Object.values(s.psus).filter((p) => !mounted.has(p.uid))
-        .sort((a, b) => PSU_BY_ID[b.modelId].capacity - PSU_BY_ID[a.modelId].capacity);
-      let count = 0;
-      const gpuSlots = rack.gpuSlots.map((u) => {
-        if (u) return u;
-        const next = freeGpus.shift();
-        if (next) count += 1;
-        return next?.uid ?? null;
-      });
-      const fanSlots = rack.fanSlots.map((u) => {
-        if (u) return u;
-        const next = freeCoolers.shift();
-        if (next) count += 1;
-        return next?.uid ?? null;
-      });
-      let psuUid = rack.psuUid;
-      if (!psuUid && !model.selfPowered && freePsus.length) {
-        psuUid = freePsus[0].uid;
-        count += 1;
-      }
-      if (count > 0) {
-        set({ racks: { ...s.racks, [rackUid]: { ...rack, gpuSlots, fanSlots, psuUid } } });
+      const filled = fillRack(rack, s, mountedUids(s.racks));
+      if (filled.count > 0) {
+        set({ racks: { ...s.racks, [rackUid]: filled.rack } });
         sfxBus.emit('install');
       } else {
         sfxBus.emit('error');
       }
+      return filled.count;
+    },
+
+    autoFillAll: () => {
+      const s = get();
+      const taken = mountedUids(s.racks);
+      const racks = { ...s.racks };
+      let count = 0;
+      // Placed racks only, room by room and pad by pad, so the best parts go to the first racks.
+      Object.values(s.racks)
+        .filter((r) => r.roomId !== null)
+        .sort((a, b) => ROOM_ORDER.indexOf(a.roomId as RoomId) - ROOM_ORDER.indexOf(b.roomId as RoomId) || (a.pad ?? 0) - (b.pad ?? 0))
+        .forEach((r) => {
+          const filled = fillRack(r, s, taken);
+          racks[r.uid] = filled.rack;
+          count += filled.count;
+        });
+      if (count > 0) {
+        set({ racks });
+        s.logT('Auto-fill: {n} parts installed across your racks.', { n: count }, 'info');
+        sfxBus.emit('install');
+      } else {
+        s.logT('Auto-fill: nothing to install. Buy parts or place a rack first.', undefined, 'warn');
+        sfxBus.emit('error');
+      }
       return count;
+    },
+
+    repasteAll: () => {
+      const s = get();
+      const mounted = mountedUids(s.racks);
+      // Driest first: if the cash runs out, the GPUs that need it most are done.
+      const dry = Object.values(s.gpus).filter((g) => mounted.has(g.uid) && g.paste < REPASTE_ALL_BELOW).sort((a, b) => a.paste - b.paste);
+      let budget = bnToNumber(s.cash);
+      let spent = 0;
+      const gpus = { ...s.gpus };
+      let count = 0;
+      for (const g of dry) {
+        const cost = repasteCost(g);
+        if (cost > budget) continue;
+        budget -= cost;
+        spent += cost;
+        gpus[g.uid] = { ...g, paste: 1 };
+        recordGpuEdit(g.uid, { paste: 1 });
+        count += 1;
+      }
+      if (count === 0) {
+        s.logT(dry.length ? 'Not enough cash to re-paste any GPU.' : 'Every mounted GPU still has good thermal paste.', undefined, dry.length ? 'warn' : 'info');
+        sfxBus.emit('error');
+        return 0;
+      }
+      set({ gpus, cash: bnSub(s.cash, spent) });
+      s.logT('Re-pasted {n} GPUs for {price}.', { n: count, price: formatCash(spent) }, 'good');
+      sfxBus.emit('install');
+      return count;
+    },
+
+    buyMany: (kind, modelId, qty) => {
+      const want = Math.min(MAX_BULK, Math.max(1, Math.floor(qty)));
+      const single = (): boolean =>
+        kind === 'gpu' ? get().buyGpu(modelId) !== null : kind === 'psu' ? get().buyPsu(modelId) : kind === 'cooler' ? get().buyCooler(modelId) : get().buyRack(modelId);
+      if (want === 1) return single() ? 1 : 0;
+      const s = get();
+      const model = kind === 'gpu' ? GPU_BY_ID[modelId] : kind === 'psu' ? PSU_BY_ID[modelId] : kind === 'cooler' ? COOLER_BY_ID[modelId] : RACK_BY_ID[modelId];
+      if (!model || (kind === 'rack' && RACK_BY_ID[modelId].vip)) return 0;
+      const unit = hardwarePrice(model.price, s);
+      const count = Math.min(want, Math.floor(bnToNumber(s.cash) / unit));
+      if (count <= 0) {
+        sfxBus.emit('error');
+        s.logT('Not enough cash for {label} ({price}).', { label: model.name, price: formatCash(unit) }, 'warn');
+        return 0;
+      }
+      const cash = bnSub(s.cash, unit * count);
+      const total = formatCash(unit * count);
+      if (kind === 'gpu') {
+        const luck = talentModifiers(s.talents).qualityLuck;
+        const bronzeOnly = challengeBlocks(s, 'bronzeOnly');
+        const gpus = { ...s.gpus };
+        const rolled: Record<SiliconQuality, number> = { bronze: 0, silver: 0, gold: 0, god: 0 };
+        for (let i = 0; i < count; i += 1) {
+          const quality = bronzeOnly ? 'bronze' : rollQuality(luck);
+          const gpu = createGpu(modelId, quality);
+          gpus[gpu.uid] = gpu;
+          rolled[quality] += 1;
+        }
+        const best = [...QUALITY_ORDER].reverse().find((q) => rolled[q] > 0) ?? 'bronze';
+        set({ cash, gpus, stats: { ...s.stats, gpusBought: s.stats.gpusBought + count }, lottery: { modelId, quality: best, t: Date.now() } });
+        s.logT('Bought {n}x {name} for {price}. Silicon Lottery: {bronze} Bronze, {silver} Silver, {gold} Gold, {god} Silicon God.',
+          { n: count, name: model.name, price: total, bronze: rolled.bronze, silver: rolled.silver, gold: rolled.gold, god: rolled.god },
+          rolled.god + rolled.gold > 0 ? 'good' : 'info');
+        sfxBus.emit(rolled.god > 0 ? 'unlock' : 'buy');
+        fxBus.emit({ kind: 'lottery', quality: best });
+        if (rolled.god > 0) fxBus.emit({ kind: 'confetti', intensity: 0.6 });
+        return count;
+      }
+      if (kind === 'psu') {
+        const psus = { ...s.psus };
+        for (let i = 0; i < count; i += 1) {
+          const uid = makeUid('psu');
+          psus[uid] = { uid, modelId };
+        }
+        set({ cash, psus });
+      } else if (kind === 'cooler') {
+        const coolers = { ...s.coolers };
+        for (let i = 0; i < count; i += 1) {
+          const uid = makeUid('cool');
+          coolers[uid] = { uid, modelId };
+        }
+        set({ cash, coolers });
+      } else {
+        const rackModel = RACK_BY_ID[modelId];
+        const racks = { ...s.racks };
+        for (let i = 0; i < count; i += 1) {
+          const rack = createRack(modelId, rackModel.slots, rackModel.fanSlots);
+          racks[rack.uid] = rack;
+        }
+        set({ cash, racks });
+      }
+      s.logT('Bought {n}x {name} for {price}.', { n: count, name: model.name, price: total }, 'info');
+      sfxBus.emit('buy');
+      return count;
+    },
+
+    fuseGpus: (modelId, quality) => {
+      const s = get();
+      const model = GPU_BY_ID[modelId];
+      const idx = QUALITY_ORDER.indexOf(quality);
+      if (!model || idx < 0 || idx >= QUALITY_ORDER.length - 1) return null;
+      if (challengeBlocks(s, 'bronzeOnly')) {
+        get().denyByChallenge(tr('the Silicon Forge is closed: only Bronze silicon counts.'));
+        return null;
+      }
+      const mounted = mountedUids(s.racks);
+      // The most worn units go into the furnace first.
+      const spare = Object.values(s.gpus).filter((g) => g.modelId === modelId && g.quality === quality && !mounted.has(g.uid)).sort((a, b) => b.wear - a.wear);
+      if (spare.length < FUSE_COUNT) {
+        s.logT('The Forge needs {n} spare {quality} {name} (not mounted in a rack).', { n: FUSE_COUNT, quality: QUALITY_DEFS[quality].label, name: model.name }, 'warn');
+        sfxBus.emit('error');
+        return null;
+      }
+      const next = QUALITY_ORDER[idx + 1];
+      const fused = createGpu(modelId, next);
+      const gpus = { ...s.gpus };
+      spare.slice(0, FUSE_COUNT).forEach((g) => delete gpus[g.uid]);
+      gpus[fused.uid] = fused;
+      set({ gpus, stats: { ...s.stats, fusions: s.stats.fusions + 1 }, lottery: { modelId, quality: next, t: Date.now() } });
+      s.logT('SILICON FORGE: {n}x {from} {name} fused into 1 {to}.', { n: FUSE_COUNT, from: QUALITY_DEFS[quality].label, name: model.name, to: QUALITY_DEFS[next].label }, next === 'god' || next === 'gold' ? 'good' : 'info');
+      sfxBus.emit('fuse');
+      fxBus.emit({ kind: 'lottery', quality: next });
+      if (next === 'god') fxBus.emit({ kind: 'confetti', intensity: 0.6 });
+      get().checkRoadmap();
+      get().checkAchievements();
+      return fused;
     },
 
     applyOverclock: (gpuUid, oc: OverclockSettings) => {

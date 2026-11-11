@@ -1,9 +1,11 @@
+import { Flame, PaintBucket, Wrench } from 'lucide-react';
 import { useMemo } from 'react';
-import { COOLER_BY_ID, GPU_BY_ID, PSU_BY_ID, RACK_BY_ID } from '../../config/hardwareCatalog';
+import { COOLER_BY_ID, GPU_BY_ID, PSU_BY_ID, QUALITY_DEFS, RACK_BY_ID } from '../../config/hardwareCatalog';
 import { ROOM_BY_ID } from '../../config/roomsCatalog';
 import { useT } from '../../i18n';
 import { sprites } from '../../engine/SpriteManager';
-import { SELL_REFUND } from '../../store/slices/hardwareSlice';
+import { challengeBlocks } from '../../store/slices/challengesSlice';
+import { FUSE_COUNT, REPASTE_ALL_BELOW, SELL_REFUND, fusableGroups, repasteCost } from '../../store/slices/hardwareSlice';
 import { useGameShallow, useGameStore } from '../../store/useGameStore';
 import { formatCash, formatHashrate, formatPower, formatTemp, tempColor } from '../../utils/formatters';
 import { QualityBadge } from '../game/RackDetailModal';
@@ -13,8 +15,8 @@ import { SpriteImg } from '../ui/SpriteImg';
 /** Overview of every rack and the spare parts sitting in storage. */
 export function InventoryPanel() {
   const t = useT();
-  const s = useGameShallow((st) => ({ racks: st.racks, gpus: st.gpus, psus: st.psus, coolers: st.coolers, live: st.live }));
-  const { selectRack, sellItem, setActiveRoom } = useGameStore.getState();
+  const s = useGameShallow((st) => ({ racks: st.racks, gpus: st.gpus, psus: st.psus, coolers: st.coolers, live: st.live, forgeClosed: challengeBlocks(st, 'bronzeOnly') }));
+  const { selectRack, sellItem, setActiveRoom, autoFillAll, repasteAll, fuseGpus } = useGameStore.getState();
 
   const mounted = useMemo(() => {
     const set = new Set<string>();
@@ -30,9 +32,22 @@ export function InventoryPanel() {
   const spareGpus = Object.values(s.gpus).filter((g) => !mounted.has(g.uid));
   const spareCoolers = Object.values(s.coolers).filter((c) => !mounted.has(c.uid));
   const sparePsus = Object.values(s.psus).filter((p) => !mounted.has(p.uid));
+  const groups = useMemo(() => fusableGroups(s), [s.gpus, s.racks]); // eslint-disable-line react-hooks/exhaustive-deps
+  const dry = Object.values(s.gpus).filter((g) => mounted.has(g.uid) && g.paste < REPASTE_ALL_BELOW);
+  const dryCost = dry.reduce((a, g) => a + repasteCost(g), 0);
+  const spareCount = spareGpus.length + spareCoolers.length + sparePsus.length;
 
   return (
     <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap gap-1">
+        <PixelButton size="xs" variant="primary" icon={<Wrench size={10} />} disabled={spareCount === 0} onClick={() => autoFillAll()} title={t('Mount the best spare parts in every placed rack.')} data-testid="autofill-all" silent>
+          {t('Auto-fill all')}
+        </PixelButton>
+        <PixelButton size="xs" variant="secondary" icon={<PaintBucket size={10} />} disabled={dry.length === 0} onClick={() => repasteAll()} title={t('Re-paste every mounted GPU whose thermal paste is below {pct}%.', { pct: Math.round(REPASTE_ALL_BELOW * 100) })} data-testid="repaste-all" silent>
+          {dry.length ? t('Re-paste all ({n} · {price})', { n: dry.length, price: formatCash(dryCost, 0) }) : t('Re-paste all')}
+        </PixelButton>
+      </div>
+
       <section>
         <h3 className="mb-1 font-pixel text-[9px] text-neon">{t('RACKS ({n})', { n: racks.length })}</h3>
         <div className="flex flex-col gap-1">
@@ -64,9 +79,44 @@ export function InventoryPanel() {
         </div>
       </section>
 
+      <section data-testid="forge">
+        <h3 className="mb-1 flex items-center gap-2 font-pixel text-[9px] text-[#fb923c]">
+          <Flame size={13} /> {t('SILICON FORGE')}
+        </h3>
+        <p className="mb-1 text-[16px] leading-tight text-dim">
+          {t('Melt {n} spare GPUs of the same model and grade into one of the next grade: better silicon overclocks further. The result comes out with fresh paste and no wear.', { n: FUSE_COUNT })}
+        </p>
+        {s.forgeClosed && <p className="text-[16px] text-hot">{t('Closed during the Bronze Only challenge.')}</p>}
+        {groups.length === 0 && !s.forgeClosed && <p className="bg-panel-2 p-1.5 text-[16px] text-dim">{t('No spare GPUs to fuse. Unmount or buy some: only parts outside a rack count.')}</p>}
+        <div className="flex flex-col gap-1">
+          {groups.map((g) => {
+            const gm = GPU_BY_ID[g.modelId];
+            const ready = g.count >= FUSE_COUNT && !s.forgeClosed;
+            return (
+              <div key={`${g.modelId}|${g.quality}`} className="flex items-center gap-2 bg-panel-2 p-1.5 text-[16px] leading-tight" data-testid={`forge-${g.modelId}-${g.quality}`}>
+                <SpriteImg src={sprites.gpuIcon(gm.id)} width={60} alt="" />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate">{t(gm.name)}</div>
+                  <div className="flex flex-wrap items-center gap-1">
+                    <QualityBadge quality={g.quality} />
+                    <span className={ready ? 'text-lime' : 'text-dim'}>{g.count}/{FUSE_COUNT}</span>
+                    <span className="text-dim">→</span>
+                    <QualityBadge quality={g.next} />
+                    <span className="text-dim">{t('+{mhz} MHz core headroom', { mhz: QUALITY_DEFS[g.next].coreHeadroom[1] })}</span>
+                  </div>
+                </div>
+                <PixelButton size="xs" variant={ready ? 'gold' : 'secondary'} disabled={!ready} onClick={() => fuseGpus(g.modelId, g.quality)} silent>
+                  {t('Fuse')}
+                </PixelButton>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
       <section>
         <h3 className="mb-1 font-pixel text-[9px] text-neon">{t('SPARE PARTS')}</h3>
-        {spareGpus.length + spareCoolers.length + sparePsus.length === 0 && <p className="text-[16px] text-dim">{t('Everything is installed. Buy more in the Shop.')}</p>}
+        {spareCount === 0 && <p className="text-[16px] text-dim">{t('Everything is installed. Buy more in the Shop.')}</p>}
         <div className="flex flex-col gap-1">
           {spareGpus.map((g) => {
             const gm = GPU_BY_ID[g.modelId];

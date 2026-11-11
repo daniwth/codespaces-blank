@@ -334,7 +334,7 @@ describe('altcoin persistence', () => {
     v5.cc = '123';
     v5.meme = 7;
     const migrated = migrateSave(v5, 5);
-    expect(SAVE_VERSION).toBe(6);
+    expect(SAVE_VERSION).toBeGreaterThanOrEqual(6);
     expect(migrated.saveVersion).toBe(SAVE_VERSION);
     expect(migrated.alts).toEqual({ BYT: { amount: 0, costBasis: 0 }, NOVA: { amount: 0, costBasis: 0 } });
     expect(migrated.minedCoin).toBe('CC');
