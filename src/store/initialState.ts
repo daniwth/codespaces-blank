@@ -151,7 +151,7 @@ export function createInitialData(carry?: Partial<GameData>, challenge?: Challen
     nextAirdropAt: now + AIRDROP.firstDelaySec * 1000,
     roadmap: carry?.roadmap ?? { step: 0, ready: false },
     daily: carry?.daily ?? { lastDay: 0, streak: 0 },
-    autopilot: carry?.autopilot ?? { remainingSec: 0, paused: false, purchases: 0, spent: 0 },
+    autopilot: carry?.autopilot ?? { remainingSec: 0, paused: false, purchases: 0, spent: 0, autoHalving: false },
     settings: carry?.settings ?? { muted: false, volume: 0.6, ambientHum: true, particles: true, offlineProgress: true },
   };
   // A fresh board scaled to this run (The Halving starts a new one: the old targets were sized for the old farm).

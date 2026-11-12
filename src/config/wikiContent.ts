@@ -689,7 +689,8 @@ export function sectionsEs(): WikiSection[] {
             formula('puntuación = coste / ganancia + max(0, coste − efectivo) / ingreso neto'),
             list(
               `Guarda ${min(AUTOPILOT.reserveBillSec)} de factura eléctrica en reserva y nunca compra nada que tarde más de ${min(AUTOPILOT.maxPaybackSec)} en amortizarse.`,
-              'Nunca gasta gemas ni $SC, nunca toca $MEME ni tus bots de trading, nunca cambia contratos y nunca activa The Halving: esas decisiones siguen siendo tuyas.',
+              'Nunca gasta gemas, nunca toca $MEME ni tus bots de trading y nunca cambia contratos.',
+              'El **Halving automático** es opcional y viene desactivado. Con él activado, el gestor hace The Halving cuando esperar al siguiente $SC bajaría tus $SC por hora, es decir, cuando (SC + 1) / (tiempo de partida + tiempo para ganarlo) no mejora SC / tiempo de partida. Después gasta los $SC en los talentos disponibles más baratos y reconstruye la granja.',
               'Con AI Self-Diagnostics aplica además el overclock seguro de Auto-Tune a las tarjetas frías cuya fuente tiene margen.',
             ),
             tip('Una hora de gestor vale más justo después de The Halving, cuando hay toda una granja por reconstruir.'),

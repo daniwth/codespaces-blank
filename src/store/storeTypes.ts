@@ -205,6 +205,8 @@ export interface AutopilotSlice {
   /** Spend gems on manager time (plans stack up to a week). */
   buyAutopilot: (plan: AutopilotPlanId) => boolean;
   setAutopilotPaused: (paused: boolean) => void;
+  /** Opt in or out of automatic Halvings (and talent purchases) while the manager works. */
+  setAutopilotAutoHalving: (on: boolean) => void;
   /** Burn manager time and let it act (called every online tick with the tick's seconds). */
   autopilotTick: (dtSec: number, now?: number) => void;
 }

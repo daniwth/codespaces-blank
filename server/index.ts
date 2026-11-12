@@ -20,6 +20,7 @@ import {
 } from './http.ts';
 import { alreadyRegisteredMail, dispatchMail, resetMail, verifyMail } from './mail.ts';
 import { inspectSave } from './saves.ts';
+import { seedTestAccount, TEST_ACCOUNT } from './seed.ts';
 
 /** Account creation per IP. */
 const registerLimiter = createRateLimiter(10, 60_000);
@@ -318,6 +319,11 @@ setInterval(() => {
   purgeWebhookEvents(90 * 86_400_000);
 }, 3_600_000).unref();
 onBillingStartup();
+// Development servers only (see seed.ts): a ready-made login to test the gem features. Seeded before
+// the port opens, so the account is there for the very first request.
+const seeded = await seedTestAccount();
+if (seeded === 'removed') console.log(`[server] removed the development test account "${TEST_ACCOUNT.login}": it is not allowed on this server`);
+else if (seeded !== 'skipped') console.log(`[server] test account ${seeded}: "${TEST_ACCOUNT.login}" / "${TEST_ACCOUNT.password}" (dev only; SEED_TEST_ACCOUNT=0 disables it)`);
 
 server.listen(config.port, () => {
   console.log(`[server] Hash Harvest accounts on http://localhost:${config.port}`);

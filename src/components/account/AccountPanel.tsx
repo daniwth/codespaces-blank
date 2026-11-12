@@ -202,8 +202,9 @@ function AuthForm() {
       setLocalError(t('Enter your email.'));
       return;
     }
-    if (password.length < 8) {
-      setLocalError(t('Password must be at least 8 characters.'));
+    // The length rule is for new passwords; an existing account logs in with whatever it has.
+    if (mode === 'register' ? password.length < 8 : !password) {
+      setLocalError(mode === 'register' ? t('Password must be at least 8 characters.') : t('Enter your password.'));
       return;
     }
     if (mode === 'register' && password !== confirm) {
@@ -233,7 +234,7 @@ function AuthForm() {
           className="retro-input"
           type="password"
           autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-          minLength={8}
+          minLength={mode === 'login' ? undefined : 8}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required

@@ -228,8 +228,15 @@ export const esProgress: Dict = {
   Resume: 'Reanudar',
   Pause: 'Pausar',
   '{n} purchases · {spent} invested': '{n} compras · {spent} invertidos',
-  'Its time only runs while the game is open, and stops while paused. It never spends gems or $SC and never triggers The Halving.':
-    'Su tiempo solo corre con el juego abierto y se detiene en pausa. Nunca gasta gemas ni $SC y nunca activa The Halving.',
+  'Its time only runs while the game is open, and stops while paused. It never spends gems, and it only touches The Halving and your $SC if you tick the option above.':
+    'Su tiempo solo corre con el juego abierto y se detiene en pausa. Nunca gasta gemas, y solo toca The Halving y tus $SC si marcas la opción de arriba.',
+  'Automatic Halving (optional)': 'Halving automático (opcional)',
+  'While it works, it does The Halving when waiting for the next $SC would lower your $SC per hour, then spends the $SC on the cheapest talents. This resets the run: leave it off to decide yourself.':
+    'Mientras trabaja, hace The Halving cuando esperar al siguiente $SC bajaría tus $SC por hora, y después gasta los $SC en los talentos más baratos. Esto reinicia la partida: déjalo desactivado para decidir tú.',
+  'AI Farm Manager: automatic Halving ON. It will reset the run when that earns more $SC per hour.': 'Gestor IA: Halving automático ACTIVADO. Reiniciará la partida cuando eso dé más $SC por hora.',
+  'AI Farm Manager: automatic Halving OFF.': 'Gestor IA: Halving automático DESACTIVADO.',
+  'AI MANAGER: The Halving done for +{sc} $SC; {n} talent levels bought. Rebuilding the farm.': 'GESTOR IA: The Halving hecho por +{sc} $SC; {n} niveles de talento comprados. Reconstruyendo la granja.',
+  'The Halving done: rebuilding the farm.': 'The Halving hecho: reconstruyendo la granja.',
   'AI Farm Manager: open the VIP tab to see what it is doing.': 'Gestor IA: abre la pestaña VIP para ver qué está haciendo.',
   'AI PAUSED': 'IA EN PAUSA',
   'AI · {time}': 'IA · {time}',

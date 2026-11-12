@@ -131,6 +131,20 @@ try {
   let demo = await start(P.demo, { STRIPE_SECRET_KEY: '', TRUST_PROXY: '0' });
   const d = api(P.demo);
 
+  await check('dev test account: danitest / AITEST logs in with a Miner Pass and a 1000-gem empty save', async () => {
+    const d = api(P.demo);
+    const login = await d('POST', '/auth/login', { email: 'danitest', password: 'AITEST' });
+    assert(login.status === 200 && login.json.user.subscription.active, `login: ${login.status} ${JSON.stringify(login.json)}`);
+    const auth = { Authorization: `Bearer ${login.json.token}` };
+    const save = await d('GET', '/save', undefined, auth);
+    const data = JSON.parse(Buffer.from(save.json.blob, 'base64').toString('utf8')).data;
+    assert(data.gems === 1000 && !('gpus' in data) && !('lifetimeEarnings' in data), `save: ${JSON.stringify(data)}`);
+    const wrong = await d('POST', '/auth/login', { email: 'danitest', password: 'aitest' });
+    assert(wrong.status === 401, 'a wrong password logged in');
+    const taken = await d('POST', '/auth/register', { email: 'danitest', password: 'password123' });
+    assert(taken.status === 400, 'the test login could be registered as a normal account');
+  });
+
   await check('X-Forwarded-For rotation does not bypass the register limit', async () => {
     const codes = [];
     for (let i = 0; i < 12; i += 1) codes.push((await d('POST', '/auth/register', { email: `xff${i}@x.io`, password: 'password123' }, { 'X-Forwarded-For': `10.0.0.${i}` })).status);
@@ -495,6 +509,12 @@ try {
     const r = await h('POST', '/auth/register', { email: 'prod-down@x.io', password: 'password123' });
     mailApiDown = false;
     assert(r.status === 202 && JSON.stringify(r.json) === '{"accepted":true}', JSON.stringify(r.json));
+  });
+  await check('production: the dev test account does not exist, even on a database that had it', async () => {
+    const r = await h('POST', '/auth/login', { email: 'danitest', password: 'AITEST' });
+    assert(r.status === 401, `danitest logged in on a production server: ${r.status}`);
+    const users = new DatabaseSync(join(dataDir, 'hash-harvest.db'), { readOnly: true }).prepare("SELECT COUNT(*) AS n FROM users WHERE email = 'danitest'").get();
+    assert(users.n === 0, 'the test account row survived on a production server');
   });
   await stop(httpMail);
 } catch (err) {

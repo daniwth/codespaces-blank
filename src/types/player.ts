@@ -211,6 +211,8 @@ export interface AutopilotState {
   /** Purchases made and cash spent by the manager, across every plan. */
   purchases: number;
   spent: number;
+  /** Opt-in: do The Halving when waiting for the next $SC would lower the $SC per hour, then buy talents. */
+  autoHalving: boolean;
 }
 
 export interface VipState {

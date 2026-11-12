@@ -8,14 +8,14 @@ import { simulate } from '../../src/store/gamePhysics';
 import { createInitialData } from '../../src/store/initialState';
 import { logLine } from '../../src/store/logLine';
 import { migrateSave } from '../../src/store/migrations';
-import { autopilotActive, executeOps, resetAutopilotClock } from '../../src/store/slices/autopilotSlice';
+import { autopilotActive, executeOps, resetAutopilotClock, shouldHalve } from '../../src/store/slices/autopilotSlice';
 import { useGameStore } from '../../src/store/useGameStore';
 import type { GameData } from '../../src/types/player';
 import { starterWorld } from './helpers';
 
 const NOW = 1_800_000_000_000;
 const store = () => useGameStore.getState();
-const ON = { remainingSec: 3600, paused: false, purchases: 0, spent: 0 };
+const ON = { remainingSec: 3600, paused: false, purchases: 0, spent: 0, autoHalving: false };
 
 const fresh = (patch: Partial<GameData> = {}) => {
   resetAutopilotClock();
@@ -80,12 +80,12 @@ describe('autopilot plans', () => {
     expect(store().performHalving()).toBe(true);
     expect(store().autopilot).toEqual({ ...ON, purchases: 4, spent: 900 });
 
-    const data = createInitialData({ autopilot: { remainingSec: 500, paused: true, purchases: 2, spent: 10 } });
+    const data = createInitialData({ autopilot: { remainingSec: 500, paused: true, purchases: 2, spent: 10, autoHalving: true } });
     expect(migrateSave(JSON.parse(JSON.stringify(data)), SAVE_VERSION).autopilot).toEqual(data.autopilot);
     const v7 = { ...JSON.parse(JSON.stringify(data)), saveVersion: 7, autopilot: { remainingSec: 1e12 } };
     expect(migrateSave(v7, 7).autopilot.remainingSec).toBe(0);
     const bad = { ...JSON.parse(JSON.stringify(data)), autopilot: { remainingSec: 1e12, paused: 'x', purchases: -3, spent: 'NaN' } };
-    expect(migrateSave(bad, SAVE_VERSION).autopilot).toEqual({ remainingSec: AUTOPILOT.maxSeconds, paused: false, purchases: 0, spent: 0 });
+    expect(migrateSave(bad, SAVE_VERSION).autopilot).toEqual({ remainingSec: AUTOPILOT.maxSeconds, paused: false, purchases: 0, spent: 0, autoHalving: false });
   });
 });
 
@@ -182,8 +182,10 @@ describe('manager at work', () => {
     expect(Number(store().cash)).toBeGreaterThanOrEqual(0);
     expect(store().live.hottest).toBeLessThan(90);
     expect(store().stats.halvings).toBe(0);
-    const line = store().log.find((l) => l.key?.startsWith('AI MANAGER'));
-    expect(line && logLine(line, 'es')).toMatch(/^GESTOR IA: /);
+    // The log is capped, so the purchase line is rendered here from its template.
+    const line = { text: '', key: 'AI MANAGER: {what} for {price}, pays for itself in {time}.', params: { what: { key: 'new rack: {rack} with {name}', params: { rack: 'Steel Rack 4U', name: 'PX-580' } }, price: '$1K', time: '3m' } };
+    expect(logLine(line, 'es')).toMatch(/^GESTOR IA: rack nuevo: .+ con PX-580 por \$1K/);
+    expect(logLine(line, 'es')).not.toContain('Steel Rack');
     expect(store().autopilotStatus).not.toBeNull();
   }, 60_000);
 
@@ -195,5 +197,39 @@ describe('manager at work', () => {
     expect(store().meme).toBe(500);
     expect(store().talents).toEqual({});
     expect(AUTOPILOT_PLAN_BY_ID.d1.gems).toBe(25);
+  });
+});
+
+describe('automatic Halving (opt-in)', () => {
+  const run = (earnings: number, hours: number) => ({ runEarnings: String(earnings), runStartedAt: NOW - hours * 3_600_000 });
+
+  it('never fires below the Halving threshold', () => {
+    expect(shouldHalve(run(3.9e6, 5), 1000, NOW)).toBe(false);
+  });
+
+  it('waits while the next $SC is close and resets once it is not worth the wait', () => {
+    // 4 $SC after 1 h; the 5th needs $8M. At $10K/s that is 400 s away: (5 / 1.11 h) beats (4 / 1 h).
+    expect(shouldHalve(run(4e6, 1), 10_000, NOW)).toBe(false);
+    // At $100/s it is 11 hours away: reset now.
+    expect(shouldHalve(run(4e6, 1), 100, NOW)).toBe(true);
+    expect(shouldHalve(run(4e6, 1), 0, NOW)).toBe(true);
+  });
+
+  it('is off by default: a ripe run is left alone', () => {
+    fresh({ autopilot: ON, ...run(5e6, 3), lifetimeEarnings: '5000000' });
+    play(6);
+    expect(store().stats.halvings).toBe(0);
+  });
+
+  it('when on, it does The Halving, spends the $SC on talents and keeps working', () => {
+    fresh({ autopilot: ON, ...run(5e6, 3), lifetimeEarnings: '5000000' });
+    store().setAutopilotAutoHalving(true);
+    play(6);
+    expect(store().stats.halvings).toBe(1);
+    expect(Object.values(store().talents).reduce((a, l) => a + (l ?? 0), 0)).toBeGreaterThan(0);
+    expect(store().sc).toBeLessThan(4);
+    expect(store().autopilot.autoHalving).toBe(true);
+    expect(store().autopilot.remainingSec).toBeGreaterThan(0);
+    expect(Number(store().runEarnings)).toBeLessThan(1e6);
   });
 });

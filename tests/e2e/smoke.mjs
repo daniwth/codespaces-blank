@@ -1017,6 +1017,33 @@ try {
       }
     }
   });
+
+  await check('test account: "danitest" / "AITEST" logs in, loads 1000 gems on a brand new farm and can buy a manager day', async () => {
+    const { context, p } = await fresh();
+    try {
+      await p.goto(URL);
+      await p.click('[data-testid="menu-identity"] button:has-text("Sign in")');
+      const dlg = accountDialog(p);
+      await dlg.locator('input[autocomplete="email"]').fill('danitest');
+      await dlg.locator('input[autocomplete="current-password"]').fill('AITEST');
+      await dlg.locator('form button:has-text("Log in")').last().click();
+      const offer = p.getByTestId('cloud-offer');
+      await offer.waitFor({ timeout: 8000 });
+      await offer.locator('button:has-text("Load cloud save")').click();
+      await roomCanvas(p).waitFor({ timeout: 10_000 });
+      const state = await p.evaluate(() => JSON.parse(localStorage.getItem('hash-harvest-tycoon')).state);
+      assert(state.gems === 1000, `expected 1000 gems, got ${state.gems}`);
+      assert(Object.keys(state.gpus).length === 1 && state.ownedRooms.length === 1 && state.stats.halvings === 0, 'the test account should start on a brand new farm');
+      assert(Number(state.lifetimeEarnings) === 0 && state.roadmap.step === 0, 'the test account should have no progress');
+      await p.locator('nav[aria-label="Panels"] button[title="VIP"]').click();
+      await p.getByTestId('autopilot-halving').check();
+      await p.getByTestId('autopilot-buy-d1').click();
+      await p.getByTestId('autopilot-status').getByText(/Working · /).waitFor({ timeout: 3000 });
+      await p.screenshot({ path: join(ART, 'test-account.png') });
+    } finally {
+      await context.close();
+    }
+  });
 } catch (err) {
   results.push({ name: 'harness', ok: false, err: err.message });
   console.error(err);

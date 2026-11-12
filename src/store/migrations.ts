@@ -215,12 +215,13 @@ function sanitizeDaily(raw: unknown, now: number): DailyState {
 }
 
 function sanitizeAutopilot(raw: unknown): AutopilotState {
-  if (!isObject(raw)) return { remainingSec: 0, paused: false, purchases: 0, spent: 0 };
+  if (!isObject(raw)) return { remainingSec: 0, paused: false, purchases: 0, spent: 0, autoHalving: false };
   return {
     remainingSec: clamp(finite(raw.remainingSec, 0), 0, AUTOPILOT.maxSeconds),
     paused: raw.paused === true,
     purchases: Math.max(0, Math.floor(finite(raw.purchases, 0))),
     spent: Math.max(0, finite(raw.spent, 0)),
+    autoHalving: raw.autoHalving === true,
   };
 }
 

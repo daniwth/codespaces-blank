@@ -1,12 +1,13 @@
 import { MINEABLE_COIN_IDS } from '../../config/altcoins';
 import { AUTOPILOT, AUTOPILOT_PLAN_BY_ID } from '../../config/autopilot';
 import { GPU_BY_ID, MAX_TECHNICIANS } from '../../config/hardwareCatalog';
-import { talentModifiers } from '../../config/prestigeTree';
+import { PRESTIGE_TREE, earningsForSc, scForEarnings, talentCost, talentModifiers } from '../../config/prestigeTree';
 import { bnToNumber } from '../../utils/bignum';
 import { sfxBus } from '../../utils/eventBus';
 import { formatCash, formatDuration } from '../../utils/formatters';
 import { NEW_RACK, plan, type AutopilotOp, type Evaluated, type Plan } from '../autopilot/planner';
 import { aiAutoTune, ocPowerMul, rackTopology, usableRooms } from '../gamePhysics';
+import type { GameData } from '../../types/player';
 import type { AutopilotSlice, AutopilotStatus, GameStore, GetState, SetState } from '../storeTypes';
 import { holdingOf } from '../wallets';
 import { challengeBlocks } from './challengesSlice';
@@ -170,6 +171,37 @@ function hireIfUseful(get: GetState, net: number): void {
   if (mounted >= AUTOPILOT.gpusPerTechnician * (s.technicians + 1) && cost <= net * AUTOPILOT.technicianIncomeSec && cost <= bnToNumber(s.cash)) s.hireTechnician();
 }
 
+/**
+ * Marginal-value rule for The Halving: the run is worth `sc / hours` right now. Waiting for one more
+ * $SC only pays if `(sc + 1) / (hours + time to earn it)` is higher; once it is not, reset.
+ * `incomePerSec` is what the farm earns per second (mined coins are sold for their full value).
+ */
+export function shouldHalve(s: Pick<GameData, 'runEarnings' | 'runStartedAt'>, incomePerSec: number, now: number): boolean {
+  const earnings = bnToNumber(s.runEarnings);
+  const sc = scForEarnings(earnings);
+  if (sc <= 0) return false;
+  const runSec = Math.max(1, (now - s.runStartedAt) / 1000);
+  if (!(incomePerSec > 0)) return true;
+  const waitSec = Math.max(0, earningsForSc(sc + 1) - earnings) / incomePerSec;
+  return (sc + 1) / (runSec + waitSec) <= sc / runSec;
+}
+
+/** Spend $SC on the cheapest talent available, again and again, until nothing is affordable. */
+function buyTalents(get: GetState): number {
+  let bought = 0;
+  for (let guard = 0; guard < 200; guard += 1) {
+    const s = get();
+    const next = PRESTIGE_TREE
+      .filter((n) => (s.talents[n.id] ?? 0) < n.maxLevel && n.requires.every((r) => (s.talents[r] ?? 0) > 0))
+      .map((n) => ({ id: n.id, cost: talentCost(n, s.talents[n.id] ?? 0) }))
+      .filter((n) => n.cost <= s.sc)
+      .sort((a, b) => a.cost - b.cost)[0];
+    if (!next || !s.buyTalent(next.id)) break;
+    bought += 1;
+  }
+  return bought;
+}
+
 function statusOf(p: Plan, bought: Evaluated | null): AutopilotStatus {
   if (bought) return { key: 'Bought {what}.', params: { what: bought.label }, net: p.baseNet };
   if (!p.target) return { key: 'Nothing worth buying right now: selling coins and keeping the farm healthy.', net: p.baseNet };
@@ -208,6 +240,14 @@ export function createAutopilotSlice(set: SetState, get: GetState): AutopilotSli
       sfxBus.emit('switch');
     },
 
+    setAutopilotAutoHalving: (on) => {
+      const s = get();
+      if (s.autopilot.autoHalving === on) return;
+      set({ autopilot: { ...s.autopilot, autoHalving: on } });
+      s.logT(on ? 'AI Farm Manager: automatic Halving ON. It will reset the run when that earns more $SC per hour.' : 'AI Farm Manager: automatic Halving OFF.', undefined, 'info');
+      sfxBus.emit('switch');
+    },
+
     autopilotTick: (dtSec, now = Date.now()) => {
       const s = get();
       if (!autopilotActive(s)) return;
@@ -228,6 +268,17 @@ export function createAutopilotSlice(set: SetState, get: GetState): AutopilotSli
         return;
       }
       lastPlanAt = now;
+      // Opt-in: reset the run when one more $SC is no longer worth the wait, then invest the $SC.
+      const pre = get();
+      if (pre.autopilot.autoHalving && shouldHalve(pre, pre.live.yields[pre.minedCoin].valuePerSec, now)) {
+        const reward = scForEarnings(bnToNumber(pre.runEarnings));
+        if (pre.performHalving()) {
+          const talents = buyTalents(get);
+          get().logT('AI MANAGER: The Halving done for +{sc} $SC; {n} talent levels bought. Rebuilding the farm.', { sc: reward, n: talents }, 'good');
+          set({ autopilotStatus: { key: 'The Halving done: rebuilding the farm.', net: 0 } });
+          return;
+        }
+      }
       let p = plan(get(), now);
       // Coins are sold first when they would bring the target within reach.
       trade(get, p.target ? Math.max(0, p.target.cost - p.spendable) : 0);

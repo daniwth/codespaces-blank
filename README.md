@@ -78,7 +78,13 @@ toda la granja. Cada pocos segundos genera compras candidatas (GPU en ranura lib
 nuevo, siguiente sala, más refrigeración, proyectos del Lab), prueba cada una sobre una copia de la granja con la misma
 simulación del juego y compra la de menor `coste / ganancia + tiempo de ahorro`. También vende monedas, elige la moneda
 más rentable, monta piezas, mantiene la pasta y reclama recompensas. Su tiempo solo corre con el juego abierto. Nunca
-gasta gemas ni $SC ni activa The Halving. Código: `src/store/autopilot/planner.ts` (puro) y `autopilotSlice.ts`.
+gasta gemas. El Halving automático es opcional (desactivado por defecto): reinicia cuando esperar al siguiente $SC
+bajaría los $SC por hora y gasta los $SC en los talentos más baratos. Código: `src/store/autopilot/planner.ts` (puro) y `autopilotSlice.ts`.
+
+**Cuenta de pruebas:** en un servidor de desarrollo (facturación demo, correo por consola y sin `NODE_ENV=production`)
+existe la cuenta `danitest` con contraseña `AITEST`: 1000 gemas, Miner Pass demo y ningún progreso. Se crea sola al
+arrancar; `npm run seed:test` la devuelve a 1000 gemas sin progreso y `SEED_TEST_ACCOUNT=0` la desactiva. Un servidor
+de producción no la crea y la borra si la encuentra en la base de datos.
 
 **Guardado:** autoguardado en localStorage cada 2 s. Las exportaciones son JSON en Base64 firmado con SHA-256;
 las partidas manipuladas se rechazan al importarlas.

@@ -683,7 +683,8 @@ export function sectionsEn(): WikiSection[] {
             formula('score = cost / gain + max(0, cost − cash) / net income'),
             list(
               `It keeps ${min(AUTOPILOT.reserveBillSec)} of electricity bill in reserve and never buys anything that takes more than ${min(AUTOPILOT.maxPaybackSec)} to pay for itself.`,
-              'It never spends gems or $SC, never touches $MEME or your trading bots, never rerolls contracts and never triggers The Halving: those stay your decisions.',
+              'It never spends gems, never touches $MEME or your trading bots and never rerolls contracts.',
+              '**Automatic Halving** is optional and off by default. With it on, the manager does The Halving when waiting for the next $SC would lower your $SC per hour, that is, when (SC + 1) / (run time + time to earn it) is no better than SC / run time. It then spends the $SC on the cheapest available talents and rebuilds the farm.',
               'With AI Self-Diagnostics it also applies the safe Auto-Tune overclock to cool cards whose PSU has room.',
             ),
             tip('A manager hour is worth the most right after The Halving, when there is a whole farm to rebuild.'),

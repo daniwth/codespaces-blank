@@ -37,7 +37,7 @@ function AutopilotCard() {
   const t = useT();
   const lang = useLang();
   const s = useGameShallow((st) => ({ gems: st.gems, autopilot: st.autopilot, status: st.autopilotStatus }));
-  const { buyAutopilot, setAutopilotPaused } = useGameStore.getState();
+  const { buyAutopilot, setAutopilotPaused, setAutopilotAutoHalving } = useGameStore.getState();
   const left = s.autopilot.remainingSec;
   const on = left > 0;
   return (
@@ -72,6 +72,15 @@ function AutopilotCard() {
           </PixelButton>
         ))}
       </div>
+      <label className="mt-2 flex items-start gap-2 text-[15px] leading-tight text-[#a5f3fc]">
+        <input type="checkbox" className="mt-1" checked={s.autopilot.autoHalving} onChange={(e) => setAutopilotAutoHalving(e.target.checked)} data-testid="autopilot-halving" />
+        <span>
+          {t('Automatic Halving (optional)')}
+          <span className="block text-dim">
+            {t('While it works, it does The Halving when waiting for the next $SC would lower your $SC per hour, then spends the $SC on the cheapest talents. This resets the run: leave it off to decide yourself.')}
+          </span>
+        </span>
+      </label>
       {on ? (
         <div className="mt-2 bg-black/40 p-2 text-[16px] leading-tight" data-testid="autopilot-status">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -98,7 +107,7 @@ function AutopilotCard() {
         </div>
       ) : (
         <div className="mt-2 text-[15px] text-dim">
-          {t('Its time only runs while the game is open, and stops while paused. It never spends gems or $SC and never triggers The Halving.')}
+          {t('Its time only runs while the game is open, and stops while paused. It never spends gems, and it only touches The Halving and your $SC if you tick the option above.')}
         </div>
       )}
     </div>

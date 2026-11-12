@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "server": "node --no-warnings --env-file-if-exists=.env server/index.ts",
     "dev:server": "node --no-warnings --env-file-if-exists=.env server/index.ts",
+    "seed:test": "node --no-warnings --env-file-if-exists=.env scripts/seed-test-account.mjs",
     "start": "npm run build && npm run server",
     "test": "vitest run",
     "test:watch": "vitest",

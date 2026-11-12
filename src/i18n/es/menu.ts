@@ -74,6 +74,7 @@ export const esMenu: Dict = {
   'No data': 'Sin datos',
   'Passwords do not match.': 'Las contraseñas no coinciden.',
   'Enter your email.': 'Escribe tu correo.',
+  'Enter your password.': 'Escribe tu contraseña.',
   'Log in': 'Iniciar sesión',
   'Create account': 'Crear cuenta',
   EMAIL: 'CORREO',
