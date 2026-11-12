@@ -1,9 +1,9 @@
-import { ArrowRight, Flag, Gem, Gift, Zap } from 'lucide-react';
+import { ArrowRight, Bot, Flag, Gem, Gift, Zap } from 'lucide-react';
 import { ROADMAP, currentGoal, goalProgress, type RoadmapGoal } from '../../config/roadmap';
 import { useT } from '../../i18n';
 import { dailyAvailable, roadmapContext } from '../../store/slices/progressSlice';
 import { useGameShallow, useGameStore } from '../../store/useGameStore';
-import { formatCash, formatHashrate } from '../../utils/formatters';
+import { formatCash, formatDuration, formatHashrate } from '../../utils/formatters';
 import { useNow } from '../panels/LabPanel';
 import { PixelButton } from './PixelButton';
 
@@ -43,6 +43,9 @@ export function GoalBar() {
       dailyDay: st.daily.lastDay,
       boostUntil: st.boost?.until ?? 0,
       boostMul: st.boost?.mul ?? 1,
+      // Whole minutes: the HUD chip must not re-render the bar every tick.
+      aiMin: Math.ceil(st.autopilot.remainingSec / 60),
+      aiPaused: st.autopilot.paused,
     };
   });
   const { claimRoadmap, setSideTab, setDailyOpen } = useGameStore.getState();
@@ -90,6 +93,17 @@ export function GoalBar() {
         <span className="flex items-center gap-1 bg-[#1a2e05] px-2 py-1 font-pixel text-[9px] text-lime shadow-[inset_0_0_0_2px_#a3e635]" data-testid="overdrive" title={t('Overdrive: every device hashes faster until the timer runs out.')}>
           <Zap size={12} className="blink" /> {t('OVERDRIVE x{mul} · {sec}s', { mul: s.boostMul, sec: boostLeft })}
         </span>
+      )}
+      {s.aiMin > 0 && (
+        <button
+          type="button"
+          onClick={() => setSideTab('vip')}
+          className="flex items-center gap-1 bg-[#04141a] px-2 py-1 font-pixel text-[9px] text-neon shadow-[inset_0_0_0_2px_#22d3ee]"
+          title={t('AI Farm Manager: open the VIP tab to see what it is doing.')}
+          data-testid="autopilot-chip"
+        >
+          <Bot size={12} className={s.aiPaused ? '' : 'blink'} /> {s.aiPaused ? t('AI PAUSED') : t('AI · {time}', { time: formatDuration(s.aiMin * 60) })}
+        </button>
       )}
       <PixelButton
         size="sm"

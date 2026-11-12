@@ -78,6 +78,8 @@ export function createEconomySlice(set: SetState, get: GetState): EconomySlice {
         challengeRecords: s.challengeRecords,
         roadmap: s.roadmap,
         daily: s.daily,
+        // Bought with gems, which survive the Halving: so does the manager's time.
+        autopilot: s.autopilot,
       }, nextChallenge ?? null);
       bumpWorldEpoch();
       set({ ...fresh, selectedRack: null, biosGpu: null, sideTab: 'halving' });

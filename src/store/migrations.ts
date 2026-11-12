@@ -3,6 +3,7 @@ import { COOLER_BY_ID, GPU_BY_ID, OC_LIMITS, PSU_BY_ID, QUALITY_ORDER, RACK_BY_I
 import { AIRDROP } from '../config/airdrops';
 import { ALT_COIN_IDS, COIN_IDS, emptyAlts, isCoinId, isMineableCoin } from '../config/altcoins';
 import { CHALLENGE_IDS, isChallengeId } from '../config/challenges';
+import { AUTOPILOT } from '../config/autopilot';
 import { localDay } from '../config/daily';
 import { RESEARCH_BY_ID, RESEARCH_IDS, isResearchId } from '../config/research';
 import { ROADMAP } from '../config/roadmap';
@@ -11,7 +12,7 @@ import { TALENT_BY_ID } from '../config/prestigeTree';
 import type { AltWallets, Candle, CoinMarket, MarketState, MineableCoin, TradingBot } from '../types/economy';
 import type { CoolerInstance, GpuInstance, PsuInstance, RackInstance, SiliconQuality } from '../types/hardware';
 import type {
-  ActiveChallenge, ChallengeRecords, DailyState, GameData, HashBoost, ResearchLevels, ResearchState, RoadmapState, RoomId, TalentId, TalentLevels,
+  ActiveChallenge, AutopilotState, ChallengeRecords, DailyState, GameData, HashBoost, ResearchLevels, ResearchState, RoadmapState, RoomId, TalentId, TalentLevels,
 } from '../types/player';
 import { clamp } from '../utils/random';
 import { contractContext, sanitizeBoard } from './contracts';
@@ -213,6 +214,16 @@ function sanitizeDaily(raw: unknown, now: number): DailyState {
   return { lastDay, streak: lastDay > 0 ? clamp(Math.floor(finite(raw.streak, 1)), 1, 100_000) : 0 };
 }
 
+function sanitizeAutopilot(raw: unknown): AutopilotState {
+  if (!isObject(raw)) return { remainingSec: 0, paused: false, purchases: 0, spent: 0 };
+  return {
+    remainingSec: clamp(finite(raw.remainingSec, 0), 0, AUTOPILOT.maxSeconds),
+    paused: raw.paused === true,
+    purchases: Math.max(0, Math.floor(finite(raw.purchases, 0))),
+    spent: Math.max(0, finite(raw.spent, 0)),
+  };
+}
+
 function sanitizeTalents(raw: unknown): TalentLevels {
   if (!isObject(raw)) return {};
   const out: TalentLevels = {};
@@ -281,6 +292,7 @@ function sanitize(data: GameData, source: Json): GameData {
     nextAirdropAt: Math.min(finite(data.nextAirdropAt, now), now + AIRDROP.interval[1] * 1000),
     roadmap: sanitizeRoadmap(source.roadmap),
     daily: sanitizeDaily(source.daily, now),
+    autopilot: sanitizeAutopilot(source.autopilot),
     achievements: (Array.isArray(data.achievements) ? data.achievements : []).filter((a): a is string => typeof a === 'string'),
     technicians: clamp(Math.floor(finite(data.technicians, 0)), 0, 6),
     meme: Math.max(0, finite(data.meme, 0)),
@@ -334,6 +346,8 @@ export function migrateSave(raw: unknown, fromVersion: number): GameData {
     delete source.daily;
     delete source.nextAirdropAt;
   }
+  // v7 → v8: the AI Farm Manager did not exist; sanitize() gives it no time left.
+  if (fromVersion < 8) delete source.autopilot;
   const merged = mergeTyped(defaults, source);
   merged.saveVersion = SAVE_VERSION;
   return sanitize(merged, source);

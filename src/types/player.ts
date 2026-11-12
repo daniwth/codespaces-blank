@@ -203,6 +203,16 @@ export interface PlayerStats {
   bestStreak: number;
 }
 
+/** AI Farm Manager (gem-bought autopilot). */
+export interface AutopilotState {
+  /** Manager time left, in seconds of open game. */
+  remainingSec: number;
+  paused: boolean;
+  /** Purchases made and cash spent by the manager, across every plan. */
+  purchases: number;
+  spent: number;
+}
+
 export interface VipState {
   goldRacksBought: number;
   aiDiagnostics: boolean;
@@ -280,4 +290,5 @@ export interface GameData {
   roadmap: RoadmapState;
   /** Daily bonus streak (survives Halvings). */
   daily: DailyState;
+  autopilot: AutopilotState;
 }

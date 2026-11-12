@@ -1,7 +1,10 @@
-import { BrainCircuit, Crown, Gem, TrendingUp } from 'lucide-react';
+import { Bot, BrainCircuit, Crown, Gem, Pause, Play, TrendingUp } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { AUTOPILOT, AUTOPILOT_PLANS } from '../../config/autopilot';
 import { MARKET, VIP_COSTS } from '../../config/gameBalance';
-import { useT } from '../../i18n';
+import { logLine } from '../../store/logLine';
+import { formatCash, formatDuration } from '../../utils/formatters';
+import { useLang, useT } from '../../i18n';
 import { sprites } from '../../engine/SpriteManager';
 import { useGameShallow, useGameStore } from '../../store/useGameStore';
 import { PixelButton } from '../ui/PixelButton';
@@ -29,6 +32,79 @@ function VipCard({ icon, title, desc, cost, owned, onBuy, gems, extra }: { icon:
   );
 }
 
+/** AI Farm Manager: buy time with gems, see what it is doing, pause it. */
+function AutopilotCard() {
+  const t = useT();
+  const lang = useLang();
+  const s = useGameShallow((st) => ({ gems: st.gems, autopilot: st.autopilot, status: st.autopilotStatus }));
+  const { buyAutopilot, setAutopilotPaused } = useGameStore.getState();
+  const left = s.autopilot.remainingSec;
+  const on = left > 0;
+  return (
+    <div className="bg-[#04141a] p-2 shadow-[inset_0_0_0_2px_#22d3ee]" data-testid="autopilot-card">
+      <div className="flex items-center gap-3">
+        <div className={`grid w-12 shrink-0 place-items-center text-neon ${on && !s.autopilot.paused ? 'blink' : ''}`}>
+          <Bot size={30} />
+        </div>
+        <div className="flex-1 text-[16px] leading-tight">
+          <div className="font-pixel text-[9px] text-neon">{t('AI FARM MANAGER')}</div>
+          <div className="text-[#a5f3fc]/80">
+            {t('Runs the whole farm for you: sells coins, picks the best coin, buys and mounts hardware, rooms and research, keeps everything cool and maintained, and claims every reward.')}
+          </div>
+        </div>
+      </div>
+      <div className="mt-2 grid grid-cols-3 gap-1">
+        {AUTOPILOT_PLANS.map((p) => (
+          <PixelButton
+            key={p.id}
+            size="xs"
+            variant="primary"
+            disabled={s.gems < p.gems || left + p.seconds > AUTOPILOT.maxSeconds}
+            onClick={() => buyAutopilot(p.id)}
+            className="flex-col gap-0.5"
+            data-testid={`autopilot-buy-${p.id}`}
+            silent
+          >
+            <span>{on ? `+${t(p.label)}` : t(p.label)}</span>
+            <span className="flex items-center gap-1 font-term text-[15px]">
+              <Gem size={10} /> {p.gems}
+            </span>
+          </PixelButton>
+        ))}
+      </div>
+      {on ? (
+        <div className="mt-2 bg-black/40 p-2 text-[16px] leading-tight" data-testid="autopilot-status">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className={s.autopilot.paused ? 'text-amber' : 'text-lime'}>
+              {s.autopilot.paused ? t('Paused · {time} left', { time: formatDuration(Math.ceil(left)) }) : t('Working · {time} left', { time: formatDuration(Math.ceil(left)) })}
+            </span>
+            <PixelButton size="xs" variant="ghost" icon={s.autopilot.paused ? <Play size={10} /> : <Pause size={10} />} onClick={() => setAutopilotPaused(!s.autopilot.paused)} data-testid="autopilot-pause">
+              {s.autopilot.paused ? t('Resume') : t('Pause')}
+            </PixelButton>
+          </div>
+          {s.status && !s.autopilot.paused && (
+            <>
+              <div className="mt-1 text-[#a5f3fc]">{logLine({ text: '', key: s.status.key, params: s.status.params }, lang)}</div>
+              {s.status.progress !== undefined && (
+                <div className="mt-1 h-2 bg-black" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(s.status.progress * 100)}>
+                  <div className="h-full bg-neon transition-[width] duration-500" style={{ width: `${s.status.progress * 100}%` }} />
+                </div>
+              )}
+            </>
+          )}
+          <div className="mt-1 text-[15px] text-dim">
+            {t('{n} purchases · {spent} invested', { n: s.autopilot.purchases, spent: formatCash(s.autopilot.spent) })}
+          </div>
+        </div>
+      ) : (
+        <div className="mt-2 text-[15px] text-dim">
+          {t('Its time only runs while the game is open, and stops while paused. It never spends gems or $SC and never triggers The Halving.')}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Gem-powered VIP zone: Gold Edition racks and automations. */
 export function VipPanel() {
   const t = useT();
@@ -46,6 +122,7 @@ export function VipPanel() {
         </span>
       </div>
       <p className="text-[16px] leading-tight text-dim">{t('Gems drop from achievements, solo-mined blocks and every Halving (+5).')}</p>
+      <AutopilotCard />
       <VipCard
         icon={<SpriteImg src={sprites.rackIcon('gold')} width={25} height={40} alt={t('Gold rack')} />}
         title={t('Gold Edition Rack')}

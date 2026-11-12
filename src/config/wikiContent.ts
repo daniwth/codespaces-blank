@@ -23,6 +23,7 @@ import {
 import { GPU_CATALOG, MAX_TECHNICIANS, OC_LIMITS, TECHNICIAN_BASE_COST, TECHNICIAN_COST_GROWTH } from './hardwareCatalog';
 import { BASE_OFFLINE_HOURS, HALVING_BASE_SC, HALVING_MIN_EARNINGS, TALENT_BY_ID, earningsForSc } from './prestigeTree';
 import { AIRDROP } from './airdrops';
+import { AUTOPILOT, AUTOPILOT_PLANS } from './autopilot';
 import { RUSH_SECONDS_PER_GEM } from './research';
 import { ROADMAP } from './roadmap';
 import { MAX_PADS } from './roomsCatalog';
@@ -670,6 +671,28 @@ export function sectionsEs(): WikiSection[] {
           blocks: [
             p('Las gemas no se compran con dinero real: se ganan jugando y no se pierden con The Halving.'),
             table(T.gemSourceTable(L)),
+          ],
+        },
+        {
+          id: 'ai-manager',
+          title: 'Gestor IA de la granja',
+          keywords: ['ia', 'ai', 'gestor', 'manager', 'autopilot', 'piloto', 'automatico', 'algoritmo', 'bot'],
+          blocks: [
+            p(`En la pestaña **VIP**, el **Gestor IA** lleva toda la granja durante un tiempo: ${AUTOPILOT_PLANS.map((x) => `${n(x.label)} por ${x.gems} gemas`).join(', ')}. Los planes se acumulan hasta ${min(AUTOPILOT.maxSeconds)}. Su tiempo solo corre con el juego abierto y se detiene en pausa, así que no se desperdicia; sobrevive a The Halving.`),
+            steps(
+              'Tareas, cada segundo y medio: atrapa drones, reclama objetivos, el bonus diario y los contratos terminados, coloca racks guardados, monta piezas libres, renueva la pasta seca, repara tarjetas muy desgastadas y fusiona GPUs libres en la Forja.',
+              `Monedas: mina la moneda que pague al menos un ${pct(AUTOPILOT.coinSwitchGain - 1)} más, y vende lo que minas cuando el precio está en su media reciente o mejor, cuando la cartera vale más de ${min(AUTOPILOT.maxHoldSec)} de ingresos, o cuando hace falta el efectivo para una compra.`,
+              `Candidatos, cada ${AUTOPILOT.planEveryMs / 1000} s: una tarjeta en una ranura libre, una tarjeta mejor en lugar de la más floja, un rack nuevo, la siguiente sala con su primer rack, más refrigeración para un rack que va caliente y cada proyecto del Lab. Cada uno incluye la fuente y el refrigerador que necesita para aguantar ${AUTOPILOT.targetTemp} °C.`,
+              `Simulación: cada candidato se prueba sobre una copia de tu granja con la propia física del juego durante ${min(AUTOPILOT.simSeconds)}, así que cuentan el calor, el throttling, las sobrecargas, las caídas de tensión y las tarifas. El ingreso neto extra es su ganancia.`,
+              'Decisión: el objetivo es el candidato con menor tiempo de amortización más tiempo de ahorro. Se compra en cuanto hay efectivo. Mientras ahorra, solo compra algo más barato si se amortiza antes de alcanzar el objetivo.',
+            ),
+            formula('puntuación = coste / ganancia + max(0, coste − efectivo) / ingreso neto'),
+            list(
+              `Guarda ${min(AUTOPILOT.reserveBillSec)} de factura eléctrica en reserva y nunca compra nada que tarde más de ${min(AUTOPILOT.maxPaybackSec)} en amortizarse.`,
+              'Nunca gasta gemas ni $SC, nunca toca $MEME ni tus bots de trading, nunca cambia contratos y nunca activa The Halving: esas decisiones siguen siendo tuyas.',
+              'Con AI Self-Diagnostics aplica además el overclock seguro de Auto-Tune a las tarjetas frías cuya fuente tiene margen.',
+            ),
+            tip('Una hora de gestor vale más justo después de The Halving, cuando hay toda una granja por reconstruir.'),
           ],
         },
         {

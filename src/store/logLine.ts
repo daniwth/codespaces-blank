@@ -26,7 +26,16 @@ export function logLine(entry: LogText, lang?: Lang): string {
   if (!entry.key) return entry.text;
   const out: Params = {};
   Object.entries(entry.params ?? {}).forEach(([k, v]) => {
-    out[k] = typeof v === 'number' ? v : typeof v === 'string' ? tr(v, undefined, lang) : tr(v.key, v.params, lang);
+    if (typeof v === 'number') out[k] = v;
+    else if (typeof v === 'string') out[k] = tr(v, undefined, lang);
+    else {
+      // Nested template: its own string params are names too.
+      const inner: Params = {};
+      Object.entries(v.params ?? {}).forEach(([ik, iv]) => {
+        inner[ik] = typeof iv === 'string' ? tr(iv, undefined, lang) : iv;
+      });
+      out[k] = tr(v.key, inner, lang);
+    }
   });
   return tr(entry.key, out, lang);
 }

@@ -18,6 +18,7 @@ import { createContractsSlice } from './slices/contractsSlice';
 import { createEconomySlice } from './slices/economySlice';
 import { createHardwareSlice } from './slices/hardwareSlice';
 import { createMarketSlice } from './slices/marketSlice';
+import { createAutopilotSlice } from './slices/autopilotSlice';
 import { createProgressSlice } from './slices/progressSlice';
 import { createResearchSlice } from './slices/researchSlice';
 import { createRoomsSlice } from './slices/roomsSlice';
@@ -29,7 +30,7 @@ const DATA_KEYS: (keyof GameData)[] = [
   'runEarnings', 'lifetimeEarnings', 'runStartedAt', 'gpus', 'psus', 'coolers', 'racks', 'ownedRooms', 'activeRoom',
   'roomTemps', 'technicians', 'pool', 'market', 'bots', 'event', 'nextEventAt', 'talents', 'vip',
   'achievements', 'stats', 'settings', 'contracts', 'challenge', 'challengeRecords', 'alts', 'minedCoin',
-  'research', 'boost', 'nextAirdropAt', 'roadmap', 'daily',
+  'research', 'boost', 'nextAirdropAt', 'roadmap', 'daily', 'autopilot',
 ];
 
 export const extractData = (s: GameStore): GameData => {
@@ -129,6 +130,7 @@ const initialUi = (): UiState => ({
   airdrop: null,
   history: [],
   dailyOpen: false,
+  autopilotStatus: null,
 });
 
 /** Stats charts: one sample every few seconds, about half an hour of session history. */
@@ -231,6 +233,7 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
       checkChallenge();
       checkRoadmap();
       checkAchievements();
+      get().autopilotTick(out.dt, out.now);
     },
 
     applyOffline: (out, requested) => {
@@ -342,6 +345,7 @@ export const useGameStore = create<GameStore>()(
         ...createChallengesSlice(s, g),
         ...createResearchSlice(s, g),
         ...createProgressSlice(s, g),
+        ...createAutopilotSlice(s, g),
         ...createCoreActions(s, g),
       };
     },

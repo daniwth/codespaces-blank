@@ -20,6 +20,7 @@ import {
 import { GPU_CATALOG, MAX_TECHNICIANS, OC_LIMITS, TECHNICIAN_BASE_COST, TECHNICIAN_COST_GROWTH } from './hardwareCatalog';
 import { BASE_OFFLINE_HOURS, HALVING_BASE_SC, HALVING_MIN_EARNINGS, TALENT_BY_ID, earningsForSc } from './prestigeTree';
 import { AIRDROP } from './airdrops';
+import { AUTOPILOT, AUTOPILOT_PLANS } from './autopilot';
 import { RUSH_SECONDS_PER_GEM } from './research';
 import { ROADMAP } from './roadmap';
 import { MAX_PADS } from './roomsCatalog';
@@ -664,6 +665,28 @@ export function sectionsEn(): WikiSection[] {
           blocks: [
             p('Gems cannot be bought with real money: they are earned by playing and are not lost with The Halving.'),
             table(T.gemSourceTable(L)),
+          ],
+        },
+        {
+          id: 'ai-manager',
+          title: 'AI Farm Manager',
+          keywords: ['ia', 'ai', 'gestor', 'manager', 'autopilot', 'piloto', 'automatico', 'algoritmo', 'bot'],
+          blocks: [
+            p(`In the **VIP** tab the **AI Farm Manager** runs the whole farm for a while: ${AUTOPILOT_PLANS.map((x) => `${x.label} for ${x.gems} gems`).join(', ')}. Plans stack up to ${min(AUTOPILOT.maxSeconds)}. Its time only runs while the game is open and stops while it is paused, so none is wasted; it survives The Halving.`),
+            steps(
+              'Chores, every second and a half: it catches drones, claims goals, the daily bonus and finished contracts, places stored racks, mounts spare parts, renews dry paste, repairs badly worn cards and fuses spare GPUs in the Forge.',
+              `Coins: it mines whichever coin pays at least ${pct(AUTOPILOT.coinSwitchGain - 1)} more, and sells what you mine when the price is at its recent average or better, when the wallet is worth more than ${min(AUTOPILOT.maxHoldSec)} of income, or when the cash is needed for a purchase.`,
+              `Candidates, every ${AUTOPILOT.planEveryMs / 1000} s: a card in a free slot, a better card in place of the weakest one, a new rack, the next room with its first rack, more cooling for a rack that runs hot and every Lab project. Each one comes with the PSU and cooler it needs to hold ${AUTOPILOT.targetTemp} °C.`,
+              `Simulation: every candidate is tried on a copy of your farm with the game's own physics for ${min(AUTOPILOT.simSeconds)}, so heat, throttling, overloads, brownouts and tariffs all count. The extra net income is its gain.`,
+              'Decision: the target is the candidate with the lowest payback time plus time to save for it. It is bought as soon as there is cash. While saving, it only buys something cheaper if that pays for itself before the target would be reached.',
+            ),
+            formula('score = cost / gain + max(0, cost − cash) / net income'),
+            list(
+              `It keeps ${min(AUTOPILOT.reserveBillSec)} of electricity bill in reserve and never buys anything that takes more than ${min(AUTOPILOT.maxPaybackSec)} to pay for itself.`,
+              'It never spends gems or $SC, never touches $MEME or your trading bots, never rerolls contracts and never triggers The Halving: those stay your decisions.',
+              'With AI Self-Diagnostics it also applies the safe Auto-Tune overclock to cool cards whose PSU has room.',
+            ),
+            tip('A manager hour is worth the most right after The Halving, when there is a whole farm to rebuild.'),
           ],
         },
         {

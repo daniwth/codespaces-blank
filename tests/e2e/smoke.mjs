@@ -988,6 +988,35 @@ try {
       }
     });
   }
+
+  await check('AI Farm Manager: buy an hour with gems, it starts buying, pause stops the clock (desktop + 390 px)', async () => {
+    for (const viewport of [{ width: 1600, height: 1000 }, { width: 390, height: 844 }]) {
+      const { context, p } = await fresh({ viewport });
+      const pageErrors = [];
+      p.on('pageerror', (e) => pageErrors.push(e.message));
+      try {
+        await bootPatched(p, `state.gems = 5; state.cash = '3000'; state.nextAirdropAt = Date.now() + 3600000;`);
+        await p.locator('nav[aria-label="Panels"] button[title="VIP"]').click();
+        const card = p.getByTestId('autopilot-card');
+        assert(await p.getByTestId('autopilot-buy-d1').isDisabled(), 'the 1-day plan should need more gems');
+        await p.getByTestId('autopilot-buy-h1').click();
+        await p.getByTestId('autopilot-status').getByText(/Working · /).waitFor({ timeout: 3000 });
+        await p.getByTestId('autopilot-chip').waitFor({ timeout: 3000 });
+        // It has cash: within a few seconds it buys something and says so.
+        await p.getByText(/AI MANAGER: /).first().waitFor({ timeout: 15000 });
+        const stats = (await card.textContent()) ?? '';
+        assert(/[1-9]\d* purchases/.test(stats), `no purchase recorded: ${stats}`);
+        await p.screenshot({ path: join(ART, `autopilot-${viewport.width}.png`) });
+        await p.getByTestId('autopilot-pause').click();
+        await p.getByTestId('autopilot-status').getByText(/Paused · /).waitFor({ timeout: 3000 });
+        const overflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        assert(overflow <= 1, `page scrolls horizontally by ${overflow}px`);
+        assert(pageErrors.length === 0, pageErrors.join(' | '));
+      } finally {
+        await context.close();
+      }
+    }
+  });
 } catch (err) {
   results.push({ name: 'harness', ok: false, err: err.message });
   console.error(err);

@@ -73,5 +73,12 @@ hashrate o una gema). Solo aparecen mientras juegas. **Bonus diario:** escalera 
 siguiente. La Tienda compra x1/x5/x10/MAX y muestra descuentos (investigación y el evento Oferta flash) y la factura
 eléctrica estimada de cada GPU. "Autorrellenar todo" y "Cambiar pasta a todas" evitan ir rack por rack.
 
+**Gestor IA:** en VIP se compra con gemas (1 hora por 3, 2 horas por 5, 1 día por 25) un piloto automático que lleva
+toda la granja. Cada pocos segundos genera compras candidatas (GPU en ranura libre, sustituir la GPU más floja, rack
+nuevo, siguiente sala, más refrigeración, proyectos del Lab), prueba cada una sobre una copia de la granja con la misma
+simulación del juego y compra la de menor `coste / ganancia + tiempo de ahorro`. También vende monedas, elige la moneda
+más rentable, monta piezas, mantiene la pasta y reclama recompensas. Su tiempo solo corre con el juego abierto. Nunca
+gasta gemas ni $SC ni activa The Halving. Código: `src/store/autopilot/planner.ts` (puro) y `autopilotSlice.ts`.
+
 **Guardado:** autoguardado en localStorage cada 2 s. Las exportaciones son JSON en Base64 firmado con SHA-256;
 las partidas manipuladas se rechazan al importarlas.

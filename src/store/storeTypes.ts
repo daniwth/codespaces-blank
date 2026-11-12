@@ -1,4 +1,5 @@
 import type { AirdropKind } from '../config/airdrops';
+import type { AutopilotPlanId } from '../config/autopilot';
 import type { CoinId, MineableCoin, PoolMode, TradeResult, TradingBot } from '../types/economy';
 import type { ComponentKind, GpuInstance, OverclockSettings, SiliconQuality } from '../types/hardware';
 import type { ChallengeId, GameData, GameSettings, ResearchId, RoomId, TalentId } from '../types/player';
@@ -64,6 +65,16 @@ export interface ContractToast {
   t: number;
 }
 
+export interface AutopilotStatus {
+  /** Translatable status line. */
+  key: string;
+  params?: LogParams;
+  /** Saving progress towards the target (0-1), when there is one. */
+  progress?: number;
+  /** Simulated net income of the farm ($/s). */
+  net: number;
+}
+
 export interface UiState {
   live: LiveMetrics;
   log: LogEntry[];
@@ -82,6 +93,8 @@ export interface UiState {
   history: HistoryPoint[];
   /** Daily bonus dialog. */
   dailyOpen: boolean;
+  /** What the AI Farm Manager is doing right now (shown in the VIP tab). */
+  autopilotStatus: AutopilotStatus | null;
 }
 
 export type OcResult = 'stable' | 'crash' | 'invalid';
@@ -188,6 +201,14 @@ export interface ProgressSlice {
   claimAirdrop: () => boolean;
 }
 
+export interface AutopilotSlice {
+  /** Spend gems on manager time (plans stack up to a week). */
+  buyAutopilot: (plan: AutopilotPlanId) => boolean;
+  setAutopilotPaused: (paused: boolean) => void;
+  /** Burn manager time and let it act (called every online tick with the tick's seconds). */
+  autopilotTick: (dtSec: number, now?: number) => void;
+}
+
 export interface CoreActions {
   applyTick: (out: SimOutput) => void;
   applyOffline: (out: SimOutput, requestedSeconds: number) => void;
@@ -213,7 +234,7 @@ export interface CoreActions {
 }
 
 export type GameStore = GameData & UiState & HardwareSlice & RoomsSlice & MarketSlice & EconomySlice & ContractsSlice & ChallengesSlice
-  & ResearchSlice & ProgressSlice & CoreActions;
+  & ResearchSlice & ProgressSlice & AutopilotSlice & CoreActions;
 
 export type SetState = (partial: Partial<GameStore> | ((state: GameStore) => Partial<GameStore>)) => void;
 export type GetState = () => GameStore;
