@@ -906,7 +906,7 @@ export function WorldCanvas() {
         />
 
         {ui.airdrop > 0 && (
-          <PixelButton size="sm" variant="gold" className="blink absolute left-1/2 top-2 z-10 -translate-x-1/2" icon={<Radar size={12} />} onClick={() => claimAirdrop()} data-testid="airdrop-catch" silent>
+          <PixelButton size="sm" variant="gold" className="absolute left-1/2 top-2 z-10 -translate-x-1/2" icon={<Radar size={12} />} onClick={() => claimAirdrop()} data-testid="airdrop-catch" silent>
             {t('Catch the drone')}
           </PixelButton>
         )}

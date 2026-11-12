@@ -9,6 +9,9 @@ import { useGameStore } from '../../store/useGameStore';
  * scale, pauses while the tab is hidden and draws a still frame when the user
  * prefers reduced motion.
  */
+/** Frame budget of the backdrop animation (30 fps). */
+const FRAME_MS = 1000 / 30;
+
 export default function TitleBackdrop() {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -53,13 +56,15 @@ export default function TitleBackdrop() {
       still();
     };
     const frame = (now: number) => {
+      raf = requestAnimationFrame(frame);
+      // A slow skyline does not need 60+ fps: every other frame halves the menu's CPU and battery use.
+      if (now - last < FRAME_MS - 2) return;
       const dt = Math.min(0.1, Math.max(0, (now - last) / 1000));
       last = now;
       time += dt;
       if ((window.devicePixelRatio || 1) !== dpr) fit();
       scene.render(time, dt);
       present();
-      raf = requestAnimationFrame(frame);
     };
     const sync = () => {
       cancelAnimationFrame(raf);
