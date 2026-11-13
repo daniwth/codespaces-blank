@@ -30,9 +30,26 @@ export const config = {
 } as const;
 
 /**
+ * True when this server is not a local development box: NODE_ENV=production, or a public APP_URL
+ * (anything but localhost / 127.0.0.1 / ::1). A deployed server that forgot NODE_ENV is still "public".
+ */
+export function isPublicDeployment(nodeEnv: string | undefined = env.NODE_ENV, appUrl: string = config.appUrl): boolean {
+  if (nodeEnv === 'production') return true;
+  try {
+    const host = new URL(appUrl).hostname.replace(/^\[|\]$/g, '');
+    return !(host === 'localhost' || host === '127.0.0.1' || host === '::1' || host.endsWith('.localhost'));
+  } catch {
+    // An APP_URL that does not parse cannot be trusted to be local.
+    return true;
+  }
+}
+
+const publicDeployment = isPublicDeployment();
+
+/**
  * Billing mode. `stripe` when a secret key is present; otherwise `demo` (free
- * instant activation) — but demo must be requested explicitly in production,
- * so a missing key can never silently hand out free subscriptions.
+ * instant activation), which is only allowed on a local development server: a public
+ * deployment without Stripe refuses to start, so nobody gets free subscriptions by accident.
  */
 function resolveBillingMode(): 'stripe' | 'demo' {
   const requested = env.BILLING_MODE;
@@ -41,8 +58,9 @@ function resolveBillingMode(): 'stripe' | 'demo' {
     return 'stripe';
   }
   if (requested && requested !== 'demo') throw new Error(`Unknown BILLING_MODE "${requested}" (use stripe | demo).`);
-  if (env.NODE_ENV === 'production' && requested !== 'demo') {
-    throw new Error('Refusing to start: no STRIPE_SECRET_KEY in production. Set it, or BILLING_MODE=demo explicitly.');
+  // Demo billing hands out free subscriptions: it never runs on a public deployment, not even on request.
+  if (publicDeployment) {
+    throw new Error('Refusing to start: demo billing on a public deployment (NODE_ENV=production or a non-local APP_URL). Set STRIPE_SECRET_KEY.');
   }
   return 'demo';
 }
@@ -52,11 +70,11 @@ export const devBilling = billingMode === 'demo';
 
 /**
  * Mail mode. `log` prints emails (links included) to the server console and is only the default
- * outside production; `http` POSTs JSON to MAIL_API_URL (Resend-style). Production without a
+ * on a local development server; `http` POSTs JSON to MAIL_API_URL (Resend-style). Production without a
  * working mailer refuses to start: registration and password reset depend on email.
  */
 function resolveMailMode(): 'log' | 'http' {
-  const production = env.NODE_ENV === 'production';
+  const production = publicDeployment;
   const requested = env.MAIL_MODE || (production ? '' : 'log');
   if (requested === 'http') {
     if (!config.mail.apiUrl || !config.mail.apiKey || !config.mail.from) {
@@ -74,7 +92,7 @@ function resolveMailMode(): 'log' | 'http' {
 
 export const mailMode = resolveMailMode();
 /** API responses may carry the email link (`devLink`) only outside production and in log mode. */
-export const devLinks = mailMode === 'log' && env.NODE_ENV !== 'production';
+export const devLinks = mailMode === 'log' && !publicDeployment;
 
 /** Must match SAVE_SALT in src/config/gameBalance.ts (integrity check, not a secret). */
 export const SAVE_SALT = 'HHT::pixel-rigs::v1';

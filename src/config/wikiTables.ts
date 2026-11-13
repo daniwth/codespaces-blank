@@ -80,7 +80,7 @@ const signedPct = (ratio: number) => `${ratio >= 0 ? '+' : ''}${formatPercent(ra
 /** Gross $CC per second of one stock device at difficulty 1 (before pool fees). */
 export const grossCcPerSec = (modelId: string): number => (GPU_BY_ID[modelId].hashrate / 1e6) * PHYSICS.rewardPerMHs;
 
-/** Seconds of gross mining (at $1 per $CC, no power bill) to pay a GPU back: the shop's "ROI". */
+/** Seconds of gross mining (at $1 per $CC, no power bill) to pay a GPU back (the shop shows the net ROI of the room on screen). */
 export const grossPaybackSec = (modelId: string): number => GPU_BY_ID[modelId].price / grossCcPerSec(modelId);
 
 /** Electricity of one stock device in $/s in a room, on an ideal (100%) PSU and without talents. */
@@ -119,8 +119,8 @@ export function gpuTable(lang: Lang = curLang()): WikiTable {
       ],
     })),
     note: x(
-      'ROI bruto: tiempo de minado (a $1 por $CC, sin factura eléctrica) para recuperar el precio, como en la tienda. La masa térmica marca lo rápido que se calienta y se enfría el chip.',
-      'Gross ROI: mining time (at $1 per $CC, ignoring the power bill) to earn back the price, as in the shop. Thermal mass sets how fast the chip heats up and cools down.',
+      'ROI bruto: tiempo de minado (a $1 por $CC, sin factura eléctrica) para recuperar el precio. La tienda muestra el ROI neto: descuenta la factura eléctrica real de la sala y la eficiencia de tus PSU. La masa térmica marca lo rápido que se calienta y se enfría el chip.',
+      'Gross ROI: mining time (at $1 per $CC, ignoring the power bill) to earn back the price. The shop shows the net ROI instead: it subtracts the real power bill of the room and the efficiency of your PSUs. Thermal mass sets how fast the chip heats up and cools down.',
     ),
   };
 }

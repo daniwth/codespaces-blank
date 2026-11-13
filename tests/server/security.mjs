@@ -4,7 +4,7 @@
  * Run: node tests/server/security.mjs  (exit code 1 on any failure)
  */
 import { spawn } from 'node:child_process';
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { createServer } from 'node:http';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
@@ -143,6 +143,52 @@ try {
     assert(wrong.status === 401, 'a wrong password logged in');
     const taken = await d('POST', '/auth/register', { email: 'danitest', password: 'password123' });
     assert(taken.status === 400, 'the test login could be registered as a normal account');
+  });
+
+  await check('cloud save: summary numbers are validated and bounded (NaN, Infinity, negatives, out of range)', async () => {
+    const login = await d('POST', '/auth/login', { email: 'danitest', password: 'AITEST' });
+    const auth = { Authorization: `Bearer ${login.json.token}` };
+    // Same envelope the client exports; `raw` lets a number that JSON cannot carry (1e999 = Infinity) through.
+    const envelope = (dataJson) => {
+      const checksum = createHash('sha256').update('HHT::pixel-rigs::v1' + JSON.stringify(JSON.parse(dataJson))).digest('hex');
+      return Buffer.from(`{"format":"hash-harvest-save","version":8,"checksum":"${checksum}","data":${dataJson}}`).toString('base64');
+    };
+    const put = (dataJson) => d('PUT', '/save', { blob: envelope(dataJson), force: true }, auth);
+    const good = await put(JSON.stringify({ saveVersion: 8, gems: 1000, lifetimeEarnings: '1.5e+25', scLifetime: 12, stats: { playTimeSec: 3600.5, halvings: 2 }, gpus: { a: {}, b: {} } }));
+    assert(good.status === 200 && good.json.save.summary.gpuCount === 2 && good.json.save.summary.playTimeSec === 3600 && good.json.save.summary.lifetimeEarnings === '1.5e+25', `good save: ${good.status} ${JSON.stringify(good.json)}`);
+    const bad = {
+      'negative play time': '{"stats":{"playTimeSec":-5}}',
+      'Infinity play time': '{"stats":{"playTimeSec":1e999}}',
+      'huge play time': '{"stats":{"playTimeSec":1e15}}',
+      'string halvings': '{"stats":{"halvings":"7"}}',
+      'negative halvings': '{"stats":{"halvings":-1}}',
+      'huge scLifetime': '{"scLifetime":1e12}',
+      'negative scLifetime': '{"scLifetime":-3}',
+      'NaN earnings': '{"lifetimeEarnings":"NaN"}',
+      'Infinity earnings': '{"lifetimeEarnings":"Infinity"}',
+      'negative earnings': '{"lifetimeEarnings":"-10"}',
+      'markup earnings': '{"lifetimeEarnings":"<b>1</b>"}',
+      'numeric earnings': '{"lifetimeEarnings":5}',
+      'array stats': '{"stats":[1]}',
+      'array gpus': '{"gpus":[1,2]}',
+    };
+    for (const [name, json] of Object.entries(bad)) {
+      const r = await put(json);
+      assert(r.status === 400 && r.json?.error?.code === 'invalid_save', `${name}: ${r.status} ${JSON.stringify(r.json)}`);
+    }
+    const kept = await d('GET', '/save', undefined, auth);
+    assert(kept.json.summary.gpuCount === 2, 'a rejected save replaced the stored one');
+  });
+
+  await check('demo billing and the console mailer never start on a public deployment (non-local APP_URL)', async () => {
+    const pub = await start(P.prod, { STRIPE_SECRET_KEY: '', APP_URL: 'https://hash.example.com' }).then(() => 'started', (e) => e.out);
+    assert(pub !== 'started' && /Refusing to start: demo billing/.test(pub), `unexpected: ${pub}`);
+    const explicit = await start(P.prod, { STRIPE_SECRET_KEY: '', BILLING_MODE: 'demo', NODE_ENV: 'production' }).then(() => 'started', (e) => e.out);
+    assert(explicit !== 'started' && /Refusing to start: demo billing/.test(explicit), `unexpected: ${explicit}`);
+    const mail = await start(P.prod, { STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_WEBHOOK_SECRET: SECRET, APP_URL: 'https://hash.example.com', MAIL_MODE: 'log' }).then(() => 'started', (e) => e.out);
+    assert(mail !== 'started' && /MAIL_MODE=log never delivers/.test(mail), `unexpected: ${mail}`);
+    const local = await start(P.prod, { STRIPE_SECRET_KEY: '', APP_URL: 'http://127.0.0.1:5173' });
+    await stop(local);
   });
 
   await check('dev test account is opt-in: a default dev server (no SEED_TEST_ACCOUNT) does not seed it', async () => {
@@ -477,7 +523,8 @@ try {
   await stop(mailSrv);
 
   // ── Production: HTTP mailer, no dev links ──
-  const prodEnv = { STRIPE_SECRET_KEY: '', BILLING_MODE: 'demo', NODE_ENV: 'production' };
+  // Demo billing is refused on a public deployment: production runs against (fake) Stripe.
+  const prodEnv = { ...stripeEnv, NODE_ENV: 'production' };
   await check('production refuses to start without a mailer (or with the log mailer)', async () => {
     const none = await start(P.prod, prodEnv).then(() => 'started', (e) => e.out);
     assert(none !== 'started' && /no mailer configured/.test(none), `unexpected: ${none}`);

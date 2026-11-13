@@ -30,7 +30,7 @@ import {
   PHYSICS,
   POOLS,
 } from '../config/gameBalance';
-import type { ActiveNetworkEvent, AltCoinId, CoinId, MarketState, MineableCoin, NetworkEventId } from '../types/economy';
+import type { ActiveNetworkEvent, AltCoinId, CoinId, MarketState, MineableCoin, NetworkEventId, PoolMode } from '../types/economy';
 import type {
   GpuInstance,
   GpuLive,
@@ -197,6 +197,9 @@ export function usableRooms(input: Pick<SimInput, 'ownedRooms' | 'challenge'>): 
 
 export const pasteFactor = (paste: number): number =>
   PHYSICS.pasteMinFactor + (1 - PHYSICS.pasteMinFactor) * clamp(paste, 0, 1);
+
+/** Expected payout multiplier of a pool on the base yield (fee for the public pool, bonus for the others). */
+export const poolYieldMul = (pool: PoolMode): number => (pool === 'public' ? 1 - POOLS[pool].fee : POOLS[pool].payoutMul);
 
 // ───────────────────────── Market helpers ─────────────────────────
 
@@ -617,7 +620,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
 
   // ── Mining yield ──
   const pool = POOLS[input.pool];
-  const poolMul = input.pool === 'public' ? 1 - pool.fee : pool.payoutMul;
+  const poolMul = poolYieldMul(input.pool);
   const diffOf = (coin: MineableCoin): number => eventDifficulty(coin) * hashDifficulty(coin, totalHash);
   const rateOf = (coin: MineableCoin): number => ((totalHash / 1e6) * coinPerMHs(coin)) / diffOf(coin);
   const baseRate = rateOf(coinId);

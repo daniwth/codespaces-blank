@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react';
 import { useLang, useT } from '../../i18n';
 import { logLine } from '../../store/logLine';
 import { useGameStore } from '../../store/useGameStore';
+import { formatClock } from '../../utils/formatters';
 
 const TONE: Record<string, string> = { info: '#a5b4fc', good: '#a3e635', warn: '#fbbf24', bad: '#f43f5e' };
 
@@ -24,8 +25,8 @@ export function EventLog() {
       <div ref={ref} className="retro-scroll relative z-[1] h-28 overflow-y-auto px-3 py-1 text-[17px] leading-[1.15]">
         {log.length === 0 && <div className="text-[#4ade80]/60">&gt; {t('boot ok. awaiting hashes_')}</div>}
         {log.map((e) => (
-          <div key={e.id} className="flex gap-2">
-            <span className="shrink-0 text-[#166534]">{new Date(e.t).toLocaleTimeString(lang, { hour12: false })}</span>
+          <div key={e.id} className="flex gap-2" data-testid="log-line">
+            <span className="shrink-0 text-[#166534]">{formatClock(e.t, lang)}</span>
             <span style={{ color: TONE[e.tone] }}>{logLine(e, lang)}</span>
           </div>
         ))}

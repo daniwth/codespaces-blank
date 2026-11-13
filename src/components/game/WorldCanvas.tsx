@@ -14,6 +14,7 @@ import {
   RACK_H,
   RACK_W,
   sprites,
+  type StatusIconKind,
 } from '../../engine/SpriteManager';
 import { padCount } from '../../store/slices/roomsSlice';
 import type { Airdrop, GameStore } from '../../store/storeTypes';
@@ -27,13 +28,25 @@ import { formatCash, formatHashrate, formatNumber, formatPower, formatTemp, temp
 import { PixelButton } from '../ui/PixelButton';
 
 const SHIRTS = ['#ef4444', '#22c55e', '#3b82f6', '#f97316', '#a855f7', '#14b8a6'];
+/**
+ * What a rack shows above itself when it is not simply online: a pixel icon (always on) and a short
+ * label drawn with the 3×5 font. The labels are their own dictionary entries (`… (rack)` keys) so each
+ * language can keep them short enough for a 40 px rack; `rackLabel` strips the marker for English.
+ */
 const STATUS_LABEL: Partial<Record<RackStatus, { text: string; color: string }>> = {
-  no_psu: { text: 'NO PSU', color: '#fbbf24' },
-  overload: { text: 'OVERLOAD', color: '#f43f5e' },
-  overheat: { text: 'OVERHEAT', color: '#f43f5e' },
-  rebooting: { text: 'REBOOT', color: '#60a5fa' },
-  blackout: { text: 'NO POWER', color: '#94a3b8' },
-  empty: { text: 'EMPTY', color: '#8f89c4' },
+  no_psu: { text: 'NO PSU (rack)', color: '#fbbf24' },
+  overload: { text: 'OVERLOAD (rack)', color: '#f43f5e' },
+  overheat: { text: 'HOT! (rack)', color: '#f43f5e' },
+  rebooting: { text: 'REBOOT (rack)', color: '#60a5fa' },
+  blackout: { text: 'NO POWER (rack)', color: '#94a3b8' },
+  empty: { text: 'EMPTY (rack)', color: '#8f89c4' },
+};
+const HOT_LABEL = { text: 'HOT! (rack)', color: '#ef4444' };
+
+/** Localized on-canvas rack label: the dictionary entry, or the key without its `(rack)` marker. */
+export const rackLabel = (key: string): string => {
+  const out = tr(key);
+  return out === key ? key.replace(/ \(rack\)$/, '') : out;
 };
 
 interface Tech {
@@ -66,12 +79,13 @@ interface Inspection {
   taped: Set<string>;
 }
 
-type StatusIconKind = 'overheat' | 'overload' | 'no_psu' | 'reboot';
 const STATUS_ICON: Partial<Record<RackStatus, StatusIconKind>> = {
   overheat: 'overheat',
   overload: 'overload',
   no_psu: 'no_psu',
   rebooting: 'reboot',
+  empty: 'empty',
+  blackout: 'blackout',
 };
 
 const easeOutBack = (k: number) => 1 + 2.4 * (k - 1) ** 3 + 1.4 * (k - 1) ** 2;
@@ -510,11 +524,11 @@ export function WorldCanvas() {
 
         // Status & labels
         const anyShutdown = rack.gpuSlots.some((u) => u && s.gpus[u]?.shutdown);
-        const lbl = STATUS_LABEL[status] ?? (anyShutdown ? { text: 'HOT!', color: '#ef4444' } : undefined);
+        const lbl = STATUS_LABEL[status] ?? (anyShutdown ? HOT_LABEL : undefined);
         const icon = STATUS_ICON[status] ?? (anyShutdown && status === 'online' ? 'overheat' : undefined);
         if (lbl) {
           // Icon stays on (so the state reads at a glance); the label blinks next to it.
-          const lblText = tr(lbl.text);
+          const lblText = rackLabel(lbl.text);
           const tw = measurePixelText(lblText);
           const left = Math.round(x + RACK_W / 2 - (icon ? tw + 11 : tw) / 2);
           if (icon) {

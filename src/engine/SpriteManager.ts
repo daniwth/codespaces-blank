@@ -56,7 +56,38 @@ const GLYPHS: Record<string, string> = {
   Q: '010101101110011', R: '110101110101101', S: '011100010001110', T: '111010010010010',
   U: '101101101101111', V: '101101101101010', W: '101101111111101', X: '101101010101101',
   Y: '101101010010010', Z: '111001010100111',
+  'Ñ': '111000110101101', '¡': '010000010010010', '¿': '010000010100111', '<': '001010100010001', '>': '100010001010100',
+  '=': '000111000111000', '*': '000101010101000', "'": '010010000000000', '(': '001010010010001', ')': '100010010010100',
+  '~': '000011110000000', '_': '000000000000111',
 };
+
+const COMBINING_MARKS = /[\u0300-\u036f]/g;
+const glyphText = new Map<string, string>();
+
+/**
+ * Text as the 3×5 font can draw it: upper case, accents stripped (Á → A, Ü → U; a 3×5 cell has no room
+ * for them) while Ñ keeps its own glyph. Every language therefore renders clean labels instead of "?".
+ */
+export function pixelTextOf(text: string): string {
+  let out = glyphText.get(text);
+  if (out === undefined) {
+    out = text
+      .toUpperCase()
+      .replace(/Ñ/g, '\u0001')
+      .normalize('NFD')
+      .replace(COMBINING_MARKS, '')
+      .replace(/\u0001/g, 'Ñ')
+      .replace(/[—–]/g, '-')
+      .replace(/×/g, 'x')
+      .replace(/·/g, '.');
+    if (glyphText.size > 4000) glyphText.clear();
+    glyphText.set(text, out);
+  }
+  return out;
+}
+
+/** Rack state icons drawn above a rack (see `SpriteManager.statusIcon`). */
+export type StatusIconKind = 'overheat' | 'overload' | 'no_psu' | 'reboot' | 'empty' | 'blackout' | 'condensation' | 'throttle';
 
 export interface TextOpts {
   scale?: number;
@@ -65,19 +96,19 @@ export interface TextOpts {
 }
 
 export function measurePixelText(text: string, scale = 1): number {
-  return Math.max(0, text.length * 4 - 1) * scale;
+  return Math.max(0, pixelTextOf(text).length * 4 - 1) * scale;
 }
 
 export function drawPixelText(ctx: Ctx, text: string, x: number, y: number, color: string, opts: TextOpts = {}): number {
   const scale = opts.scale ?? 1;
-  const upper = text.toUpperCase();
-  const width = measurePixelText(upper, scale);
+  const upper = pixelTextOf(text);
+  const width = Math.max(0, upper.length * 4 - 1) * scale;
   let cx = Math.round(opts.align === 'center' ? x - width / 2 : opts.align === 'right' ? x - width : x);
   const cy = Math.round(y);
   const paint = (ox: number, oy: number, c: string) => {
     let gx = cx + ox;
     for (const ch of upper) {
-      const g = GLYPHS[ch] ?? GLYPHS['?'];
+      const g = GLYPHS[ch] ?? GLYPHS[ch.toUpperCase()] ?? GLYPHS['?'];
       for (let i = 0; i < 15; i += 1) {
         if (g[i] === '1') px(ctx, gx + (i % 3) * scale, cy + oy + Math.floor(i / 3) * scale, scale, scale, c);
       }
@@ -647,7 +678,7 @@ export class SpriteManager {
   }
 
   /** Status icons drawn above racks (9×9, 1-px dark outline). */
-  statusIcon(kind: 'overheat' | 'overload' | 'no_psu' | 'reboot', frame: number): HTMLCanvasElement {
+  statusIcon(kind: StatusIconKind, frame: number): HTMLCanvasElement {
     const frames = kind === 'reboot' ? 8 : kind === 'overheat' ? 2 : 1;
     const f = ((frame % frames) + frames) % frames;
     return this.make(`status:${kind}:${f}`, 9, 9, (ctx) => {
@@ -670,6 +701,30 @@ export class SpriteManager {
         rows(
           ['.o.o.....', '.g.g.....', 'ogggo....', 'ogggo..rr', '.ogo..rr.', '..c..rr..', '..c.rr...', '..crr....', '...c.....'],
           { o: ol, g: '#cbd5e1', c: '#71717a', r: '#ef4444' },
+        );
+      } else if (kind === 'empty') {
+        // Dashed empty slot with a plus: "mount something here"
+        rows(
+          ['oo.ooo.oo', 'o.......o', '....c....', 'o...c...o', 'o.ccccc.o', 'o...c...o', '....c....', 'o.......o', 'oo.ooo.oo'],
+          { o: '#8f89c4', c: '#e9e6ff' },
+        );
+      } else if (kind === 'blackout') {
+        // Unplugged bulb with a strike through it
+        rows(
+          ['..ooooo.r', '.oggggor.', 'ogggggro.', 'oggggrgo.', 'ogggrggo.', '.ogrggo..', '..roco...', '.r.oco...', 'r..ooo...'],
+          { o: ol, g: '#64748b', c: '#94a3b8', r: '#ef4444' },
+        );
+      } else if (kind === 'condensation') {
+        // Water drop
+        rows(
+          ['....o....', '...obo...', '...obo...', '..obbbo..', '.obbbbbo.', '.obWbbbo.', '.obWbbbo.', '..obbbo..', '...ooo...'],
+          { o: ol, b: '#38bdf8', W: '#e0f2fe' },
+        );
+      } else if (kind === 'throttle') {
+        // Thermometer
+        rows(
+          ['...ooo...', '...oWo...', '...oro...', '...oro...', '...oro...', '..orrro..', '.orrrrro.', '..orrro..', '...ooo...'],
+          { o: ol, r: '#f97316', W: '#f8fafc' },
         );
       } else {
         // 8-dot spinner, bright head rotating

@@ -3,12 +3,11 @@ import { useState, type ReactNode } from 'react';
 import { COOLER_CATALOG, GPU_CATALOG, MAX_TECHNICIANS, PSU_CATALOG, RACK_CATALOG } from '../../config/hardwareCatalog';
 import { ROOM_CATALOG, ROOM_ORDER } from '../../config/roomsCatalog';
 import { talentModifiers } from '../../config/prestigeTree';
-import { PHYSICS } from '../../config/gameBalance';
 import type { ComponentKind } from '../../store/slices/hardwareSlice';
 import { useT } from '../../i18n';
 import { sprites } from '../../engine/SpriteManager';
-import { gridTariff, wattPrice } from '../../store/gamePhysics';
-import { hardwarePrice, hardwarePriceMul } from '../../store/pricing';
+import { gridTariff, poolYieldMul } from '../../store/gamePhysics';
+import { gpuEconomics, hardwarePrice, hardwarePriceMul, roomPsuEfficiency } from '../../store/pricing';
 import { MAX_BULK } from '../../store/slices/hardwareSlice';
 import { runModifiers } from '../../config/modifiers';
 import { challengeBlocks } from '../../store/slices/challengesSlice';
@@ -16,7 +15,7 @@ import { technicianCost } from '../../store/slices/roomsSlice';
 import { useGameShallow, useGameStore } from '../../store/useGameStore';
 import { bnGte, bnToNumber } from '../../utils/bignum';
 import { cn } from '../../utils/cn';
-import { formatCash, formatHashrate, formatMultiplier, formatPercent, formatPower, formatTemp } from '../../utils/formatters';
+import { formatCash, formatDuration, formatHashrate, formatMultiplier, formatPercent, formatPower, formatTemp } from '../../utils/formatters';
 import { PixelButton } from '../ui/PixelButton';
 import { SpriteImg } from '../ui/SpriteImg';
 import { SLOT, slotted } from '../panels/richText';
@@ -74,6 +73,10 @@ export function HardwareShop() {
     research: st.research,
     event: st.event,
     activeRoom: st.activeRoom,
+    minedCoin: st.minedCoin,
+    coinPrice: st.market[st.minedCoin].price,
+    difficulty: st.live.minedCoin === st.minedCoin ? st.live.difficulty : 1,
+    pool: st.pool,
   }));
   const actions = useGameStore.getState();
   const [qty, setQty] = useState<Qty>(1);
@@ -93,8 +96,18 @@ export function HardwareShop() {
     };
   };
   const run = runModifiers(s.talents, s.research.levels);
-  // $ per second one wall watt costs in the room on screen (each model then adds its own grid tariff).
-  const wattCost = wattPrice(s.activeRoom, { electricityMul: run.electricityMul });
+  /** Net economics of one stock card in the room on screen: mined value minus its real power bill. */
+  const economics = (g: (typeof GPU_CATALOG)[number]) =>
+    gpuEconomics(g, hardwarePrice(g.price, s), {
+      roomId: s.activeRoom,
+      hashMul: run.hashMul,
+      electricityMul: run.electricityMul,
+      psuEfficiency: roomPsuEfficiency(s, s.activeRoom, g.power),
+      coin: s.minedCoin,
+      coinPrice: s.coinPrice,
+      difficulty: s.difficulty,
+      poolMul: poolYieldMul(s.pool),
+    });
   const bulk = cat === 'gpu' || cat === 'cooling' || cat === 'power' || cat === 'racks';
   const count = <T extends { modelId: string }>(rec: Record<string, T>, id: string) => Object.values(rec).filter((x) => x.modelId === id).length;
   const mods = talentModifiers(s.talents);
@@ -129,7 +142,9 @@ export function HardwareShop() {
 
       <div className="flex flex-col gap-1.5">
         {cat === 'gpu' &&
-          GPU_CATALOG.map((g) => (
+          GPU_CATALOG.map((g) => {
+            const eco = economics(g);
+            return (
             <Card
               key={g.id}
               icon={<SpriteImg src={sprites.gpuIcon(g.id)} width={84} alt={t(g.name)} />}
@@ -139,17 +154,24 @@ export function HardwareShop() {
               {...deal('gpu', g.id, g.price)}
             >
               <div className="text-lime">{formatHashrate(g.hashrate)}</div>
-              <div className="text-dim">
-                {t('{power} · {eff} · ROI ~{sec}s', { power: formatPower(g.power), eff: formatHashrate(g.hashrate / g.power).replace('/s', '/W'), sec: Math.round(hardwarePrice(g.price, s) / ((g.hashrate / 1e6) * PHYSICS.rewardPerMHs)) })}
+              <div className="text-dim" data-testid={`roi-${g.id}`} title={t('Net ROI: price / (mined value - power bill) for this room, your PSUs, pool and the current coin price.')}>
+                {t('{power} · {eff}', { power: formatPower(g.power), eff: formatHashrate(g.hashrate / g.power).replace('/s', '/W') })}
+                {' · '}
+                {Number.isFinite(eco.roiSec)
+                  ? slotted(t('net ROI {x}', { x: SLOT }), <span className="text-lime">{formatDuration(eco.roiSec)}</span>)
+                  : <span className="text-hot">{t('net ROI: never (loses money here)')}</span>}
               </div>
-              <div className="text-dim" title={t('Estimated power bill of this card in the room on screen, with its grid tariff.')}>
-                {slotted(t('power bill ~{x}/s here', { x: SLOT }), <span className="text-hot">{formatCash(g.power * gridTariff(g.id) * wattCost)}</span>)}
+              <div className="text-dim" title={t('Estimated power bill of this card in the room on screen, with its grid tariff and the efficiency of your PSUs.')}>
+                {slotted(t('power bill ~{x}/s here', { x: SLOT }), <span className="text-hot">{formatCash(eco.powerPerSec)}</span>)}
+                {' · '}
+                {slotted(t('net {x}/s', { x: SLOT }), <span className={eco.netPerSec > 0 ? 'text-lime' : 'text-hot'}>{formatCash(eco.netPerSec)}</span>)}
               </div>
               <div className="text-dim" title={t('Grid demand: dense, high-hash hardware is billed at a higher rate per watt.')}>
                 {slotted(t('grid tariff {x} per watt', { x: SLOT }), <span className="text-amber">{formatMultiplier(gridTariff(g.id))}</span>)}
               </div>
             </Card>
-          ))}
+            );
+          })}
 
         {cat === 'cooling' &&
           COOLER_CATALOG.map((c) => (

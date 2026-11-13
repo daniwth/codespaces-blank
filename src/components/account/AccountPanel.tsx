@@ -5,11 +5,11 @@ import { useAccountStore } from '../../store/useAccountStore';
 import type { CloudSaveMeta, Plan } from '../../services/cloudApi';
 import { useT } from '../../i18n';
 import { cn } from '../../utils/cn';
-import { formatCash, formatClock, formatDate, formatDuration } from '../../utils/formatters';
+import { formatCash, formatClock, formatDate, formatDateTime, formatDuration, formatMoney } from '../../utils/formatters';
 import { PixelButton } from '../ui/PixelButton';
 
-const money = (cents: number, currency: string) => new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(cents / 100);
-const when = (ms: number | null) => (ms ? new Date(ms).toLocaleString() : '—');
+const money = formatMoney;
+const when = (ms: number | null) => (ms ? formatDateTime(ms) : '—');
 
 function SaveSummaryCard({ title, meta }: { title: string; meta: CloudSaveMeta | null }) {
   const t = useT();

@@ -1,7 +1,7 @@
 import Decimal from 'break_infinity.js';
 import type { BigNumLike } from './bignum';
 import { toDecimal } from './bignum';
-import { tr, useLangStore } from '../i18n';
+import { tr, useLangStore, type Lang } from '../i18n';
 
 const METRIC_SUFFIXES = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi', 'Sx', 'Sp', 'Oc', 'No', 'Dc', 'UDc', 'DDc', 'TDc', 'QaDc', 'QiDc'];
 const HASH_UNITS = ['H/s', 'KH/s', 'MH/s', 'GH/s', 'TH/s', 'PH/s', 'EH/s', 'ZH/s', 'YH/s'];
@@ -100,11 +100,22 @@ export function formatAgo(timestamp: number, now = Date.now()): string {
   return formatDate(timestamp);
 }
 
-/** Calendar date in the game's language (not the browser's). */
-export const formatDate = (timestamp: number | string): string => new Date(timestamp).toLocaleDateString(useLangStore.getState().lang);
+/** BCP 47 locale of each game language: dates and times never follow the browser's own locale. */
+const LOCALES: Record<Lang, string> = { en: 'en-US', es: 'es-ES' };
+export const localeOf = (lang: Lang = useLangStore.getState().lang): string => LOCALES[lang];
 
-/** Clock time in the game's language. */
-export const formatClock = (timestamp: number | string): string => new Date(timestamp).toLocaleTimeString(useLangStore.getState().lang);
+/** Calendar date in the game's language (not the browser's). */
+export const formatDate = (timestamp: number | string, lang?: Lang): string => new Date(timestamp).toLocaleDateString(localeOf(lang));
+
+/** Clock time in the game's language (24 h). */
+export const formatClock = (timestamp: number | string, lang?: Lang): string => new Date(timestamp).toLocaleTimeString(localeOf(lang), { hour12: false });
+
+/** Date and time in the game's language. */
+export const formatDateTime = (timestamp: number | string, lang?: Lang): string => new Date(timestamp).toLocaleString(localeOf(lang), { hour12: false });
+
+/** Real money (Stripe amounts in cents) in the game's language. */
+export const formatMoney = (cents: number, currency: string, lang?: Lang): string =>
+  new Intl.NumberFormat(localeOf(lang), { style: 'currency', currency }).format(cents / 100);
 
 /** Color ramp used by LEDs, bars and text: green → orange → red. */
 export function tempColor(celsius: number): string {

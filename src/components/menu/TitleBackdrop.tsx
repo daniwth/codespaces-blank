@@ -53,9 +53,15 @@ export default function TitleBackdrop() {
       // Slightly larger than the box (< one logical pixel); the wrapper clips it.
       canvas.style.width = `${(bw * scale) / dpr}px`;
       canvas.style.height = `${(bh * scale) / dpr}px`;
-      still();
+      // Nothing to paint for while the tab is hidden: `sync` redraws when it comes back.
+      if (!document.hidden) still();
     };
     const frame = (now: number) => {
+      // Hidden tab: stop the loop outright (no frame is requested again until `sync` sees the tab back).
+      if (document.hidden) {
+        raf = 0;
+        return;
+      }
       raf = requestAnimationFrame(frame);
       // A slow skyline does not need 60+ fps: every other frame halves the menu's CPU and battery use.
       if (now - last < FRAME_MS - 2) return;
@@ -74,6 +80,8 @@ export default function TitleBackdrop() {
         return;
       }
       if (document.hidden) return;
+      // Layout may have changed while hidden (resizes were not painted).
+      still();
       last = performance.now();
       raf = requestAnimationFrame(frame);
     };

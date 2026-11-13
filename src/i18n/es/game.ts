@@ -130,18 +130,11 @@ export const esGame: Dict = {
   'Click to claim your reward': 'Clic para reclamar tu recompensa',
   'SILICON LOTTERY': 'LOTERÍA DE SILICIO',
 
-  // World canvas (bitmap font: ASCII only, uppercase, short)
-  'NO PSU': 'SIN PSU',
-  OVERLOAD: 'EXCESO',
-  OVERHEAT: 'SOBRECAL',
-  REBOOT: 'REINICIO',
-  'NO POWER': 'SIN LUZ',
-  EMPTY: 'VACIO',
-  'HOT!': 'CALOR!',
-  'BLACKOUT - GRID DOWN': 'APAGON - RED CAIDA',
-  'BROWNOUT {pct}% - LINE OVERLOADED': 'BAJA TENSION {pct}% - LINEA SOBRECARGADA',
-  'ELECTRICAL INSPECTION {s}S': 'INSPECCION ELECTRICA {s}S',
-  'SOLO JACKPOT!': 'JACKPOT EN SOLITARIO!',
+  // World canvas: the 3×5 bitmap font draws upper case and strips accents itself (see `pixelTextOf`).
+  'BLACKOUT - GRID DOWN': 'APAGÓN - RED CAÍDA',
+  'BROWNOUT {pct}% - LINE OVERLOADED': 'BAJA TENSIÓN {pct}% - LÍNEA SOBRECARGADA',
+  'ELECTRICAL INSPECTION {s}S': 'INSPECCIÓN ELÉCTRICA {s}S',
+  'SOLO JACKPOT!': '¡JACKPOT EN SOLITARIO!',
   'Buy it in the Shop → Rooms': 'Cómpralo en Tienda → Salas',
   '{n} pads': '{n} plazas',
   'Mining room view': 'Vista de la sala de minado',

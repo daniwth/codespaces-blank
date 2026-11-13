@@ -1044,6 +1044,48 @@ try {
       await context.close();
     }
   });
+
+  // ───────────── v9: audit fixes ─────────────
+  await check('v9: switching the language retranslates the whole existing log, its clock and the shop shows a net ROI', async () => {
+    const { context, p } = await fresh({ viewport: { width: 1600, height: 1000 }, locale: 'fr-FR' });
+    const pageErrors = [];
+    p.on('pageerror', (e) => pageErrors.push(e.message));
+    try {
+      await p.addInitScript(() => localStorage.getItem('hh-lang') ?? localStorage.setItem('hh-lang', 'en'));
+      await bootPatched(p, `state.cash = '100000'; state.nextAirdropAt = Date.now() + 3600000;`);
+      const panel = (tab) => p.locator(`nav[aria-label="Panels"] button[title="${tab}"]`);
+      // Net ROI: the starter card pays for itself, and the readout is a duration, not the old gross "~Ns".
+      await panel('Shop').click();
+      const roi = (await p.getByTestId('roi-px460').textContent()) ?? '';
+      assert(/net ROI \d/.test(roi) && !/ROI ~/.test(roi), `no net ROI on the PX-460 card: ${roi}`);
+      // Two templated log lines (bulk purchases).
+      await p.locator('button:has-text("Cooling")').first().click();
+      await p.getByTestId('qty-5').click();
+      await p.locator('div.bg-panel-2 button:has-text("Buy x5")').first().click();
+      await p.getByText(/Bought 5x 80mm Case Fan/).first().waitFor({ timeout: 3000 });
+      const english = await p.getByTestId('log-line').allTextContents();
+      assert(english.some((l) => /Bought 5x 80mm Case Fan/.test(l)), 'English log line missing');
+      // Switch to Spanish: the lines already in the log change language, none is left in English.
+      await panel('System').click();
+      await p.locator('button:has-text("Español")').click();
+      await p.getByText(/Comprado 5x Ventilador de caja 80mm/).first().waitFor({ timeout: 3000 });
+      const spanish = await p.getByTestId('log-line').allTextContents();
+      assert(spanish.length === english.length, `log length changed: ${english.length} -> ${spanish.length}`);
+      assert(!spanish.some((l) => /Bought 5x/.test(l)), `a log line stayed in English: ${spanish.join(' | ')}`);
+      assert((await p.evaluate(() => localStorage.getItem('hh-lang'))) === 'es', 'hh-lang was not stored');
+      // Clock and dates follow the game language (es-ES, 24 h), not the browser locale (fr-FR here).
+      assert(spanish.every((l) => /^\d{1,2}:\d{2}:\d{2}/.test(l)), `log clock is not HH:MM:SS: ${spanish[0]}`);
+      const founded = (await p.getByText(/Granja fundada/).textContent()) ?? '';
+      const expected = await p.evaluate(() => new Date(JSON.parse(localStorage.getItem('hash-harvest-tycoon')).state.createdAt).toLocaleDateString('es-ES'));
+      assert(founded.includes(expected), `date is not es-ES: "${founded}" vs ${expected}`);
+      // And back to English.
+      await p.locator('button:has-text("English")').click();
+      await p.getByText(/Bought 5x 80mm Case Fan/).first().waitFor({ timeout: 3000 });
+      assert(pageErrors.length === 0, pageErrors.join(' | '));
+    } finally {
+      await context.close();
+    }
+  });
 } catch (err) {
   results.push({ name: 'harness', ok: false, err: err.message });
   console.error(err);
