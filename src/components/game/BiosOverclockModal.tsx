@@ -4,7 +4,8 @@ import { isTopLayer, popLayer, pushLayer } from '../../utils/modalStack';
 import { GPU_BY_ID, OC_LIMITS, QUALITY_DEFS } from '../../config/hardwareCatalog';
 import { PHYSICS } from '../../config/gameBalance';
 import { hash01 } from '../../engine/SpriteManager';
-import { effectiveCoreHeadroom, ocHashBonus, ocPowerMul, STOCK_OC } from '../../store/gamePhysics';
+import { effectiveCoreHeadroom, ocHashBonus, ocPowerMul, STOCK_OC, voltageSaving } from '../../store/gamePhysics';
+import { BIOS_PROFILE_IDS, BIOS_PROFILE_NAMES } from '../../config/synergy';
 import { challengeBlocks } from '../../store/slices/challengesSlice';
 import { useGameStore } from '../../store/useGameStore';
 import type { OverclockSettings } from '../../types/hardware';
@@ -22,12 +23,16 @@ const hexLine = () => Array.from({ length: 8 }, () => Array.from({ length: 4 }, 
  * Fuzzy stability estimate: share of the (noisy) headroom already consumed.
  * The silicon lottery is never fully revealed, so the gauge is ±30 MHz off.
  */
-function estimateRisk(uid: string, coreHeadroom: number, memHeadroom: number, oc: OverclockSettings): number {
+function estimateRisk(uid: string, coreHeadroom: number, memHeadroom: number, vFloor: number, oc: OverclockSettings): number {
   const estCore = coreHeadroom + (hash01(uid, 1) - 0.5) * 60;
   const estMem = memHeadroom + (hash01(uid, 2) - 0.5) * 240;
   const coreRisk = estCore <= 0 ? (oc.core >= estCore ? 1 : 0) : oc.core / estCore;
   const memRisk = estMem <= 0 ? 1 : oc.mem / estMem;
-  return clamp(Math.max(coreRisk, memRisk), 0, 1);
+  // Undervolt: how much of the (fuzzy, ±15 mV) room above the chip's voltage floor is used up.
+  const estFloor = vFloor + (hash01(uid, 3) - 0.5) * 30;
+  const span = Math.max(1, OC_LIMITS.voltage.stock - estFloor);
+  const voltRisk = oc.voltage >= OC_LIMITS.voltage.stock ? 0 : (OC_LIMITS.voltage.stock - oc.voltage) / span;
+  return clamp(Math.max(coreRisk, memRisk, voltRisk), 0, 1);
 }
 
 const riskLabel = (r: number) =>
@@ -64,7 +69,9 @@ export function BiosOverclockModal({ gpuUid }: { gpuUid: string }) {
   const gpu = useGameStore((s) => s.gpus[gpuUid]);
   const aiUnlocked = useGameStore((s) => s.vip.aiDiagnostics);
   const locked = useGameStore((s) => challengeBlocks(s, 'lockOverclock'));
-  const { openBios, applyOverclock, autoTuneGpu } = useGameStore.getState();
+  const { openBios, applyOverclock, autoTuneGpu, saveBiosProfile, applyProfileToModel } = useGameStore.getState();
+  const profiles = useGameStore((s) => s.biosProfiles);
+  const [batchMsg, setBatchMsg] = useState('');
   const [oc, setOc] = useState<OverclockSettings>(() => (gpu ? { ...gpu.oc } : { ...STOCK_OC }));
   const [phase, setPhase] = useState<Phase>('edit');
   const [lines, setLines] = useState<string[]>([]);
@@ -172,7 +179,9 @@ export function BiosOverclockModal({ gpuUid }: { gpuUid: string }) {
   const q = QUALITY_DEFS[gpu.quality];
   const bonus = ocHashBonus(oc);
   const power = model.power * ocPowerMul(oc);
-  const risk = estimateRisk(gpu.uid, effectiveCoreHeadroom(gpu.silicon, oc.voltage), gpu.silicon.memHeadroom, oc);
+  const risk = estimateRisk(gpu.uid, effectiveCoreHeadroom(gpu.silicon, oc.voltage), gpu.silicon.memHeadroom, gpu.silicon.vFloor, oc);
+  const saving = voltageSaving(oc.voltage);
+  const sameModel = Object.values(useGameStore.getState().gpus).filter((g) => g.modelId === gpu.modelId).length;
   const rl = riskLabel(risk);
   const coreBase = 1400 + model.tier * 70;
   const memBase = 6000 + model.tier * 600;
@@ -235,6 +244,10 @@ export function BiosOverclockModal({ gpuUid }: { gpuUid: string }) {
               <span className={power > model.power * 1.2 ? 'text-[#ffaa00]' : 'text-[#ffffff]'}>{formatPower(power)}</span>
               <span>{t('Heat output')}</span>
               <span className="text-[#ffffff]">x{(power / model.power).toFixed(2)}</span>
+              <span>{t('Voltage mode')}</span>
+              <span className={saving > 0.001 ? 'text-[#55ffff]' : saving < -0.001 ? 'text-[#ffaa00]' : 'text-[#ffffff]'} data-testid="bios-voltage-mode">
+                {saving > 0.001 ? t('UNDERVOLT -{pct}% W', { pct: (saving * 100).toFixed(0) }) : saving < -0.001 ? t('OVERVOLT +{pct}% W', { pct: (-saving * 100).toFixed(0) }) : t('STOCK')}
+              </span>
               <span>{t('Crash risk (est.)')}</span>
               <span style={{ color: rl.color }}>{t(rl.text)}</span>
             </div>
@@ -242,7 +255,7 @@ export function BiosOverclockModal({ gpuUid }: { gpuUid: string }) {
               <div className="h-full" style={{ width: `${risk * 100}%`, background: rl.color }} />
             </div>
             <p className="mt-2 text-[16px] leading-tight">
-              {t('More voltage unlocks core headroom but adds heat (∝V²). Undervolting runs cooler. Unstable settings trigger a BSOD and a 10s reboot.')}
+              {t('More voltage unlocks core headroom but adds heat (∝V²). Undervolting saves power and heat, but every chip has a voltage floor: better silicon undervolts deeper. Unstable settings trigger a BSOD and a 10s reboot.')}
             </p>
             {locked && (
               <div className="mt-2 bg-[#aa0000] p-2 text-center text-[#ffffff]" data-testid="bios-locked">
@@ -264,6 +277,54 @@ export function BiosOverclockModal({ gpuUid }: { gpuUid: string }) {
                 {t('✓ SYSTEM STABLE — profile saved ({pct}% bonus)', { pct: (gpu.ocBonus * 100).toFixed(1) })}
               </div>
             )}
+          </div>
+        </div>
+        <div className="border-b-2 border-[#aaaaaa] px-3 py-2" data-testid="bios-profiles">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <span className="text-[#ffffff]">{t('Saved profiles')}</span>
+            {BIOS_PROFILE_IDS.map((id) => (
+              <span key={id} className="flex items-center gap-1">
+                <button
+                  type="button"
+                  disabled={phase !== 'edit'}
+                  className="bg-[#000055] px-1.5 text-[#ffff55] hover:bg-[#aaaaaa] hover:text-[#0000aa] disabled:opacity-50"
+                  title={t('Load {core} MHz / {mem} MHz / {mv} mV into the sliders', { core: profiles[id].core, mem: profiles[id].mem, mv: profiles[id].voltage })}
+                  onClick={() => { setOc({ ...profiles[id] }); sfxBus.emit('switch'); }}
+                  data-testid={`bios-load-${id}`}
+                >
+                  {t(BIOS_PROFILE_NAMES[id])}
+                </button>
+                <button
+                  type="button"
+                  disabled={phase !== 'edit'}
+                  className="px-1 text-[#55ffff] hover:text-[#ffffff] disabled:opacity-50"
+                  title={t('Save the sliders into this profile')}
+                  aria-label={t('Save the sliders into {name}', { name: t(BIOS_PROFILE_NAMES[id]) })}
+                  onClick={() => saveBiosProfile(id, oc)}
+                  data-testid={`bios-save-${id}`}
+                >
+                  [{t('SAVE')}]
+                </button>
+              </span>
+            ))}
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <button
+              type="button"
+              disabled={phase !== 'edit' || locked}
+              className="bg-[#aaaaaa] px-2 text-[#0000aa] hover:bg-[#ffff55] disabled:opacity-50"
+              onClick={() => {
+                const n = applyProfileToModel(gpu.modelId, oc);
+                if (n > 0) {
+                  setOc(useGameStore.getState().gpus[gpuUid]?.oc ?? oc);
+                  setBatchMsg(t('Applied to {n} GPUs, each fitted to its own silicon (no stress test needed).', { n }));
+                }
+              }}
+              data-testid="bios-apply-model"
+            >
+              {t('Apply to all {n}x {name}', { n: sameModel, name: t(model.name) })}
+            </button>
+            <span className="text-[16px] leading-tight text-[#55ff55]" aria-live="polite">{batchMsg}</span>
           </div>
         </div>
         <div className="flex flex-wrap justify-center gap-x-5 gap-y-1 px-2 py-2 text-[#ffffff]">

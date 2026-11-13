@@ -1,6 +1,6 @@
 import { tr } from '../../i18n';
 import { MAX_TECHNICIANS, TECHNICIAN_BASE_COST, TECHNICIAN_COST_GROWTH } from '../../config/hardwareCatalog';
-import { MAX_PADS, ROOM_BY_ID, ROOM_ORDER } from '../../config/roomsCatalog';
+import { MAX_PADS, ROOM_BY_ID, ROOM_MECHANICS, ROOM_ORDER } from '../../config/roomsCatalog';
 import { talentModifiers } from '../../config/prestigeTree';
 import type { RoomId, TalentLevels } from '../../types/player';
 import { bnGte, bnSub } from '../../utils/bignum';
@@ -67,6 +67,26 @@ export function createRoomsSlice(set: SetState, get: GetState): RoomsSlice {
     storeRack: (rackUid) => {
       set((s) => (s.racks[rackUid] ? { racks: { ...s.racks, [rackUid]: { ...s.racks[rackUid], roomId: null, pad: null } } } : {}));
       sfxBus.emit('switch');
+    },
+
+    buyRoomUpgrade: (id) => {
+      const s = get();
+      if (id !== 'battery' || s.upgrades.battery) return false;
+      if (!s.ownedRooms.includes('warehouse')) {
+        s.logT('Unlock {name} first.', { name: ROOM_BY_ID.warehouse.name }, 'warn');
+        sfxBus.emit('error');
+        return false;
+      }
+      const price = ROOM_MECHANICS.warehouse.batteryPrice;
+      if (!bnGte(s.cash, price)) {
+        s.logT('Not enough cash for {label} ({price}).', { label: 'Battery Bank', price: formatCash(price) }, 'warn');
+        sfxBus.emit('error');
+        return false;
+      }
+      set({ cash: bnSub(s.cash, price), upgrades: { ...s.upgrades, battery: true } });
+      s.logT('Battery Bank installed in the Warehouse: night-time power costs {pct}% less there.', { pct: Math.round((1 - ROOM_MECHANICS.warehouse.valleyMul) * 100) }, 'good');
+      sfxBus.emit('unlock');
+      return true;
     },
 
     hireTechnician: () => {

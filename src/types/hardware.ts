@@ -55,6 +55,8 @@ export interface CoolerModel {
   /** Own power draw in watts. */
   power: number;
   kind: CoolerKind;
+  /** Noise it makes while running (arbitrary units; only the Bedroom cares, at night). */
+  noise: number;
 }
 
 export type RackStyle = 'bench' | 'steel' | 'cabinet' | 'gold';
@@ -83,6 +85,8 @@ export interface SiliconProfile {
   memHeadroom: number;
   /** Extra core MHz gained per +10 mV over stock. */
   vScale: number;
+  /** Lowest core voltage (mV) this chip stays stable at, whatever the clock: better silicon undervolts deeper. */
+  vFloor: number;
 }
 
 export interface OverclockSettings {
@@ -113,6 +117,8 @@ export interface GpuInstance {
   shutdown: boolean;
   /** Accumulated seconds spent above the wear threshold. */
   overheatSeconds: number;
+  /** Arctic: the die sat cold and powered off, so it must warm up past the dew point before hashing again. */
+  condensed: boolean;
 }
 
 export interface PsuInstance {
@@ -157,6 +163,10 @@ export interface GpuLive {
   throttled: boolean;
   heat: number;
   load: number;
+  /** Part of a Cluster Bonus (4+ cards of one model and grade in the rack). */
+  clustered: boolean;
+  /** Arctic: warming up past the dew point before it may hash. */
+  preheating: boolean;
 }
 
 export interface RackLive {
@@ -173,6 +183,14 @@ export interface RackLive {
   tariff: number;
   /** Electricity bill of this rack in $/s. */
   powerCost: number;
+  /** GPUs of this rack inside a Cluster Bonus. */
+  clustered: number;
+  /** Heat transfer (W/°C) received from the liquid loops of the racks next to it. */
+  spill: number;
+  /** Mounted GPUs left idle: over the room's structural limit, or barred by a challenge. */
+  idle: number;
+  /** GPUs warming up past the dew point (Arctic). */
+  preheating: number;
 }
 
 export type ComponentKind = 'gpu' | 'psu' | 'cooler' | 'rack';

@@ -19,7 +19,8 @@ import {
 } from '../config/altcoins';
 import { BUFFS, blockMulOf, crewRallied, nitroActive } from '../config/buffs';
 import { challengeRules } from '../config/challenges';
-import { ROOM_BY_ID } from '../config/roomsCatalog';
+import { MAX_PADS, ROOM_BY_ID, ROOM_MECHANICS, garageWave, isNight, padsAdjacent } from '../config/roomsCatalog';
+import { SYNERGY } from '../config/synergy';
 import { runModifiers, type RunModifiers } from '../config/modifiers';
 import type { TalentModifiers } from '../config/prestigeTree';
 import {
@@ -52,7 +53,7 @@ export type SimInput = Pick<
   | 'gpus' | 'psus' | 'coolers' | 'racks' | 'ownedRooms' | 'roomTemps' | 'technicians'
   | 'pool' | 'market' | 'bots' | 'event' | 'nextEventAt' | 'talents' | 'vip'
   | 'cash' | 'cc' | 'ccCostBasis' | 'meme' | 'memeCostBasis' | 'alts' | 'minedCoin' | 'lastTick' | 'challenge'
-  | 'research' | 'boost' | 'buffs'
+  | 'research' | 'boost' | 'buffs' | 'upgrades' | 'bmc'
 >;
 
 export type MessageTone = 'info' | 'good' | 'warn' | 'bad';
@@ -83,6 +84,17 @@ export interface RoomLive {
   hash: number;
   blackout: boolean;
   racksOnline: number;
+  /** Fan noise of the running racks (the Bedroom caps overclocks when it is loud at night). */
+  noise: number;
+  /** Bedroom at night, too loud: overclocks only deliver part of their bonus. */
+  ocCapped: boolean;
+  /** Garage heat wave: degrees it adds to the ambient right now. */
+  wave: number;
+  /** Warehouse battery: the valley tariff applies right now. */
+  valley: boolean;
+  /** Structural GPU limit of the room (null = none) and the mounted GPUs it leaves idle. */
+  gpuCap: number | null;
+  gpusOverCap: number;
 }
 
 /** What the farm would mint of one coin right now (before pool luck): coins/s, dollars/s at the current price, difficulty. */
@@ -108,6 +120,8 @@ export interface LiveMetrics {
   hottest: number;
   /** Mean die temperature of the GPUs that are hashing (°C, 0 when none is). */
   avgTemp: number;
+  /** Night half of the shared day/night clock. */
+  night: boolean;
   /** Hashrate multiplier of the Overdrive surge right now (1 = none). */
   surge: number;
   rooms: Partial<Record<RoomId, RoomLive>>;
@@ -124,7 +138,7 @@ export interface RackFx {
   coin?: MineableCoin;
 }
 
-export type GpuThermalUpdate = Pick<GpuInstance, 'temp' | 'wear' | 'paste' | 'shutdown' | 'overheatSeconds'>;
+export type GpuThermalUpdate = Pick<GpuInstance, 'temp' | 'wear' | 'paste' | 'shutdown' | 'overheatSeconds' | 'condensed'>;
 
 export interface SimOutput {
   now: number;
@@ -165,6 +179,8 @@ export interface SimOutput {
   sounds: SoundCue[];
   /** Per-rack events for the canvas (floating labels). Empty offline. */
   rackFx: RackFx[];
+  /** What the Smart BMC did during the tick: GPUs re-pasted and repaired, and the cash it spent. */
+  bmc: { pasted: number; repaired: number; spent: number };
 }
 
 export interface SimOptions {
@@ -188,10 +204,31 @@ export const effectiveCoreHeadroom = (silicon: SiliconProfile, voltage: number):
 export function crashChance(silicon: SiliconProfile, oc: OverclockSettings): number {
   const coreMargin = effectiveCoreHeadroom(silicon, oc.voltage) - oc.core;
   const memMargin = silicon.memHeadroom - oc.mem;
-  if (coreMargin < 0 || memMargin < 0) return 1;
-  if (coreMargin < 15 || memMargin < 60) return 0.35;
+  // Undervolt: every chip has a floor it will not run below, whatever the clock.
+  const voltMargin = oc.voltage - silicon.vFloor;
+  if (coreMargin < 0 || memMargin < 0 || voltMargin < 0) return 1;
+  if (coreMargin < OC_LIMITS.coreMargin || memMargin < OC_LIMITS.memMargin || voltMargin < OC_LIMITS.voltageMargin) return 0.35;
   return 0;
 }
+
+const stepDown = (value: number, step: number): number => Math.floor(value / step) * step;
+const stepUp = (value: number, step: number): number => Math.ceil(value / step) * step;
+
+/**
+ * The closest settings to `oc` that this chip runs with no crash risk: the voltage is raised to its
+ * safe floor if needed, then core and memory are lowered to their safe margins. Used to apply one
+ * BIOS profile to a whole batch of cards with different silicon.
+ */
+export function fitOverclock(silicon: SiliconProfile, oc: OverclockSettings): OverclockSettings {
+  const { core: c, mem: m, voltage: v } = OC_LIMITS;
+  const voltage = clamp(Math.max(oc.voltage, stepUp(silicon.vFloor + OC_LIMITS.voltageMargin, v.step)), v.min, v.max);
+  const core = clamp(Math.min(oc.core, stepDown(effectiveCoreHeadroom(silicon, voltage) - OC_LIMITS.coreMargin, c.step)), c.min, c.max);
+  const mem = clamp(Math.min(oc.mem, stepDown(silicon.memHeadroom - OC_LIMITS.memMargin, m.step)), m.min, m.max);
+  return { core, mem, voltage };
+}
+
+/** Share of the stock board power (and heat) an undervolt saves at the same clocks (negative when overvolted). */
+export const voltageSaving = (voltage: number): number => 1 - (voltage / OC_LIMITS.voltage.stock) ** 2;
 
 /** VIP AI diagnostics: best safe profile for this silicon. */
 export function aiAutoTune(silicon: SiliconProfile): OverclockSettings {
@@ -208,6 +245,58 @@ export function usableRooms(input: Pick<SimInput, 'ownedRooms' | 'challenge'>): 
   if (!challengeRules(input.challenge?.id).singleRoom) return input.ownedRooms;
   return input.ownedRooms.includes('bedroom') ? ['bedroom'] : [];
 }
+
+// ───────────────────────── Maintenance ─────────────────────────
+
+export const repasteCost = (g: { modelId: string }): number => Math.max(5, Math.round(GPU_BY_ID[g.modelId].price * 0.03));
+export const repairCost = (g: { modelId: string; wear: number }): number => Math.max(5, Math.round(GPU_BY_ID[g.modelId].price * 0.5 * g.wear));
+
+/** Silicon health, 1 = pristine, 0 = as worn as a chip can get. */
+export const gpuHealth = (g: Pick<GpuInstance, 'wear'>): number => clamp(1 - g.wear / PHYSICS.maxWear, 0, 1);
+
+// ───────────────────────── Rack synergies & room rules ─────────────────────────
+
+/**
+ * Cluster Bonus: the GPUs of a rack that belong to a group of `SYNERGY.clusterSize` or more cards of the
+ * same model and silicon grade. They hash faster and draw less power.
+ */
+export function clusterUids(gpuUids: readonly string[], gpus: Record<string, Pick<GpuInstance, 'modelId' | 'quality'>>): Set<string> {
+  const groups = new Map<string, string[]>();
+  gpuUids.forEach((uid) => {
+    const g = gpus[uid];
+    if (!g) return;
+    const key = `${g.modelId}|${g.quality}`;
+    const list = groups.get(key);
+    if (list) list.push(uid);
+    else groups.set(key, [uid]);
+  });
+  const out = new Set<string>();
+  groups.forEach((list) => {
+    if (list.length >= SYNERGY.clusterSize) list.forEach((uid) => out.add(uid));
+  });
+  return out;
+}
+
+const LIQUID_KINDS: readonly string[] = ['liquid', 'immersion', 'cryo'];
+
+/** Heat transfer (W/°C) of the liquid-loop coolers mounted in a rack: what spills over to its neighbours. */
+export function liquidCooling(rack: Pick<RackInstance, 'fanSlots'>, coolers: GameData['coolers']): number {
+  return rack.fanSlots.reduce((acc, uid) => {
+    const m = uid && coolers[uid] ? COOLER_BY_ID[coolers[uid].modelId] : undefined;
+    return acc + (m && LIQUID_KINDS.includes(m.kind) ? m.cooling : 0);
+  }, 0);
+}
+
+/** Fan noise a rack makes while it runs. */
+export function rackNoise(rack: Pick<RackInstance, 'fanSlots'>, coolers: GameData['coolers']): number {
+  return rack.fanSlots.reduce((acc, uid) => acc + (uid && coolers[uid] ? COOLER_BY_ID[coolers[uid].modelId]?.noise ?? 0 : 0), 0);
+}
+
+/** Watts the heater strip of a card burns while it warms up past the dew point (Arctic). */
+export const preheatWatts = (boardPower: number): number =>
+  Math.max(ROOM_MECHANICS.arctic.preheatMinW, boardPower * ROOM_MECHANICS.arctic.preheatShare);
+
+const IDLE_RACK_LIVE: RackLive = { status: 'stored', load: 0, wall: 0, capacity: 0, hash: 0, maxTemp: 0, cooling: 0, tariff: 1, powerCost: 0, clustered: 0, spill: 0, idle: 0, preheating: 0 };
 
 export const pasteFactor = (paste: number): number =>
   PHYSICS.pasteMinFactor + (1 - PHYSICS.pasteMinFactor) * clamp(paste, 0, 1);
@@ -390,7 +479,7 @@ const emptyYields = (): Record<MineableCoin, CoinYield> => ({
 });
 
 function emptyLive(): LiveMetrics {
-  return { totalHash: 0, ccPerSec: 0, minedCoin: 'CC', coinPerSec: 0, yields: emptyYields(), electricityPerSec: 0, gridDemand: 1, difficulty: 1, hottest: 0, avgTemp: 0, surge: 1, rooms: {}, racks: {}, gpus: {} };
+  return { totalHash: 0, ccPerSec: 0, minedCoin: 'CC', coinPerSec: 0, yields: emptyYields(), electricityPerSec: 0, gridDemand: 1, difficulty: 1, hottest: 0, avgTemp: 0, night: false, surge: 1, rooms: {}, racks: {}, gpus: {} };
 }
 
 interface StepAccumulator {
@@ -408,6 +497,9 @@ interface StepAccumulator {
   messages: GameMessage[];
   sounds: SoundCue[];
   rackFx: RackFx[];
+  bmcPasted: number;
+  bmcRepaired: number;
+  bmcSpent: number;
 }
 
 /** Floating labels are eye candy: a busy tick keeps only the first few. */
@@ -514,25 +606,41 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
   const racksByRoom: Partial<Record<RoomId, RackInstance[]>> = {};
   Object.values(w.racks).forEach((r) => {
     if (!r.roomId || !rooms.includes(r.roomId)) {
-      live.racks[r.uid] = { status: 'stored', load: 0, wall: 0, capacity: 0, hash: 0, maxTemp: 0, cooling: 0, tariff: 1, powerCost: 0 };
+      live.racks[r.uid] = { ...IDLE_RACK_LIVE };
       return;
     }
     (racksByRoom[r.roomId] ??= []).push(r);
   });
 
+  const night = isNight(now);
+  live.night = night;
+  const bmcOn = mods.smartBmc && input.bmc.enabled;
+  const arctic = ROOM_MECHANICS.arctic;
+
   rooms.forEach((roomId) => {
     const room = ROOM_BY_ID[roomId];
     const lineW = room.maxPowerW * rules.powerCapMul * lineMul;
-    const racks = racksByRoom[roomId] ?? [];
+    // Pad order: the structural limit and the neighbours of a liquid loop both follow the floor plan.
+    const racks = (racksByRoom[roomId] ?? []).slice().sort((x, y) => (x.pad ?? 0) - (y.pad ?? 0));
     const blackout = ev?.id === 'blackout' && ev.roomId === roomId;
-    const baseAmbient = room.ambient + ambientDelta;
+    // Garage: a heat wave rolls in every few minutes.
+    const wave = roomId === 'garage' ? garageWave(now) : 0;
+    const baseAmbient = room.ambient + ambientDelta + wave;
     const roomTemp = w.roomTemps[roomId] ?? baseAmbient;
+    // Submarine: the pressure hull only carries so many GPUs; the rest stay idle.
+    let capLeft = room.maxGpus ?? Number.POSITIVE_INFINITY;
+    let overCap = 0;
 
     // Pass 1: rack power status
     const rackInfo = racks.map((rack) => {
       const full = rackTopology(rack, { gpus: w.gpus, psus: input.psus, coolers: input.coolers });
       // Bronze Only: higher silicon grades stay idle (neither powered nor mining).
-      const topo = rules.bronzeOnly ? { ...full, gpuUids: full.gpuUids.filter((u) => w.gpus[u].quality === 'bronze') } : full;
+      const allowed = rules.bronzeOnly ? full.gpuUids.filter((u) => w.gpus[u].quality === 'bronze') : full.gpuUids;
+      const gpuUids = allowed.slice(0, Math.max(0, capLeft));
+      capLeft -= gpuUids.length;
+      overCap += allowed.length - gpuUids.length;
+      const topo = gpuUids.length === full.gpuUids.length ? full : { ...full, gpuUids };
+      const cluster = clusterUids(topo.gpuUids, w.gpus);
       let status: RackStatus;
       let load = 0;
       let gpuLoad = 0;
@@ -545,7 +653,10 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
         topo.gpuUids.forEach((u) => {
           const g = w.gpus[u];
           if (g.shutdown) return;
-          const p = GPU_BY_ID[g.modelId].power * ocPowerMul(gpuOc(g));
+          const model = GPU_BY_ID[g.modelId];
+          const p = roomId === 'arctic' && g.condensed
+            ? preheatWatts(model.power)
+            : model.power * ocPowerMul(gpuOc(g)) * (cluster.has(u) ? 1 - SYNERGY.clusterPower : 1);
           gpuLoad += p;
           tariffLoad += p * gridTariff(g.modelId);
         });
@@ -556,15 +667,35 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
       const wall = topo.selfPowered ? 0 : load / topo.efficiency;
       // Fans and PSU losses are billed at the rack's (GPU-load weighted) tariff.
       const tariff = gpuLoad > 0 ? tariffLoad / gpuLoad : 1;
-      return { rack, topo, status, load, wall, tariff };
+      return { rack, topo, status, load, wall, tariff, cluster, idle: full.gpuUids.length - topo.gpuUids.length, spill: 0 };
     });
+
+    // Liquid Cooling Spillover: a running liquid loop also carries heat away from the racks right next to it.
+    const pads = Math.min(MAX_PADS, room.pads + mods.extraPads);
+    rackInfo.forEach((src) => {
+      if (src.status !== 'online') return;
+      const liquid = liquidCooling(src.rack, input.coolers);
+      if (liquid <= 0) return;
+      rackInfo.forEach((dst) => {
+        // Only racks without a loop of their own benefit: the chilled air helps open, air-cooled rigs.
+        if (dst === src || liquidCooling(dst.rack, input.coolers) > 0) return;
+        if (padsAdjacent(src.rack.pad ?? -9, dst.rack.pad ?? -99, pads)) dst.spill += liquid * SYNERGY.spillShare;
+      });
+    });
+
+    // Bedroom: too much fan noise at night and the neighbours make you back the overclocks off.
+    const noise = rackInfo.reduce((a, r) => a + (r.status === 'online' ? rackNoise(r.rack, input.coolers) : 0), 0);
+    const ocCapped = roomId === 'bedroom' && night && noise > ROOM_MECHANICS.bedroom.noiseLimit;
+    const ocShare = ocCapped ? ROOM_MECHANICS.bedroom.nightOcShare : 1;
 
     const roomWall = rackInfo.reduce((a, r) => a + r.wall, 0);
     const brownout = roomWall > lineW ? lineW / roomWall : 1;
     const paidWall = Math.min(roomWall, lineW);
     // A brownout caps the paid wall at the contracted line: every rack is billed pro rata.
     const paidShare = roomWall > 0 ? paidWall / roomWall : 0;
-    const price = wattPrice(roomId, mods);
+    // Warehouse battery bank: valley (night) power is cheaper.
+    const valley = roomId === 'warehouse' && input.upgrades.battery && night;
+    const price = wattPrice(roomId, mods) * (valley ? ROOM_MECHANICS.warehouse.valleyMul : 1);
     const billedWall = rackInfo.reduce((a, r) => a + r.wall * r.tariff, 0) * paidShare;
     electricityRate += billedWall * price;
     farmPaidWall += paidWall;
@@ -575,24 +706,36 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
     let racksOnline = 0;
 
     // Pass 2: thermals + hashrate
-    rackInfo.forEach(({ rack, topo, status, load, wall, tariff }) => {
+    rackInfo.forEach(({ rack, topo, status, load, wall, tariff, cluster, idle, spill }) => {
       const rackModel = RACK_BY_ID[rack.modelId];
       const powered = status === 'online';
       if (powered) racksOnline += 1;
       const n = Math.max(1, topo.gpuUids.length);
-      const fanK = powered ? topo.fanCooling : 0;
+      const fanK = (powered ? topo.fanCooling : 0) + spill;
       let rackHash = 0;
       let rackMax = 0;
+      let preheating = 0;
       topo.gpuUids.forEach((uid) => {
         const g = w.gpus[uid];
         const model = GPU_BY_ID[g.modelId];
         const running = powered && !g.shutdown;
+        const clustered = cluster.has(uid);
+        // Arctic: a die that sat cold and off has condensation; powered again, it runs its heater strip
+        // (fans off, no hashing) until it is dry. A working die never condenses, however cold it runs.
+        if (roomId !== 'arctic') g.condensed = false;
+        else if (!running && g.temp < arctic.dewTemp) g.condensed = true;
+        const preheat = running && g.condensed;
+        if (preheat) preheating += 1;
+        // The Cluster Bonus trims the electrical draw (pass 1), not the heat of the die.
         const powerMul = ocPowerMul(gpuOc(g));
-        const heat = running ? model.power * powerMul * mods.heatMul * rackModel.heatMul * brownout : 0;
-        const k = (PHYSICS.baseCooling + fanK / n) * pasteFactor(g.paste) * room.coolingMul * mods.coolingMul * crewCooling;
+        const heat = !running ? 0 : preheat ? preheatWatts(model.power) : model.power * powerMul * mods.heatMul * rackModel.heatMul * brownout;
+        const k = preheat
+          ? PHYSICS.baseCooling * pasteFactor(g.paste) * room.coolingMul
+          : (PHYSICS.baseCooling + fanK / n) * pasteFactor(g.paste) * room.coolingMul * mods.coolingMul * crewCooling;
         const tEq = roomTemp + heat / k;
         const tempBefore = g.temp;
         g.temp = tEq + (g.temp - tEq) * Math.exp((-k * dt) / model.thermalMass);
+        if (preheat && g.temp >= arctic.dryTemp) g.condensed = false;
 
         if (!g.shutdown && g.temp >= PHYSICS.shutdownTemp) {
           g.shutdown = true;
@@ -608,7 +751,8 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
 
         // Re-evaluate after the thermal protection check: a GPU that just shut down stops hashing now.
         const active = powered && !g.shutdown;
-        const throttled = active && g.temp > PHYSICS.throttleTemp;
+        const hashing = active && !preheat;
+        const throttled = hashing && g.temp > PHYSICS.throttleTemp;
         if (active && g.temp > PHYSICS.wearTemp) {
           if (tempBefore <= PHYSICS.wearTemp) pushRackFx(acc, opts, { kind: 'hot', rackUid: rack.uid, value: g.temp });
           g.overheatSeconds += dt;
@@ -617,19 +761,42 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
         if (active) g.paste = Math.max(0, g.paste - dt / pasteLife);
         if (techPaste > 0) g.paste = Math.min(1, g.paste + techPaste * dt);
         if (techRepair > 0 && g.wear > 0) g.wear = Math.max(0, g.wear - techRepair * dt);
+        // Smart BMC: maintenance by threshold, at the normal price, as long as the cash is there.
+        if (bmcOn) {
+          if (input.bmc.autoPaste && g.paste < input.bmc.pasteBelow) {
+            const cost = repasteCost(g);
+            if (w.cash >= cost) {
+              w.cash -= cost;
+              g.paste = 1;
+              acc.bmcPasted += 1;
+              acc.bmcSpent += cost;
+            }
+          }
+          if (input.bmc.autoRepair && g.wear > 0 && gpuHealth(g) < input.bmc.healthBelow) {
+            const cost = repairCost(g);
+            if (w.cash >= cost) {
+              w.cash -= cost;
+              g.wear = 0;
+              g.overheatSeconds = 0;
+              acc.bmcRepaired += 1;
+              acc.bmcSpent += cost;
+            }
+          }
+        }
 
-        const hash = active
-          ? model.hashrate * (1 + (rules.lockOverclock ? 0 : g.ocBonus)) * (throttled ? 0.5 : 1) * (1 - g.wear) * brownout * mods.hashMul * surge
+        const oc = rules.lockOverclock ? 0 : g.ocBonus;
+        const hash = hashing
+          ? model.hashrate * (1 + (oc > 0 ? oc * ocShare : oc)) * (clustered ? 1 + SYNERGY.clusterHash : 1) * (throttled ? 0.5 : 1) * (1 - g.wear) * brownout * mods.hashMul * surge
           : 0;
         rackHash += hash;
         rackMax = Math.max(rackMax, g.temp);
         hottest = Math.max(hottest, g.temp);
-        if (active) {
+        if (hashing) {
           tempSum += g.temp;
           tempCount += 1;
         }
         roomHeat += heat;
-        live.gpus[uid] = { hash, running: active, throttled, heat, load: active ? clamp(heat / model.power, 0, 2) : 0 };
+        live.gpus[uid] = { hash, running: active, throttled, heat, load: active ? clamp(heat / model.power, 0, 2) : 0, clustered: clustered && hashing, preheating: preheat && active };
       });
       roomHeat += load > 0 ? topo.fanPower + (wall - load) : 0;
       roomHash += rackHash;
@@ -645,9 +812,13 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
         capacity: topo.capacity,
         hash: rackHash,
         maxTemp: rackMax,
-        cooling: (PHYSICS.baseCooling * n + topo.fanCooling) * room.coolingMul * mods.coolingMul * crewCooling,
+        cooling: (PHYSICS.baseCooling * n + fanK) * room.coolingMul * mods.coolingMul * crewCooling,
         tariff,
         powerCost: wall * paidShare * tariff * price,
+        clustered: powered ? cluster.size : 0,
+        spill,
+        idle,
+        preheating,
       };
     });
 
@@ -665,6 +836,12 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
       hash: roomHash,
       blackout,
       racksOnline,
+      noise,
+      ocCapped,
+      wave,
+      valley,
+      gpuCap: room.maxGpus ?? null,
+      gpusOverCap: overCap,
     };
   });
 
@@ -785,7 +962,7 @@ export function simulate(input: SimInput, dtSec: number, now: number, opts: SimO
   const modsAfter = pending
     ? runModifiers(input.talents, { ...input.research.levels, [pending.id]: (input.research.levels[pending.id] ?? 0) + 1 })
     : mods;
-  const acc: StepAccumulator = { ccMined: 0, coinMined: 0, electricity: 0, earnedCash: 0, gems: 0, blocks: 0, raids: 0, overheats: 0, bestTrade: 0, peakTemp: 0, botEarned: 0, messages: [], sounds: [], rackFx: [] };
+  const acc: StepAccumulator = { ccMined: 0, coinMined: 0, electricity: 0, earnedCash: 0, gems: 0, blocks: 0, raids: 0, overheats: 0, bestTrade: 0, peakTemp: 0, botEarned: 0, messages: [], sounds: [], rackFx: [], bmcPasted: 0, bmcRepaired: 0, bmcSpent: 0 };
   const live = emptyLive();
   const cash0 = w.cash;
   const cc0 = w.cc;
@@ -807,9 +984,13 @@ export function simulate(input: SimInput, dtSec: number, now: number, opts: SimO
     step(w, input, h, stepNow, pending && stepNow >= pending.endsAt ? modsAfter : mods, opts, acc, live);
   }
 
+  if (!opts.offline && acc.bmcPasted + acc.bmcRepaired > 0) {
+    acc.messages.push(gameMsg('info', 'SMART BMC: {paste} re-pasted, {repair} repaired (-${cost}).', { paste: acc.bmcPasted, repair: acc.bmcRepaired, cost: acc.bmcSpent.toFixed(0) }));
+  }
+
   const gpuUpdates: Record<string, GpuThermalUpdate> = {};
   Object.values(w.gpus).forEach((g) => {
-    gpuUpdates[g.uid] = { temp: g.temp, wear: g.wear, paste: g.paste, shutdown: g.shutdown, overheatSeconds: g.overheatSeconds };
+    gpuUpdates[g.uid] = { temp: g.temp, wear: g.wear, paste: g.paste, shutdown: g.shutdown, overheatSeconds: g.overheatSeconds, condensed: g.condensed };
   });
   const rackReboots: Record<string, number> = {};
   Object.values(w.racks).forEach((r) => {
@@ -849,6 +1030,7 @@ export function simulate(input: SimInput, dtSec: number, now: number, opts: SimO
     messages: acc.messages.slice(-12),
     sounds: Array.from(new Set(acc.sounds)),
     rackFx: acc.rackFx,
+    bmc: { pasted: acc.bmcPasted, repaired: acc.bmcRepaired, spent: acc.bmcSpent },
   };
 }
 

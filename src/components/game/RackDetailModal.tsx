@@ -1,10 +1,11 @@
 import { Cable, Cpu, Fan, Gauge, PackageOpen, Plug, Trash2, Wand2, Warehouse, Wrench } from 'lucide-react';
 import { useMemo, useState, type DragEvent } from 'react';
 import { COOLER_BY_ID, GPU_BY_ID, PSU_BY_ID, QUALITY_DEFS, RACK_BY_ID } from '../../config/hardwareCatalog';
-import { ROOM_BY_ID } from '../../config/roomsCatalog';
+import { ROOM_BY_ID, ROOM_MECHANICS } from '../../config/roomsCatalog';
 import { sprites } from '../../engine/SpriteManager';
 import { PHYSICS } from '../../config/gameBalance';
-import { rackNominalLoad } from '../../store/gamePhysics';
+import { clusterUids, liquidCooling, rackNoise, rackNominalLoad } from '../../store/gamePhysics';
+import { SYNERGY } from '../../config/synergy';
 import { repairCost, repasteCost } from '../../store/slices/hardwareSlice';
 import { useGameShallow, useGameStore } from '../../store/useGameStore';
 import type { GpuInstance } from '../../types/hardware';
@@ -84,7 +85,15 @@ export function RackDetailModal({ rackUid }: { rackUid: string }) {
   const capacity = model.selfPowered ? Number.POSITIVE_INFINITY : psuModel?.capacity ?? 0;
   const gpuCount = rack.gpuSlots.filter(Boolean).length;
   const fanK = rack.fanSlots.reduce((a, u) => a + (u && s.coolers[u] ? COOLER_BY_ID[s.coolers[u].modelId].cooling : 0), 0);
-  const perGpuK = gpuCount ? PHYSICS.baseCooling + fanK / gpuCount : 0;
+  const perGpuK = gpuCount ? PHYSICS.baseCooling + (fanK + (rackLive?.spill ?? 0)) / gpuCount : 0;
+  const roomLive = rack.roomId ? s.live.rooms[rack.roomId] : undefined;
+  const mountedGpus = rack.gpuSlots.filter((u): u is string => !!u && !!s.gpus[u]);
+  const clusterCount = clusterUids(mountedGpus, s.gpus).size;
+  // Largest group of one model and grade: how close the rack is to a Cluster Bonus.
+  const groups = new Map<string, number>();
+  mountedGpus.forEach((u) => groups.set(`${s.gpus[u].modelId}|${s.gpus[u].quality}`, (groups.get(`${s.gpus[u].modelId}|${s.gpus[u].quality}`) ?? 0) + 1));
+  const bestGroup = Math.max(0, ...groups.values());
+  const loop = liquidCooling(rack, s.coolers);
 
   const freeGpus = Object.values(s.gpus).filter((g) => !mounted.has(g.uid)).sort((a, b) => GPU_BY_ID[b.modelId].hashrate - GPU_BY_ID[a.modelId].hashrate);
   const freeCoolers = Object.values(s.coolers).filter((c) => !mounted.has(c.uid)).sort((a, b) => COOLER_BY_ID[b.modelId].cooling - COOLER_BY_ID[a.modelId].cooling);
@@ -179,6 +188,39 @@ export function RackDetailModal({ rackUid }: { rackUid: string }) {
             </span>
           </div>
           {loadRatio > 1 && <div className="blink font-pixel text-[8px] text-hot">{t("⚠ The PSU can't feed this rack. Install a bigger PSU or remove GPUs.")}</div>}
+
+          {/* Synergies and room rules that touch this rack */}
+          <div className="flex flex-wrap gap-1 text-[15px] leading-tight" data-testid="rack-synergies">
+            <span
+              className={cn('px-1.5 py-0.5', clusterCount > 0 ? 'bg-[#14532d] text-lime' : 'bg-panel-2 text-dim')}
+              title={t('Cluster Bonus: {n} GPUs of the same model and silicon grade in one rack hash +{hash}% and draw -{power}% power.', { n: SYNERGY.clusterSize, hash: Math.round(SYNERGY.clusterHash * 100), power: Math.round(SYNERGY.clusterPower * 100) })}
+              data-testid="rack-cluster"
+            >
+              {clusterCount > 0
+                ? t('CLUSTER x{n}: +{hash}% hash, -{power}% power', { n: clusterCount, hash: Math.round(SYNERGY.clusterHash * 100), power: Math.round(SYNERGY.clusterPower * 100) })
+                : t('Cluster Bonus: {n}/{max} matching GPUs', { n: bestGroup, max: SYNERGY.clusterSize })}
+            </span>
+            {loop > 0 ? (
+              <span className="bg-[#0c4a6e] px-1.5 py-0.5 text-neon" title={t('Liquid Cooling Spillover: a liquid loop also cools the air-cooled racks right next to it.')}>
+                {t('LIQUID LOOP: +{k} W/°C to air-cooled neighbours', { k: (loop * SYNERGY.spillShare).toFixed(1) })}
+              </span>
+            ) : (rackLive?.spill ?? 0) > 0 ? (
+              <span className="bg-[#0c4a6e] px-1.5 py-0.5 text-neon" title={t('Liquid Cooling Spillover: a liquid loop also cools the air-cooled racks right next to it.')}>
+                {t('SPILLOVER: +{k} W/°C from the rack next door', { k: (rackLive?.spill ?? 0).toFixed(1) })}
+              </span>
+            ) : null}
+            {rack.roomId === 'bedroom' && (
+              <span className={cn('px-1.5 py-0.5', roomLive?.ocCapped ? 'blink bg-[#7f1d1d] text-hot' : 'bg-panel-2 text-dim')} title={t('Bedroom: with more than {limit} of fan noise at night, overclocks only deliver {pct}% of their bonus.', { limit: ROOM_MECHANICS.bedroom.noiseLimit, pct: Math.round(ROOM_MECHANICS.bedroom.nightOcShare * 100) })}>
+                {t('Noise {n} (room {total}/{limit})', { n: rackNoise(rack, s.coolers), total: roomLive?.noise ?? 0, limit: ROOM_MECHANICS.bedroom.noiseLimit })}
+              </span>
+            )}
+            {(rackLive?.preheating ?? 0) > 0 && (
+              <span className="blink bg-[#0c4a6e] px-1.5 py-0.5 text-neon">{t('CONDENSATION: {n} GPUs pre-heating', { n: rackLive?.preheating ?? 0 })}</span>
+            )}
+            {(rackLive?.idle ?? 0) > 0 && roomLive?.gpuCap != null && (
+              <span className="blink bg-[#7f1d1d] px-1.5 py-0.5 text-hot">{t('HULL LIMIT: {n} GPUs idle (room holds {max})', { n: rackLive?.idle ?? 0, max: roomLive.gpuCap })}</span>
+            )}
+          </div>
 
           {/* GPU slots with power cabling */}
           <div className="relative pl-6">

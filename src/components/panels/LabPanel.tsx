@@ -1,6 +1,7 @@
-import { Cpu, Droplets, Fan, FlaskConical, Gem, PlugZap, Truck, UtilityPole, type LucideIcon } from 'lucide-react';
+import { Bot, Cpu, Droplets, Fan, FlaskConical, Gem, PlugZap, Truck, UtilityPole, type LucideIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { RESEARCH, RESEARCH_BY_ID, researchCost, researchLevel, rushCost, type ResearchIcon } from '../../config/research';
+import { BMC_LIMITS } from '../../config/synergy';
 import { useT } from '../../i18n';
 import { activeRules } from '../../store/slices/challengesSlice';
 import { researchSeconds } from '../../store/slices/researchSlice';
@@ -10,7 +11,7 @@ import { cn } from '../../utils/cn';
 import { formatCash, formatDuration } from '../../utils/formatters';
 import { PixelButton } from '../ui/PixelButton';
 
-const ICONS: Record<ResearchIcon, LucideIcon> = { chip: Cpu, fan: Fan, bolt: PlugZap, drop: Droplets, pylon: UtilityPole, truck: Truck };
+const ICONS: Record<ResearchIcon, LucideIcon> = { chip: Cpu, fan: Fan, bolt: PlugZap, drop: Droplets, pylon: UtilityPole, truck: Truck, robot: Bot };
 
 /** Wall clock that re-renders its caller twice a second (research countdowns). */
 export function useNow(intervalMs = 500): number {
@@ -31,8 +32,10 @@ export function LabPanel() {
     research: st.research,
     talents: st.talents,
     gridVoid: activeRules(st).powerCapMul < 1 || activeRules(st).singleRoom,
+    bmc: st.bmc,
   }));
-  const { startResearch, cancelResearch, rushResearch } = useGameStore.getState();
+  const { startResearch, cancelResearch, rushResearch, setBmc } = useGameStore.getState();
+  const bmcReady = researchLevel(s.research.levels, 'bmc') > 0;
   const now = useNow();
   const active = s.research.active;
   const activeDef = active ? RESEARCH_BY_ID[active.id] : null;
@@ -77,6 +80,33 @@ export function LabPanel() {
           <div className="mt-2 text-[15px] text-dim">{t('The Lab is idle. Pick a project below.')}</div>
         )}
       </div>
+
+      {bmcReady && (
+        <div className="flex flex-col gap-1.5 bg-[#2a0f24] p-2 text-[16px] leading-tight shadow-[inset_0_0_0_2px_#f472b6]" data-testid="bmc-card">
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-2 font-pixel text-[10px] text-[#f472b6]">
+              <Bot size={14} /> {t('SMART BMC')}
+            </span>
+            <label className="flex items-center gap-1.5">
+              <input type="checkbox" checked={s.bmc.enabled} onChange={(e) => setBmc({ enabled: e.target.checked })} data-testid="bmc-enabled" />
+              {t('Enabled')}
+            </label>
+          </div>
+          <p className="text-dim">{t('Maintains every running GPU on its own and pays the normal price in cash. It works alongside the technicians and the AI Farm Manager.')}</p>
+          <label className="flex flex-wrap items-center gap-2">
+            <input type="checkbox" checked={s.bmc.autoPaste} disabled={!s.bmc.enabled} onChange={(e) => setBmc({ autoPaste: e.target.checked })} />
+            <span className="w-40">{t('Re-paste below')}</span>
+            <input type="range" className="min-w-24 flex-1 accent-pink-400" min={BMC_LIMITS.paste[0]} max={BMC_LIMITS.paste[1]} step={BMC_LIMITS.step} value={s.bmc.pasteBelow} disabled={!s.bmc.enabled || !s.bmc.autoPaste} onChange={(e) => setBmc({ pasteBelow: Number(e.target.value) })} data-testid="bmc-paste" aria-label={t('Re-paste below')} />
+            <span className="w-24 text-right text-[#f9a8d4]">{t('{pct}% paste', { pct: Math.round(s.bmc.pasteBelow * 100) })}</span>
+          </label>
+          <label className="flex flex-wrap items-center gap-2">
+            <input type="checkbox" checked={s.bmc.autoRepair} disabled={!s.bmc.enabled} onChange={(e) => setBmc({ autoRepair: e.target.checked })} />
+            <span className="w-40">{t('Repair below')}</span>
+            <input type="range" className="min-w-24 flex-1 accent-pink-400" min={BMC_LIMITS.health[0]} max={BMC_LIMITS.health[1]} step={BMC_LIMITS.step} value={s.bmc.healthBelow} disabled={!s.bmc.enabled || !s.bmc.autoRepair} onChange={(e) => setBmc({ healthBelow: Number(e.target.value) })} data-testid="bmc-health" aria-label={t('Repair below')} />
+            <span className="w-24 text-right text-[#f9a8d4]">{t('{pct}% health', { pct: Math.round(s.bmc.healthBelow * 100) })}</span>
+          </label>
+        </div>
+      )}
 
       <div className="flex flex-col gap-1.5">
         {RESEARCH.map((def) => {

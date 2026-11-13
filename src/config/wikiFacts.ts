@@ -46,6 +46,6 @@ export const whisperer = TALENT_BY_ID.silicon_luck;
 export const nightShift = TALENT_BY_ID.offline_ext;
 export const maxOfflineHours = BASE_OFFLINE_HOURS + nightShift.maxLevel * nightShift.effect;
 /** Voltage of the VIP Auto-Tune profile (fixed, whatever the silicon). */
-export const autoTuneVoltage = aiAutoTune({ coreHeadroom: 0, memHeadroom: 0, vScale: 0 }).voltage;
+export const autoTuneVoltage = aiAutoTune({ coreHeadroom: 0, memHeadroom: 0, vScale: 0, vFloor: 0 }).voltage;
 export const peak = T.scMilestones().reduce((a, b) => (b.scPerHour > a.scPerHour ? b : a));
 

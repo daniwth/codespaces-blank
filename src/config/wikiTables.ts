@@ -40,6 +40,7 @@ import {
 import { COIN_INFO, COIN_MARKET, MINEABLE, MINEABLE_COIN_IDS, hashDifficulty } from './altcoins';
 import { AIRDROP, AIRDROP_KINDS, type AirdropKind } from './airdrops';
 import { BUFFS } from './buffs';
+import { SYNERGY } from './synergy';
 import { CHALLENGES, POWER_CAP_MUL } from './challenges';
 import { DAILY_MIN_CASH, DAILY_REWARDS } from './daily';
 import { RESEARCH, researchCost, researchTime } from './research';
@@ -142,8 +143,8 @@ export function qualityOdds(whispererLevel: number): Record<SiliconQuality, numb
 /** Safe Auto-Tune bonus range of a silicon grade: worst and best roll of its headroom. */
 export function autoTuneRange(quality: SiliconQuality): [number, number] {
   const q = QUALITY_DEFS[quality];
-  const lo = aiAutoTune({ coreHeadroom: q.coreHeadroom[0], memHeadroom: q.memHeadroom[0], vScale: q.vScale[0] });
-  const hi = aiAutoTune({ coreHeadroom: q.coreHeadroom[1], memHeadroom: q.memHeadroom[1], vScale: q.vScale[1] });
+  const lo = aiAutoTune({ coreHeadroom: q.coreHeadroom[0], memHeadroom: q.memHeadroom[0], vScale: q.vScale[0], vFloor: q.vFloor[1] });
+  const hi = aiAutoTune({ coreHeadroom: q.coreHeadroom[1], memHeadroom: q.memHeadroom[1], vScale: q.vScale[1], vFloor: q.vFloor[0] });
   return [ocHashBonus(lo), ocHashBonus(hi)];
 }
 
@@ -313,10 +314,14 @@ export interface RoomBuildThermals {
 
 /**
  * Steady state of a room packed with one GPU model and one cooler model: as
- * many GPUs as its pads hold and its power line feeds without a brownout, one
- * cooler per two GPUs (the ratio of every rack), the best PSU, fresh paste,
- * stock clocks and no talents. Same equations as `gamePhysics.step`:
+ * many GPUs as its pads hold (and its structure carries) and its power line feeds
+ * without a brownout, one cooler per two GPUs (the ratio of every rack), the best PSU,
+ * fresh paste, stock clocks and no talents. Same equations as `gamePhysics.step`:
  * T_room = ambient + waste heat · heatPerWatt and T_die = T_room + Q / k.
+ * Full cabinets of one model earn the Cluster Bonus: they draw less from the PSU (so more
+ * of them fit the line), while each die gives off the same heat. Liquid Cooling Spillover
+ * only helps racks without a liquid loop of their own, so it plays no part in a room packed
+ * with a single cooler model.
  */
 export function roomBuildThermals(modelId: string, coolerId: string, roomId: RoomId): RoomBuildThermals {
   const gpu = GPU_BY_ID[modelId];
@@ -325,10 +330,12 @@ export function roomBuildThermals(modelId: string, coolerId: string, roomId: Roo
   const rack = RACK_BY_ID.cabinet;
   const ratio = fanRatio(rack.id);
   const psu = PSU_CATALOG.reduce((a, p) => (p.capacity > a.capacity ? p : a));
-  const fullRackLoad = gpu.power * rack.slots + cooler.power * rack.fanSlots;
-  const perGpuLoad = gpu.power + cooler.power * ratio;
+  // A cabinet of one model and grade is a cluster: every card draws a little less.
+  const gpuPower = gpu.power * (rack.slots >= SYNERGY.clusterSize ? 1 - SYNERGY.clusterPower : 1);
+  const fullRackLoad = gpuPower * rack.slots + cooler.power * rack.fanSlots;
+  const perGpuLoad = gpuPower + cooler.power * ratio;
   const byLine = Math.floor((room.maxPowerW * psu.efficiency) / perGpuLoad + 1e-9);
-  const gpus = fullRackLoad > psu.capacity ? 0 : Math.min(room.pads * rack.slots, byLine);
+  const gpus = fullRackLoad > psu.capacity ? 0 : Math.min(room.pads * rack.slots, room.maxGpus ?? Number.POSITIVE_INFINITY, byLine);
   if (gpus <= 0) return { gpus: 0, gpuTemp: null, roomTemp: room.ambient };
   const heat = gpu.power * rack.heatMul;
   const load = gpus * perGpuLoad;
@@ -379,8 +386,8 @@ export function coolingGuideTable(lang: Lang = curLang()): WikiTable {
       ],
     })),
     note: x(
-      'Sala a tope: tantas GPUs como caben en los pads y aguanta la línea sin brownout, un cooler por cada dos GPUs, la mejor PSU, pasta nueva, sin overclock ni talentos. Se indica la temperatura estable del chip y cuántas GPUs caben. «Sin línea»: la línea de la sala no alimenta ni una. Con menos GPUs la sala se calienta menos y puede bastar algo más barato.',
-      'Packed room: as many GPUs as the pads hold and the line feeds without a brownout, one cooler per two GPUs, the best PSU, fresh paste, no overclock and no talents. Shows the steady chip temperature and how many GPUs fit. "No power line": the room line cannot feed even one. With fewer GPUs the room runs cooler and something cheaper may do.',
+      'Sala a tope: tantas GPUs como caben en los pads y aguanta la línea sin brownout, un cooler por cada dos GPUs, la mejor PSU, pasta nueva, sin overclock ni talentos. Los armarios llenos de un mismo modelo cuentan su Bonus de Cluster. Se indica la temperatura estable del chip y cuántas GPUs caben. «Sin línea»: la línea de la sala no alimenta ni una. Con menos GPUs la sala se calienta menos y puede bastar algo más barato.',
+      'Packed room: as many GPUs as the pads hold and the line feeds without a brownout, one cooler per two GPUs, the best PSU, fresh paste, no overclock and no talents. Full cabinets of one model count their Cluster Bonus. Shows the steady chip temperature and how many GPUs fit. "No power line": the room line cannot feed even one. With fewer GPUs the room runs cooler and something cheaper may do.',
     ),
   };
 }
@@ -388,7 +395,7 @@ export function coolingGuideTable(lang: Lang = curLang()): WikiTable {
 /** Repaste price as a share of the GPU price (read on the priciest model, above the $5 floor). */
 export const repasteShare = (): number => {
   const top = GPU_CATALOG.reduce((a, g) => (g.price > a.price ? g : a));
-  return repasteCost({ ...createGpu(top.id, 'bronze'), wear: 0 }) / top.price;
+  return repasteCost(createGpu(top.id, 'bronze')) / top.price;
 };
 
 export function maintenanceTable(lang: Lang = curLang()): WikiTable {

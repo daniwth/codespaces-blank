@@ -89,13 +89,13 @@ describe('overclocking', () => {
 
   it('stock settings never crash and AI auto-tune is always safe', () => {
     for (const quality of [40, 120, 250, 400]) {
-      const silicon = { coreHeadroom: quality, memHeadroom: quality * 4, vScale: 8 };
+      const silicon = { coreHeadroom: quality, memHeadroom: quality * 4, vScale: 8, vFloor: 900 };
       expect(crashChance(silicon, { core: 0, mem: 0, voltage: 1000 })).toBe(0);
       expect(crashChance(silicon, aiAutoTune(silicon))).toBe(0);
     }
   });
 
   it('overclocking past the silicon headroom always crashes', () => {
-    expect(crashChance({ coreHeadroom: 100, memHeadroom: 400, vScale: 8 }, { core: 400, mem: 0, voltage: 1000 })).toBe(1);
+    expect(crashChance({ coreHeadroom: 100, memHeadroom: 400, vScale: 8, vFloor: 900 }, { core: 400, mem: 0, voltage: 1000 })).toBe(1);
   });
 });

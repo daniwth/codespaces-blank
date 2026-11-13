@@ -24,4 +24,16 @@ export function weightedPick<T extends string>(weights: Record<T, number>): T {
 
 export const pick = <T,>(list: readonly T[]): T => list[Math.floor(Math.random() * list.length)];
 
+/** Deterministic value in [0, 1) from a string (FNV-1a): stable per uid, no RNG state. */
+export function unitHash(seed: string, salt = 0): number {
+  let h = 2166136261 ^ salt;
+  for (let k = 0; k < seed.length; k += 1) {
+    h ^= seed.charCodeAt(k);
+    h = Math.imul(h, 16777619);
+  }
+  h ^= h >>> 13;
+  h = Math.imul(h, 0x5bd1e995);
+  return ((h ^ (h >>> 15)) >>> 0) / 4294967296;
+}
+
 export const clamp = (v: number, min: number, max: number): number => Math.min(max, Math.max(min, v));

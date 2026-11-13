@@ -2,7 +2,7 @@ import { HardHat, Lock, MapPin, Package, Radar, Thermometer } from 'lucide-react
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { COOLER_BY_ID, GPU_BY_ID, PSU_BY_ID, RACK_BY_ID } from '../../config/hardwareCatalog';
 import { POOLS } from '../../config/gameBalance';
-import { ROOM_BY_ID, ROOM_ORDER } from '../../config/roomsCatalog';
+import { ROOM_BY_ID, ROOM_MECHANICS, ROOM_ORDER } from '../../config/roomsCatalog';
 import { computePadLayout, FloatingTextLayer, ParticleSystem, PixelCanvas, WALL_H, WORLD_H, WORLD_W, type PadSlot } from '../../engine/PixelCanvas';
 import type { AirdropKind } from '../../config/airdrops';
 import { BUFFS, crewRallied, crewReady, nitroActive } from '../../config/buffs';
@@ -50,6 +50,7 @@ const STATUS_LABEL: Partial<Record<RackStatus, { text: string; color: string }>>
   empty: { text: 'EMPTY (rack)', color: '#8f89c4' },
 };
 const HOT_LABEL = { text: 'HOT! (rack)', color: '#ef4444' };
+const PREHEAT_LABEL = { text: 'PREHEAT (rack)', color: '#7dd3fc' };
 
 /** Localized on-canvas rack label: the dictionary entry, or the key without its `(rack)` marker. */
 export const rackLabel = (key: string): string => {
@@ -371,6 +372,8 @@ export function WorldCanvas() {
     airdropKind: s.airdrop?.kind ?? 'cash',
     thermal: s.thermalView,
     technicians: s.technicians,
+    night: s.live.night,
+    roomLive: s.live.rooms[s.activeRoom],
     techUntil: s.buffs.techUntil,
     techCooldownUntil: s.buffs.techCooldownUntil,
   }));
@@ -618,8 +621,9 @@ export function WorldCanvas() {
 
         // Status & labels
         const anyShutdown = rack.gpuSlots.some((u) => u && s.gpus[u]?.shutdown);
-        const lbl = STATUS_LABEL[status] ?? (anyShutdown ? HOT_LABEL : undefined);
-        const icon = STATUS_ICON[status] ?? (anyShutdown && status === 'online' ? 'overheat' : undefined);
+        const preheating = (live?.preheating ?? 0) > 0;
+        const lbl = STATUS_LABEL[status] ?? (anyShutdown ? HOT_LABEL : preheating ? PREHEAT_LABEL : undefined);
+        const icon = STATUS_ICON[status] ?? (anyShutdown && status === 'online' ? 'overheat' : preheating ? 'condensation' : undefined);
         if (lbl) {
           // Icon stays on (so the state reads at a glance); the label blinks next to it.
           const lblText = rackLabel(lbl.text);
@@ -1078,6 +1082,32 @@ export function WorldCanvas() {
         <PixelButton size="sm" variant={ui.thermal ? 'danger' : 'ghost'} aria-pressed={ui.thermal} onClick={toggleThermalView} title={t('Thermal view: color every rack by its real temperature (T)')} data-testid="thermal-toggle-room" icon={<Thermometer size={12} />} silent>
           <span className="hidden sm:inline">{t('Thermal')}</span>
         </PixelButton>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1 font-silk text-[10px] uppercase" data-testid="room-status">
+        <span className={cn('px-1.5 py-0.5', ui.night ? 'bg-[#1e1b4b] text-[#c7d2fe]' : 'bg-[#422006] text-gold')} title={t('Shared day/night clock: a full day lasts {min} minutes.', { min: ROOM_MECHANICS.dayLengthSec / 60 })}>
+          {ui.night ? t('☾ Night') : t('☀ Day')}
+        </span>
+        {ui.activeRoom === 'bedroom' && (
+          <span className={cn('px-1.5 py-0.5', ui.roomLive?.ocCapped ? 'blink bg-[#7f1d1d] text-hot' : 'bg-panel-2 text-dim')} title={t('Bedroom: with more than {limit} of fan noise at night, overclocks only deliver {pct}% of their bonus.', { limit: ROOM_MECHANICS.bedroom.noiseLimit, pct: Math.round(ROOM_MECHANICS.bedroom.nightOcShare * 100) })}>
+            {ui.roomLive?.ocCapped ? t('Too loud: overclocks at {pct}%', { pct: Math.round(ROOM_MECHANICS.bedroom.nightOcShare * 100) }) : t('Fan noise {n}/{limit}', { n: ui.roomLive?.noise ?? 0, limit: ROOM_MECHANICS.bedroom.noiseLimit })}
+          </span>
+        )}
+        {ui.activeRoom === 'garage' && (
+          <span className={cn('px-1.5 py-0.5', (ui.roomLive?.wave ?? 0) > 0.05 ? 'blink bg-[#7c2d12] text-amber' : 'bg-panel-2 text-dim')}>
+            {(ui.roomLive?.wave ?? 0) > 0.05 ? t('Heat wave +{deg}°C', { deg: (ui.roomLive?.wave ?? 0).toFixed(1) }) : t('No heat wave')}
+          </span>
+        )}
+        {ui.activeRoom === 'warehouse' && (
+          <span className={cn('px-1.5 py-0.5', ui.roomLive?.valley ? 'bg-[#14532d] text-lime' : 'bg-panel-2 text-dim')}>
+            {ui.roomLive?.valley ? t('Valley tariff -{pct}%', { pct: Math.round((1 - ROOM_MECHANICS.warehouse.valleyMul) * 100) }) : t('Peak tariff')}
+          </span>
+        )}
+        {ui.roomLive?.gpuCap != null && (
+          <span className={cn('px-1.5 py-0.5', ui.roomLive.gpusOverCap > 0 ? 'blink bg-[#7f1d1d] text-hot' : 'bg-panel-2 text-dim')}>
+            {ui.roomLive.gpusOverCap > 0 ? t('Hull limit {max} GPUs: {n} idle', { max: ui.roomLive.gpuCap, n: ui.roomLive.gpusOverCap }) : t('Hull limit {max} GPUs', { max: ui.roomLive.gpuCap })}
+          </span>
+        )}
       </div>
 
       <div ref={wrapRef} className="pixel-box relative grid aspect-[16/9] max-h-[68vh] w-full place-items-center overflow-hidden bg-black">

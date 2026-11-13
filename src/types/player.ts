@@ -8,7 +8,7 @@ import type {
   TradingBot,
 } from './economy';
 import type { ContractBoard } from './contracts';
-import type { CoolerInstance, GpuInstance, PsuInstance, RackInstance } from './hardware';
+import type { CoolerInstance, GpuInstance, OverclockSettings, PsuInstance, RackInstance } from './hardware';
 
 export type RoomId = 'bedroom' | 'garage' | 'warehouse' | 'arctic' | 'submarine';
 
@@ -31,7 +31,7 @@ export interface ChallengeRecord {
 export type ChallengeRecords = Partial<Record<ChallengeId, ChallengeRecord>>;
 
 /** Run-scoped research projects bought with cash in the Lab (wiped by The Halving). */
-export type ResearchId = 'firmware' | 'airflow' | 'pfc' | 'paste' | 'grid' | 'logistics';
+export type ResearchId = 'firmware' | 'airflow' | 'pfc' | 'paste' | 'grid' | 'logistics' | 'bmc';
 
 export type ResearchLevels = Partial<Record<ResearchId, number>>;
 
@@ -93,6 +93,8 @@ export interface RoomDefinition {
   coolingMul: number;
   /** Room temperature rise per watt of waste heat (°C/W). */
   heatPerWatt: number;
+  /** Structural limit: at most this many GPUs can run in the room (undefined = no limit). */
+  maxGpus?: number;
   theme: RoomTheme;
 }
 
@@ -228,6 +230,25 @@ export interface FarmBuffs {
   auditClaims: number;
 }
 
+/** One-off room upgrades bought with cash (run-scoped, like the rooms themselves). */
+export interface RoomUpgrades {
+  /** Warehouse battery bank: charges at the valley tariff, so night-time power is cheaper there. */
+  battery: boolean;
+}
+
+/** Smart BMC (Lab research): automatic maintenance paid with cash, by threshold. */
+export interface BmcConfig {
+  enabled: boolean;
+  autoPaste: boolean;
+  /** Re-paste a GPU once its paste falls below this (0-1). */
+  pasteBelow: number;
+  autoRepair: boolean;
+  /** Repair a GPU once its silicon health falls below this (0-1). */
+  healthBelow: number;
+}
+
+export type BiosProfileId = 'eco' | 'balanced' | 'max';
+
 export interface VipState {
   goldRacksBought: number;
   aiDiagnostics: boolean;
@@ -311,4 +332,10 @@ export interface GameData {
   autopilot: AutopilotState;
   /** Crew rally and special drone boosts (wiped by The Halving). */
   buffs: FarmBuffs;
+  /** Room upgrades of the run. */
+  upgrades: RoomUpgrades;
+  /** Smart BMC thresholds (the player's preference: survives Halvings, works once researched). */
+  bmc: BmcConfig;
+  /** The three saved BIOS profiles (survive Halvings). */
+  biosProfiles: Record<BiosProfileId, OverclockSettings>;
 }

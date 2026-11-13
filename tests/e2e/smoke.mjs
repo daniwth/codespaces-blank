@@ -1130,6 +1130,72 @@ try {
       }
     }
   });
+
+  await check('v9: rack synergies, BIOS profiles + apply to model, Smart BMC card and room traits (desktop + 390 px)', async () => {
+    for (const viewport of [{ width: 1600, height: 1000 }, { width: 390, height: 844 }]) {
+      const { context, p } = await fresh({ viewport });
+      const pageErrors = [];
+      p.on('pageerror', (e) => pageErrors.push(e.message));
+      try {
+        await p.addInitScript(() => localStorage.getItem('hh-lang') ?? localStorage.setItem('hh-lang', 'en'));
+        // A steel rack with four identical bronze cards, and the Smart BMC already researched.
+        await bootPatched(p, `
+          const g = Object.values(state.gpus)[0];
+          const rack = Object.values(state.racks)[0];
+          rack.modelId = 'steel';
+          rack.gpuSlots = [g.uid, 'c1', 'c2', 'c3'];
+          rack.fanSlots = [rack.fanSlots[0], null];
+          for (const uid of ['c1', 'c2', 'c3']) state.gpus[uid] = { ...g, uid };
+          state.psus[rack.psuUid].modelId = 'psu1000';
+          state.research = { levels: { bmc: 1 }, active: null };
+          state.cash = '5000';
+          state.nextAirdropAt = Date.now() + 3600000;
+        `);
+        const panel = (tab) => p.locator(`nav[aria-label="Panels"] button[title="${tab}"]`);
+        await p.getByTestId('room-status').getByText(/Day|Night/).waitFor({ timeout: 5000 });
+        // Lab: the BMC card with its thresholds.
+        await panel('Lab').click();
+        await p.getByTestId('bmc-card').waitFor({ timeout: 3000 });
+        await p.getByTestId('bmc-paste').fill('0.5');
+        await p.waitForFunction(() => JSON.parse(localStorage.getItem('hash-harvest-tycoon')).state.bmc.pasteBelow === 0.5, null, { timeout: 6000 });
+        // Shop: every room states its trait and the battery bank is listed.
+        await panel('Shop').click();
+        await p.locator('button:has-text("Rooms")').first().click();
+        assert(/hull only carries 84 GPUs/.test((await p.getByTestId('room-trait-submarine').textContent()) ?? ''), 'submarine trait missing');
+        await p.getByText('Battery Bank', { exact: true }).first().waitFor({ timeout: 3000 });
+        // Rack modal: the cluster of four is recognised.
+        await panel('Rigs').click();
+        await p.evaluate(() => document.querySelector('canvas[aria-label="Mining room view"]')?.scrollIntoView());
+        const box = await roomCanvas(p).boundingBox();
+        // Pad 0 of a two-pad room sits left of the centre; click the rack body.
+        await p.mouse.click(box.x + box.width * (212 / 480), box.y + box.height * (180 / 270));
+        const cluster = p.getByTestId('rack-cluster');
+        await cluster.waitFor({ timeout: 5000 });
+        await p.waitForFunction(() => /CLUSTER x4/.test(document.querySelector('[data-testid="rack-cluster"]')?.textContent ?? ''), null, { timeout: 5000 });
+        await p.screenshot({ path: join(ART, `v9-rack-${viewport.width}.png`) });
+        // BIOS: an undervolt shows as such; a saved profile is kept; apply-to-model tunes all four cards.
+        await p.locator('button[title="Overclock in the BIOS"]').first().click();
+        const bios = p.locator('[role="dialog"][aria-label="GPU BIOS setup"]');
+        await bios.waitFor({ timeout: 3000 });
+        await bios.getByTestId('bios-load-eco').click();
+        assert(/UNDERVOLT/.test((await bios.getByTestId('bios-voltage-mode').textContent()) ?? ''), 'Eco profile is not shown as an undervolt');
+        await bios.getByTestId('bios-load-balanced').click();
+        await bios.getByTestId('bios-save-max').click();
+        await bios.getByTestId('bios-apply-model').click();
+        await bios.getByText(/Applied to 4 GPUs/).waitFor({ timeout: 3000 });
+        await p.screenshot({ path: join(ART, `v9-bios-${viewport.width}.png`) });
+        await p.waitForFunction(() => {
+          const st = JSON.parse(localStorage.getItem('hash-harvest-tycoon')).state;
+          return st.biosProfiles.max.core === 50 && Object.values(st.gpus).every((g) => g.oc.voltage === 1000 && g.oc.core <= 50);
+        }, null, { timeout: 6000 });
+        const overflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        assert(overflow <= 1, `page scrolls horizontally by ${overflow}px`);
+        assert(pageErrors.length === 0, pageErrors.join(' | '));
+      } finally {
+        await context.close();
+      }
+    }
+  });
 } catch (err) {
   results.push({ name: 'harness', ok: false, err: err.message });
   console.error(err);

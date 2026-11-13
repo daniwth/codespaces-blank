@@ -80,6 +80,11 @@ export function createEconomySlice(set: SetState, get: GetState): EconomySlice {
         daily: s.daily,
         // Bought with gems, which survive the Halving: so does the manager's time.
         autopilot: s.autopilot,
+        // Player preferences, not run progress.
+        bmc: s.bmc,
+        biosProfiles: s.biosProfiles,
+        // The battery bank is bolted to the Warehouse: it stays only if the rooms do.
+        upgrades: keepRooms ? s.upgrades : undefined,
       }, nextChallenge ?? null);
       bumpWorldEpoch();
       set({ ...fresh, selectedRack: null, biosGpu: null, sideTab: 'halving' });

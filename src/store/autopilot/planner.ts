@@ -95,8 +95,8 @@ const simUid = (kind: string): string => {
 function simGpu(modelId: string, roomTemp: number): GpuInstance {
   return {
     uid: simUid('gpu'), modelId, quality: SIM_GPU.quality,
-    silicon: { coreHeadroom: 0, memHeadroom: 0, vScale: 0 },
-    oc: { ...STOCK_OC }, ocBonus: 0, temp: roomTemp, wear: 0, paste: 1, shutdown: false, overheatSeconds: 0,
+    silicon: { coreHeadroom: 0, memHeadroom: 0, vScale: 0, vFloor: 0 },
+    oc: { ...STOCK_OC }, ocBonus: 0, temp: roomTemp, wear: 0, paste: 1, shutdown: false, overheatSeconds: 0, condensed: false,
   };
 }
 

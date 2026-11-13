@@ -6,7 +6,7 @@ import { researchModifiers, type ResearchModifiers } from './research';
  * Everything that scales the current run: permanent talents ($SC tree) combined with the
  * run-scoped Lab research. Shared multipliers (hashrate, electricity) stack multiplicatively.
  */
-export type RunModifiers = TalentModifiers & Pick<ResearchModifiers, 'coolingMul' | 'pasteLifeMul' | 'lineMul' | 'hardwarePriceMul'>;
+export type RunModifiers = TalentModifiers & Pick<ResearchModifiers, 'coolingMul' | 'pasteLifeMul' | 'lineMul' | 'hardwarePriceMul' | 'smartBmc'>;
 
 export function runModifiers(talents: TalentLevels, research: ResearchLevels = {}): RunModifiers {
   const t = talentModifiers(talents);
@@ -19,5 +19,6 @@ export function runModifiers(talents: TalentLevels, research: ResearchLevels = {
     pasteLifeMul: r.pasteLifeMul,
     lineMul: r.lineMul,
     hardwarePriceMul: r.hardwarePriceMul,
+    smartBmc: r.smartBmc,
   };
 }

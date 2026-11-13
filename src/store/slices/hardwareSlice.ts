@@ -1,5 +1,5 @@
 import { tr } from '../../i18n';
-import { COOLER_BY_ID, GPU_BY_ID, PSU_BY_ID, QUALITY_DEFS, QUALITY_ORDER, RACK_BY_ID } from '../../config/hardwareCatalog';
+import { COOLER_BY_ID, GPU_BY_ID, OC_LIMITS, PSU_BY_ID, QUALITY_DEFS, QUALITY_ORDER, RACK_BY_ID } from '../../config/hardwareCatalog';
 import { talentModifiers } from '../../config/prestigeTree';
 import { ROOM_ORDER } from '../../config/roomsCatalog';
 import type { ComponentKind, CoolerInstance, GpuInstance, OverclockSettings, PsuInstance, RackInstance, SiliconQuality } from '../../types/hardware';
@@ -7,7 +7,9 @@ import type { GameData, RoomId } from '../../types/player';
 import { bnAdd, bnGte, bnSub, bnToNumber } from '../../utils/bignum';
 import { makeUid, sfxBus, fxBus } from '../../utils/eventBus';
 import { formatCash } from '../../utils/formatters';
-import { aiAutoTune, crashChance, ocHashBonus, repasteCooling, STOCK_OC } from '../gamePhysics';
+import { aiAutoTune, crashChance, fitOverclock, ocHashBonus, repairCost, repasteCooling, repasteCost, STOCK_OC } from '../gamePhysics';
+import { BIOS_PROFILE_NAMES } from '../../config/synergy';
+import { clamp } from '../../utils/random';
 import { recordGpuEdit } from '../editLedger';
 import { createGpu, createRack, rollQuality } from '../initialState';
 import { PHYSICS } from '../../config/gameBalance';
@@ -23,8 +25,7 @@ export const REPASTE_ALL_BELOW = 0.6;
 /** Largest batch the Shop sells in one click. */
 export const MAX_BULK = 50;
 
-export const repasteCost = (g: GpuInstance): number => Math.max(5, Math.round(GPU_BY_ID[g.modelId].price * 0.03));
-export const repairCost = (g: GpuInstance): number => Math.max(5, Math.round(GPU_BY_ID[g.modelId].price * 0.5 * g.wear));
+export { repairCost, repasteCost };
 
 /** Find which rack (if any) holds a component. */
 export function findMount(state: Pick<GameStore, 'racks'>, kind: 'gpu' | 'cooler' | 'psu', uid: string): RackInstance | undefined {
@@ -279,8 +280,8 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
           const uid = rack.gpuSlots[slot];
           const gpuSlots = rack.gpuSlots.slice();
           gpuSlots[slot] = null;
-          if (uid && s.gpus[uid]) recordGpuEdit(uid, { temp: Math.min(s.gpus[uid].temp, 30), shutdown: false });
-          const gpus = uid && s.gpus[uid] ? { ...s.gpus, [uid]: { ...s.gpus[uid], temp: Math.min(s.gpus[uid].temp, 30), shutdown: false } } : s.gpus;
+          if (uid && s.gpus[uid]) recordGpuEdit(uid, { temp: Math.min(s.gpus[uid].temp, 30), shutdown: false, condensed: false });
+          const gpus = uid && s.gpus[uid] ? { ...s.gpus, [uid]: { ...s.gpus[uid], temp: Math.min(s.gpus[uid].temp, 30), shutdown: false, condensed: false } } : s.gpus;
           return { gpus, racks: { ...s.racks, [rackUid]: { ...rack, gpuSlots } } };
         }
         const fanSlots = rack.fanSlots.slice();
@@ -498,6 +499,40 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
       s.pushLog(tr('AI Diagnostics tuned {name}: +{bonus}% safe.', { name: tr(GPU_BY_ID[gpu.modelId].name), bonus: (bonus * 100).toFixed(1) }), 'good');
       sfxBus.emit('success');
       return true;
+    },
+
+    saveBiosProfile: (id, oc) => {
+      const { core: c, mem: m, voltage: v } = OC_LIMITS;
+      const clean = { core: clamp(oc.core, c.min, c.max), mem: clamp(oc.mem, m.min, m.max), voltage: clamp(oc.voltage, v.min, v.max) };
+      set((s) => ({ biosProfiles: { ...s.biosProfiles, [id]: clean } }));
+      get().logT('BIOS profile saved: {name}.', { name: BIOS_PROFILE_NAMES[id] }, 'info');
+      sfxBus.emit('success');
+    },
+
+    applyProfileToModel: (modelId, oc) => {
+      const s = get();
+      const model = GPU_BY_ID[modelId];
+      if (!model) return 0;
+      if (challengeBlocks(s, 'lockOverclock')) {
+        get().denyByChallenge(tr('the BIOS is locked at stock clocks.'));
+        return 0;
+      }
+      const gpus = { ...s.gpus };
+      let count = 0;
+      let trimmed = 0;
+      Object.values(s.gpus).forEach((g) => {
+        if (g.modelId !== modelId) return;
+        // Each chip gets the closest settings its own silicon holds: batch applies never crash a rig.
+        const fitted = fitOverclock(g.silicon, oc);
+        if (fitted.core !== oc.core || fitted.mem !== oc.mem || fitted.voltage !== oc.voltage) trimmed += 1;
+        gpus[g.uid] = { ...g, oc: fitted, ocBonus: ocHashBonus(fitted) };
+        count += 1;
+      });
+      if (count === 0) return 0;
+      set({ gpus });
+      s.logT('BIOS profile applied to {n}x {name} ({trimmed} fitted down to their silicon).', { n: count, name: model.name, trimmed }, 'good');
+      sfxBus.emit('success');
+      return count;
     },
 
     resetOverclock: (gpuUid) => {

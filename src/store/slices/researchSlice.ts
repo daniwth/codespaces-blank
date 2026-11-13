@@ -1,4 +1,6 @@
 import { talentModifiers } from '../../config/prestigeTree';
+import { BMC_LIMITS } from '../../config/synergy';
+import { clamp } from '../../utils/random';
 import { RESEARCH_BY_ID, researchCost, researchLevel, researchTime, rushCost } from '../../config/research';
 import type { ResearchId, ResearchLevels, TalentLevels } from '../../types/player';
 import { bnAdd, bnGte, bnSub } from '../../utils/bignum';
@@ -78,5 +80,17 @@ export function createResearchSlice(set: SetState, get: GetState): ResearchSlice
       fxBus.emit({ kind: 'confetti', intensity: 0.3 });
       return true;
     },
+
+    setBmc: (patch) =>
+      set((s) => {
+        const next = { ...s.bmc, ...patch };
+        return {
+          bmc: {
+            ...next,
+            pasteBelow: clamp(next.pasteBelow, BMC_LIMITS.paste[0], BMC_LIMITS.paste[1]),
+            healthBelow: clamp(next.healthBelow, BMC_LIMITS.health[0], BMC_LIMITS.health[1]),
+          },
+        };
+      }),
   };
 }

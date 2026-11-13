@@ -31,7 +31,7 @@ const DATA_KEYS: (keyof GameData)[] = [
   'runEarnings', 'lifetimeEarnings', 'runStartedAt', 'gpus', 'psus', 'coolers', 'racks', 'ownedRooms', 'activeRoom',
   'roomTemps', 'technicians', 'pool', 'market', 'bots', 'event', 'nextEventAt', 'talents', 'vip',
   'achievements', 'stats', 'settings', 'contracts', 'challenge', 'challengeRecords', 'alts', 'minedCoin',
-  'research', 'boost', 'nextAirdropAt', 'roadmap', 'daily', 'autopilot', 'buffs',
+  'research', 'boost', 'nextAirdropAt', 'roadmap', 'daily', 'autopilot', 'buffs', 'upgrades', 'bmc', 'biosProfiles',
 ];
 
 export const extractData = (s: GameStore): GameData => {
@@ -48,7 +48,7 @@ export const selectSimInput = (s: GameStore): SimInput => ({
   roomTemps: s.roomTemps, technicians: s.technicians, pool: s.pool, market: s.market, bots: s.bots,
   event: s.event, nextEventAt: s.nextEventAt, talents: s.talents, vip: s.vip, cash: s.cash, cc: s.cc,
   meme: s.meme, memeCostBasis: s.memeCostBasis, ccCostBasis: s.ccCostBasis, alts: s.alts, minedCoin: s.minedCoin, lastTick: s.lastTick, challenge: s.challenge,
-  research: s.research, boost: s.boost, buffs: s.buffs,
+  research: s.research, boost: s.boost, buffs: s.buffs, upgrades: s.upgrades, bmc: s.bmc,
 });
 
 /**

@@ -1,5 +1,6 @@
 import { SAVE_VERSION } from '../config/gameBalance';
-import { COOLER_BY_ID, GPU_BY_ID, OC_LIMITS, PSU_BY_ID, QUALITY_ORDER, RACK_BY_ID } from '../config/hardwareCatalog';
+import { COOLER_BY_ID, GPU_BY_ID, OC_LIMITS, PSU_BY_ID, QUALITY_DEFS, QUALITY_ORDER, RACK_BY_ID } from '../config/hardwareCatalog';
+import { BIOS_PROFILE_IDS, BMC_LIMITS, DEFAULT_BIOS_PROFILES, DEFAULT_BMC, defaultBiosProfiles } from '../config/synergy';
 import { AIRDROP } from '../config/airdrops';
 import { ALT_COIN_IDS, COIN_IDS, emptyAlts, isCoinId, isMineableCoin } from '../config/altcoins';
 import { CHALLENGE_IDS, isChallengeId } from '../config/challenges';
@@ -11,11 +12,11 @@ import { ROADMAP } from '../config/roadmap';
 import { ROOM_BY_ID } from '../config/roomsCatalog';
 import { TALENT_BY_ID } from '../config/prestigeTree';
 import type { AltWallets, Candle, CoinMarket, MarketState, MineableCoin, TradingBot } from '../types/economy';
-import type { CoolerInstance, GpuInstance, PsuInstance, RackInstance, SiliconQuality } from '../types/hardware';
+import type { CoolerInstance, GpuInstance, OverclockSettings, PsuInstance, RackInstance, SiliconQuality } from '../types/hardware';
 import type {
-  ActiveChallenge, AutopilotState, ChallengeRecords, DailyState, FarmBuffs, GameData, GameSettings, HashBoost, ResearchLevels, ResearchState, RoadmapState, RoomId, TalentId, TalentLevels,
+  ActiveChallenge, AutopilotState, BiosProfileId, BmcConfig, ChallengeRecords, RoomUpgrades, DailyState, FarmBuffs, GameData, GameSettings, HashBoost, ResearchLevels, ResearchState, RoadmapState, RoomId, TalentId, TalentLevels,
 } from '../types/player';
-import { clamp } from '../utils/random';
+import { clamp, unitHash } from '../utils/random';
 import { contractContext, sanitizeBoard } from './contracts';
 import { STOCK_OC } from './gamePhysics';
 import { createInitialData, DEFAULT_SETTINGS } from './initialState';
@@ -48,13 +49,53 @@ function mergeTyped<T>(defaults: T, raw: unknown): T {
   return (typeof raw === typeof defaults ? raw : defaults) as T;
 }
 
+/** Undervolt floor of a chip that has none saved: deterministic per uid, inside the range of its grade. */
+export function defaultVFloor(uid: string, quality: SiliconQuality): number {
+  const [lo, hi] = QUALITY_DEFS[quality].vFloor;
+  return Math.round(lo + (hi - lo) * unitHash(uid, 7));
+}
+
+function sanitizeOc(raw: unknown, fallback: OverclockSettings): OverclockSettings {
+  const oc = isObject(raw) ? raw : {};
+  return {
+    core: clamp(finite(oc.core, fallback.core), OC_LIMITS.core.min, OC_LIMITS.core.max),
+    mem: clamp(finite(oc.mem, fallback.mem), OC_LIMITS.mem.min, OC_LIMITS.mem.max),
+    voltage: clamp(finite(oc.voltage, fallback.voltage), OC_LIMITS.voltage.min, OC_LIMITS.voltage.max),
+  };
+}
+
+function sanitizeBiosProfiles(raw: unknown): Record<BiosProfileId, OverclockSettings> {
+  const src = isObject(raw) ? raw : {};
+  const out = defaultBiosProfiles();
+  BIOS_PROFILE_IDS.forEach((id) => {
+    out[id] = sanitizeOc(src[id], DEFAULT_BIOS_PROFILES[id]);
+  });
+  return out;
+}
+
+function sanitizeBmc(raw: unknown): BmcConfig {
+  const src = isObject(raw) ? raw : {};
+  const flag = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback);
+  return {
+    enabled: flag(src.enabled, DEFAULT_BMC.enabled),
+    autoPaste: flag(src.autoPaste, DEFAULT_BMC.autoPaste),
+    pasteBelow: clamp(finite(src.pasteBelow, DEFAULT_BMC.pasteBelow), BMC_LIMITS.paste[0], BMC_LIMITS.paste[1]),
+    autoRepair: flag(src.autoRepair, DEFAULT_BMC.autoRepair),
+    healthBelow: clamp(finite(src.healthBelow, DEFAULT_BMC.healthBelow), BMC_LIMITS.health[0], BMC_LIMITS.health[1]),
+  };
+}
+
+/** The battery bank only exists in a farm that owns the Warehouse. */
+function sanitizeUpgrades(raw: unknown, ownedRooms: RoomId[]): RoomUpgrades {
+  return { battery: isObject(raw) && raw.battery === true && ownedRooms.includes('warehouse') };
+}
+
 function sanitizeGpu(uid: string, raw: unknown): GpuInstance | null {
   if (!isObject(raw)) return null;
   const modelId = str(raw.modelId);
   if (!modelId || !GPU_BY_ID[modelId]) return null;
   const quality = QUALITY_ORDER.includes(raw.quality as SiliconQuality) ? (raw.quality as SiliconQuality) : 'bronze';
   const silicon = isObject(raw.silicon) ? raw.silicon : {};
-  const oc = isObject(raw.oc) ? raw.oc : {};
   return {
     uid,
     modelId,
@@ -63,18 +104,17 @@ function sanitizeGpu(uid: string, raw: unknown): GpuInstance | null {
       coreHeadroom: finite(silicon.coreHeadroom, 60),
       memHeadroom: finite(silicon.memHeadroom, 250),
       vScale: finite(silicon.vScale, 8),
+      // Chips minted before v9 have no undervolt floor: each gets a fixed roll inside its grade's range.
+      vFloor: clamp(finite(silicon.vFloor, defaultVFloor(uid, quality)), OC_LIMITS.voltage.min, OC_LIMITS.voltage.stock),
     },
-    oc: {
-      core: clamp(finite(oc.core, STOCK_OC.core), OC_LIMITS.core.min, OC_LIMITS.core.max),
-      mem: clamp(finite(oc.mem, STOCK_OC.mem), OC_LIMITS.mem.min, OC_LIMITS.mem.max),
-      voltage: clamp(finite(oc.voltage, STOCK_OC.voltage), OC_LIMITS.voltage.min, OC_LIMITS.voltage.max),
-    },
+    oc: sanitizeOc(raw.oc, STOCK_OC),
     ocBonus: clamp(finite(raw.ocBonus, 0), -0.2, OC_LIMITS.maxBonus),
     temp: clamp(finite(raw.temp, 26), -40, 150),
     wear: clamp(finite(raw.wear, 0), 0, 0.6),
     paste: clamp(finite(raw.paste, 1), 0, 1),
     shutdown: raw.shutdown === true,
     overheatSeconds: Math.max(0, finite(raw.overheatSeconds, 0)),
+    condensed: raw.condensed === true,
   };
 }
 
@@ -323,6 +363,9 @@ function sanitize(data: GameData, source: Json): GameData {
     daily: sanitizeDaily(source.daily, now),
     autopilot: sanitizeAutopilot(source.autopilot),
     buffs: sanitizeBuffs(source.buffs, now),
+    upgrades: sanitizeUpgrades(source.upgrades, ownedRooms),
+    bmc: sanitizeBmc(source.bmc),
+    biosProfiles: sanitizeBiosProfiles(source.biosProfiles),
     settings: sanitizeSettings(source.settings),
     achievements: (Array.isArray(data.achievements) ? data.achievements : []).filter((a): a is string => typeof a === 'string'),
     technicians: clamp(Math.floor(finite(data.technicians, 0)), 0, 6),
@@ -350,7 +393,9 @@ function sanitize(data: GameData, source: Json): GameData {
  * v6 → v7: added Lab research, the Overdrive surge and supply drones, the roadmap, the daily bonus and four
  *            stats counters: older saves start with no research, the roadmap at its first goal and no streak.
  * v7 → v8: added the AI Farm Manager.
- * v8 → v9: added the crew rally and special drone boosts (`buffs`) and a separate ambience volume.
+ * v8 → v9: added the crew rally and special drone boosts (`buffs`), a separate ambience volume, the
+ *            undervolt floor of every chip (`silicon.vFloor`), room upgrades, the Smart BMC thresholds
+ *            and the saved BIOS profiles.
  */
 export function migrateSave(raw: unknown, fromVersion: number): GameData {
   const defaults = createInitialData();
@@ -384,6 +429,9 @@ export function migrateSave(raw: unknown, fromVersion: number): GameData {
   // v8 → v9: none of the v9 systems existed; sanitize() fills each with its "nothing yet" default.
   if (fromVersion < 9) {
     delete source.buffs;
+    delete source.upgrades;
+    delete source.bmc;
+    delete source.biosProfiles;
   }
   const merged = mergeTyped(defaults, source);
   merged.saveVersion = SAVE_VERSION;

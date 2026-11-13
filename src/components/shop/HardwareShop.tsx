@@ -1,7 +1,8 @@
 import { Building2, Cpu, Fan, HardHat, Plug, Server } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { COOLER_CATALOG, GPU_CATALOG, MAX_TECHNICIANS, PSU_CATALOG, RACK_CATALOG } from '../../config/hardwareCatalog';
-import { ROOM_CATALOG, ROOM_ORDER } from '../../config/roomsCatalog';
+import { ROOM_CATALOG, ROOM_MECHANICS, ROOM_ORDER } from '../../config/roomsCatalog';
+import type { RoomId } from '../../types/player';
 import { talentModifiers } from '../../config/prestigeTree';
 import type { ComponentKind } from '../../store/slices/hardwareSlice';
 import { useT } from '../../i18n';
@@ -19,6 +20,15 @@ import { formatCash, formatDuration, formatHashrate, formatMultiplier, formatPer
 import { PixelButton } from '../ui/PixelButton';
 import { SpriteImg } from '../ui/SpriteImg';
 import { SLOT, slotted } from '../panels/richText';
+
+/** One line per room on what makes it play differently (see ROOM_MECHANICS). */
+const ROOM_TRAITS: Record<RoomId, string> = {
+  bedroom: 'Night noise: loud fans at night halve your overclock bonus.',
+  garage: 'Heat waves: every few minutes the ambient climbs +7°C for a while.',
+  warehouse: 'Unlocks the Battery Bank: cheaper power at night.',
+  arctic: 'Condensation: a card that sat cold and off must pre-heat before it hashes.',
+  submarine: 'Abyssal water cools best, but the hull only carries 84 GPUs.',
+};
 
 type Category = 'gpu' | 'cooling' | 'power' | 'racks' | 'rooms' | 'crew';
 type Qty = 1 | 5 | 10 | 'max';
@@ -77,6 +87,7 @@ export function HardwareShop() {
     coinPrice: st.market[st.minedCoin].price,
     difficulty: st.live.minedCoin === st.minedCoin ? st.live.difficulty : 1,
     pool: st.pool,
+    battery: st.upgrades.battery,
   }));
   const actions = useGameStore.getState();
   const [qty, setQty] = useState<Qty>(1);
@@ -244,9 +255,25 @@ export function HardwareShop() {
                 <div className="text-dim">
                   {t('power x{power} · cooling x{cooling}', { power: room.priceMul, cooling: room.coolingMul })}
                 </div>
+                <div className="text-amber" data-testid={`room-trait-${room.id}`}>{t(ROOM_TRAITS[room.id])}</div>
               </Card>
             );
           })}
+
+        {cat === 'rooms' && (
+          <Card
+            icon={<SpriteImg src={sprites.psuIcon('psu30k')} width={84} height={30} alt="" />}
+            title={t('Battery Bank')}
+            price={s.battery ? t('OWNED') : formatCash(ROOM_MECHANICS.warehouse.batteryPrice)}
+            affordable={!s.battery && s.ownedRooms.includes('warehouse') && can(ROOM_MECHANICS.warehouse.batteryPrice)}
+            disabled={s.battery || !s.ownedRooms.includes('warehouse')}
+            cta={s.battery ? '✓' : s.ownedRooms.includes('warehouse') ? t('Buy') : t('Locked')}
+            onBuy={() => actions.buyRoomUpgrade('battery')}
+          >
+            <div className="text-dim">{t('Warehouse upgrade: charges at the valley tariff.')}</div>
+            <div>{t('Night-time power in the Warehouse costs {pct}% less.', { pct: Math.round((1 - ROOM_MECHANICS.warehouse.valleyMul) * 100) })}</div>
+          </Card>
+        )}
 
         {cat === 'crew' && (
           <Card

@@ -8,7 +8,7 @@ import type { ResearchId, ResearchLevels } from '../types/player';
  * after the previous one: a +4% hashrate level pays back in a few minutes once the farm's
  * income is ~1/100 of its price per second, like a GPU of the matching tier.
  */
-export type ResearchIcon = 'chip' | 'fan' | 'bolt' | 'drop' | 'pylon' | 'truck';
+export type ResearchIcon = 'chip' | 'fan' | 'bolt' | 'drop' | 'pylon' | 'truck' | 'robot';
 
 /** Translatable effect line: an English template with `{placeholders}` plus its values. */
 export interface ResearchEffect {
@@ -74,6 +74,12 @@ export const RESEARCH: ResearchDef[] = [
     maxLevel: 5, costBase: 1_000, costGrowth: 12, timeBase: 120, timeGrowth: 2.5, effect: 0.02,
     effectOf: (l) => ({ key: '-{pct}% hardware prices', params: { pct: pctOf(l * 0.02) } }),
   },
+  {
+    id: 'bmc', name: 'Smart BMC', icon: 'robot', color: '#f472b6',
+    description: 'A baseboard controller on every rack: it re-pastes and repairs GPUs on its own once they cross your thresholds, paying the normal price in cash.',
+    maxLevel: 1, costBase: 6_000, costGrowth: 1, timeBase: 150, timeGrowth: 1, effect: 1,
+    effectOf: () => ({ key: 'automatic re-paste and repair', params: {} }),
+  },
 ];
 
 export const RESEARCH_BY_ID = Object.fromEntries(RESEARCH.map((r) => [r.id, r])) as Record<ResearchId, ResearchDef>;
@@ -106,6 +112,8 @@ export interface ResearchModifiers {
   lineMul: number;
   /** Multiplier on GPU / PSU / cooler / rack prices. */
   hardwarePriceMul: number;
+  /** Smart BMC researched: automatic maintenance is available. */
+  smartBmc: boolean;
 }
 
 export function researchModifiers(levels: ResearchLevels): ResearchModifiers {
@@ -117,6 +125,7 @@ export function researchModifiers(levels: ResearchLevels): ResearchModifiers {
     pasteLifeMul: 1 + l('paste') * RESEARCH_BY_ID.paste.effect,
     lineMul: 1 + l('grid') * RESEARCH_BY_ID.grid.effect,
     hardwarePriceMul: 1 - l('logistics') * RESEARCH_BY_ID.logistics.effect,
+    smartBmc: l('bmc') > 0,
   };
 }
 

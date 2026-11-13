@@ -1,5 +1,6 @@
 import { AIRDROP } from '../config/airdrops';
 import { emptyBuffs } from '../config/buffs';
+import { DEFAULT_BMC, DEFAULT_UPGRADES, defaultBiosProfiles } from '../config/synergy';
 import { COIN_MARKET, emptyAlts } from '../config/altcoins';
 import { GPU_BY_ID, QUALITY_DEFS } from '../config/hardwareCatalog';
 import { MARKET, SAVE_VERSION, STARTING_CASH, EVENT_INTERVAL } from '../config/gameBalance';
@@ -32,6 +33,7 @@ export function createGpu(modelId: string, quality: SiliconQuality): GpuInstance
       coreHeadroom: Math.round(randRange(q.coreHeadroom[0], q.coreHeadroom[1])),
       memHeadroom: Math.round(randRange(q.memHeadroom[0], q.memHeadroom[1])),
       vScale: Number(randRange(q.vScale[0], q.vScale[1]).toFixed(1)),
+      vFloor: Math.round(randRange(q.vFloor[0], q.vFloor[1])),
     },
     oc: { ...STOCK_OC },
     ocBonus: 0,
@@ -40,6 +42,7 @@ export function createGpu(modelId: string, quality: SiliconQuality): GpuInstance
     paste: 1,
     shutdown: false,
     overheatSeconds: 0,
+    condensed: false,
   };
 }
 
@@ -158,6 +161,9 @@ export function createInitialData(carry?: Partial<GameData>, challenge?: Challen
     settings: carry?.settings ?? { ...DEFAULT_SETTINGS },
     // Rallies and drone boosts belong to the run.
     buffs: emptyBuffs(),
+    upgrades: carry?.upgrades ?? { ...DEFAULT_UPGRADES },
+    bmc: carry?.bmc ?? { ...DEFAULT_BMC },
+    biosProfiles: carry?.biosProfiles ?? defaultBiosProfiles(),
   };
   // A fresh board scaled to this run (The Halving starts a new one: the old targets were sized for the old farm).
   return { ...data, contracts: carry?.contracts ?? createBoard(contractContext(data), now) };

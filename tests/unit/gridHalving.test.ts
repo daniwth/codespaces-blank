@@ -3,6 +3,7 @@ import { PHYSICS, SAVE_VERSION } from '../../src/config/gameBalance';
 import { GPU_CATALOG, PSU_CATALOG, RACK_BY_ID } from '../../src/config/hardwareCatalog';
 import { HALVING_MIN_EARNINGS, earningsForSc, nextScMilestone, scForEarnings } from '../../src/config/prestigeTree';
 import { ROOM_BY_ID } from '../../src/config/roomsCatalog';
+import { SYNERGY } from '../../src/config/synergy';
 import { gridTariff, simulate, wattPrice } from '../../src/store/gamePhysics';
 import { createGpu, createInitialData, createRack } from '../../src/store/initialState';
 import { migrateSave } from '../../src/store/migrations';
@@ -83,8 +84,11 @@ describe('grid demand keeps electricity a real cost', () => {
   it.each(farms)('%s spends 10-30%% of gross revenue on power', (_label, spec) => {
     const { share, healthy } = electricityShare(farm(spec));
     expect(healthy).toBe(true);
-    expect(share).toBeGreaterThanOrEqual(0.1);
-    expect(share).toBeLessThanOrEqual(0.3);
+    // Full racks of one model and grade earn the Cluster Bonus: less draw and more hashrate, so the
+    // band is the 10-30% of an unclustered farm scaled by that bonus.
+    const cluster = RACK_BY_ID[spec.rackId].slots >= SYNERGY.clusterSize ? (1 - SYNERGY.clusterPower) / (1 + SYNERGY.clusterHash) : 1;
+    expect(share / cluster).toBeGreaterThanOrEqual(0.1);
+    expect(share / cluster).toBeLessThanOrEqual(0.3);
   });
 
   it('efficiency choices still pay: a better PSU and Green PPA cut the bill', () => {

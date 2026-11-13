@@ -68,12 +68,12 @@ export const PSU_CATALOG: PsuModel[] = [
 ];
 
 export const COOLER_CATALOG: CoolerModel[] = [
-  { id: 'fan80', name: '80mm Case Fan', tier: 1, price: 10, cooling: 2.5, power: 2, kind: 'air' },
-  { id: 'fan120', name: '120mm Turbo Fan', tier: 2, price: 150, cooling: 5, power: 5, kind: 'air' },
-  { id: 'tower', name: 'Tower Heatsink', tier: 3, price: 800, cooling: 10, power: 8, kind: 'air' },
-  { id: 'aio', name: 'Liquid AIO 360', tier: 4, price: 30_000, cooling: 30, power: 25, kind: 'liquid' },
-  { id: 'immersion', name: 'Immersion Tank', tier: 5, price: 800_000, cooling: 50, power: 90, kind: 'immersion' },
-  { id: 'cryo', name: 'Cryo Phase-Change', tier: 6, price: 40_000_000, cooling: 400, power: 350, kind: 'cryo' },
+  { id: 'fan80', name: '80mm Case Fan', tier: 1, price: 10, cooling: 2.5, power: 2, kind: 'air', noise: 14 },
+  { id: 'fan120', name: '120mm Turbo Fan', tier: 2, price: 150, cooling: 5, power: 5, kind: 'air', noise: 20 },
+  { id: 'tower', name: 'Tower Heatsink', tier: 3, price: 800, cooling: 10, power: 8, kind: 'air', noise: 12 },
+  { id: 'aio', name: 'Liquid AIO 360', tier: 4, price: 30_000, cooling: 30, power: 25, kind: 'liquid', noise: 8 },
+  { id: 'immersion', name: 'Immersion Tank', tier: 5, price: 800_000, cooling: 50, power: 90, kind: 'immersion', noise: 3 },
+  { id: 'cryo', name: 'Cryo Phase-Change', tier: 6, price: 40_000_000, cooling: 400, power: 350, kind: 'cryo', noise: 10 },
 ];
 
 export const RACK_CATALOG: RackModel[] = [
@@ -101,13 +101,15 @@ export interface QualityDefinition {
   coreHeadroom: [number, number];
   memHeadroom: [number, number];
   vScale: [number, number];
+  /** Range of the lowest stable core voltage (mV). */
+  vFloor: [number, number];
 }
 
 export const QUALITY_DEFS: Record<SiliconQuality, QualityDefinition> = {
-  bronze: { id: 'bronze', label: 'Bronze', color: '#d97706', glow: '#78350f', weight: 50, coreHeadroom: [40, 110], memHeadroom: [200, 450], vScale: [6, 10] },
-  silver: { id: 'silver', label: 'Silver', color: '#cbd5e1', glow: '#475569', weight: 30, coreHeadroom: [110, 200], memHeadroom: [450, 750], vScale: [9, 14] },
-  gold: { id: 'gold', label: 'Gold', color: '#facc15', glow: '#854d0e', weight: 15, coreHeadroom: [200, 300], memHeadroom: [750, 1100], vScale: [13, 18] },
-  god: { id: 'god', label: 'Silicon God', color: '#f0abfc', glow: '#86198f', weight: 5, coreHeadroom: [300, 420], memHeadroom: [1100, 1500], vScale: [18, 24] },
+  bronze: { id: 'bronze', label: 'Bronze', color: '#d97706', glow: '#78350f', weight: 50, coreHeadroom: [40, 110], memHeadroom: [200, 450], vScale: [6, 10], vFloor: [930, 975] },
+  silver: { id: 'silver', label: 'Silver', color: '#cbd5e1', glow: '#475569', weight: 30, coreHeadroom: [110, 200], memHeadroom: [450, 750], vScale: [9, 14], vFloor: [890, 935] },
+  gold: { id: 'gold', label: 'Gold', color: '#facc15', glow: '#854d0e', weight: 15, coreHeadroom: [200, 300], memHeadroom: [750, 1100], vScale: [13, 18], vFloor: [850, 895] },
+  god: { id: 'god', label: 'Silicon God', color: '#f0abfc', glow: '#86198f', weight: 5, coreHeadroom: [300, 420], memHeadroom: [1100, 1500], vScale: [18, 24], vFloor: [805, 850] },
 };
 
 export const QUALITY_ORDER: SiliconQuality[] = ['bronze', 'silver', 'gold', 'god'];
@@ -118,6 +120,10 @@ export const OC_LIMITS = {
   mem: { min: -500, max: 1500, step: 25 },
   voltage: { min: 800, max: 1200, step: 5, stock: 1000 },
   maxBonus: 0.4,
+  /** Stability margins: closer than this to a limit and the stress test may fail (35%). */
+  coreMargin: 15,
+  memMargin: 60,
+  voltageMargin: 15,
 } as const;
 
 export const TECHNICIAN_BASE_COST = 1_500;

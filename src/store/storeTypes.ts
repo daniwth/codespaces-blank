@@ -2,7 +2,7 @@ import type { AirdropKind } from '../config/airdrops';
 import type { AutopilotPlanId } from '../config/autopilot';
 import type { CoinId, MineableCoin, PoolMode, TradeResult, TradingBot } from '../types/economy';
 import type { ComponentKind, GpuInstance, OverclockSettings, SiliconQuality } from '../types/hardware';
-import type { ChallengeId, GameData, GameSettings, ResearchId, RoomId, TalentId } from '../types/player';
+import type { BiosProfileId, BmcConfig, ChallengeId, GameData, GameSettings, ResearchId, RoomId, RoomUpgrades, TalentId } from '../types/player';
 import type { LiveMetrics, MessageTone, SimOutput } from './gamePhysics';
 import type { LogParams } from './logLine';
 
@@ -126,6 +126,13 @@ export interface HardwareSlice {
   autoFillAll: () => number;
   /** Re-paste every mounted GPU whose paste is below 60% (as many as the cash allows). Returns how many. */
   repasteAll: () => number;
+  /** Store the given clocks and voltage in one of the three BIOS profiles. */
+  saveBiosProfile: (id: BiosProfileId, oc: OverclockSettings) => void;
+  /**
+   * Apply clocks and voltage to every GPU of a model, each fitted to its own silicon (no crash risk:
+   * a card that cannot hold the profile gets the closest safe settings). Returns how many were set.
+   */
+  applyProfileToModel: (modelId: string, oc: OverclockSettings) => number;
 }
 
 export interface RoomsSlice {
@@ -134,6 +141,8 @@ export interface RoomsSlice {
   placeRack: (rackUid: string, roomId: RoomId, pad: number) => boolean;
   storeRack: (rackUid: string) => void;
   hireTechnician: () => boolean;
+  /** Buy a one-off room upgrade (the Warehouse battery bank). */
+  buyRoomUpgrade: (id: keyof RoomUpgrades) => boolean;
 }
 
 export interface MarketSlice {
@@ -188,6 +197,8 @@ export interface ResearchSlice {
   rushResearch: () => boolean;
   /** Grant the level of a finished project (called every tick and after offline catch-up). */
   checkResearch: (now?: number) => boolean;
+  /** Change the Smart BMC thresholds and switches. */
+  setBmc: (patch: Partial<BmcConfig>) => void;
 }
 
 export interface ProgressSlice {
