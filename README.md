@@ -82,9 +82,10 @@ gasta gemas. El Halving automático es opcional (desactivado por defecto): reini
 bajaría los $SC por hora y gasta los $SC en los talentos más baratos. Código: `src/store/autopilot/planner.ts` (puro) y `autopilotSlice.ts`.
 
 **Cuenta de pruebas:** en un servidor de desarrollo (facturación demo, correo por consola y sin `NODE_ENV=production`)
-existe la cuenta `danitest` con contraseña `AITEST`: 1000 gemas, Miner Pass demo y ningún progreso. Se crea sola al
-arrancar; `npm run seed:test` la devuelve a 1000 gemas sin progreso y `SEED_TEST_ACCOUNT=0` la desactiva. Un servidor
-de producción no la crea y la borra si la encuentra en la base de datos.
+puede existir la cuenta `danitest` con contraseña `AITEST`: 1000 gemas, Miner Pass demo y ningún progreso. Se crea sola al
+arrancar con `npm run dev` (que pone `SEED_TEST_ACCOUNT=1`; hay que activarla a mano en cualquier otro arranque) y
+`npm run seed:test` la devuelve a 1000 gemas sin progreso. Cualquier otro servidor no la crea y borra la fila si es la
+sembrada (suscripción demo y contraseña pública).
 
 **Guardado:** autoguardado en localStorage cada 2 s. Las exportaciones son JSON en Base64 firmado con SHA-256;
 las partidas manipuladas se rechazan al importarlas.

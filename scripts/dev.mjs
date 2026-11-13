@@ -5,7 +5,8 @@ const procs = [
   ['server', process.execPath, ['--no-warnings', '--env-file-if-exists=.env', 'server/index.ts']],
   ['web', process.execPath, ['node_modules/vite/bin/vite.js', ...process.argv.slice(2)]],
 ].map(([name, cmd, args]) => {
-  const child = spawn(cmd, args, { stdio: 'inherit' });
+  // `npm run dev` is the one place the development test account is switched on (see server/seed.ts).
+  const child = spawn(cmd, args, { stdio: 'inherit', env: { ...process.env, SEED_TEST_ACCOUNT: process.env.SEED_TEST_ACCOUNT ?? '1' } });
   child.on('exit', (code) => {
     console.log(`[dev] ${name} exited (${code ?? 'signal'}); stopping the rest.`);
     shutdown(code ?? 1);

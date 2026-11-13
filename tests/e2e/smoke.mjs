@@ -24,7 +24,7 @@ if (!existsSync('dist/index.html')) {
 
 const dataDir = mkdtempSync(join(tmpdir(), 'hht-e2e-'));
 const server = spawn(process.execPath, ['--no-warnings', 'server/index.ts'], {
-  env: { ...process.env, PORT: String(PORT), DATA_DIR: dataDir, STATIC_DIR: join(process.cwd(), 'dist'), STRIPE_SECRET_KEY: '' },
+  env: { ...process.env, PORT: String(PORT), DATA_DIR: dataDir, STATIC_DIR: join(process.cwd(), 'dist'), STRIPE_SECRET_KEY: '', SEED_TEST_ACCOUNT: '1' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 server.stderr.on('data', (d) => process.stderr.write(`[server] ${d}`));

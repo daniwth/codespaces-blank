@@ -4,15 +4,20 @@
  * the credentials are public, in this file.
  */
 import { createHash } from 'node:crypto';
-import { hashPassword, newUserId } from './auth.ts';
+import { hashPassword, newUserId, verifyPassword } from './auth.ts';
 import { devBilling, devLinks, MAX_SAVE_VERSION, SAVE_FORMAT, SAVE_SALT } from './config.ts';
 import { saves, users } from './db.ts';
 import { inspectSave } from './saves.ts';
 
 export const TEST_ACCOUNT = { login: 'danitest', password: 'AITEST', gems: 1000 } as const;
 
-/** Demo billing + console mailer + not production: the three things only a development server has. */
-export const seedAllowed = (): boolean => devBilling && devLinks && process.env.NODE_ENV !== 'production' && process.env.SEED_TEST_ACCOUNT !== '0';
+/**
+ * Opt-in (SEED_TEST_ACCOUNT=1, set by `npm run dev` and the tests) on top of what only a development
+ * server has: demo billing, console mailer and no NODE_ENV=production. A host that merely forgot to
+ * configure anything therefore never gets the public login.
+ */
+export const seedAllowed = (): boolean =>
+  process.env.SEED_TEST_ACCOUNT === '1' && devBilling && devLinks && process.env.NODE_ENV !== 'production';
 
 /** A cloud save holding only the gems: the game fills everything else with a brand new farm when it loads it. */
 export function testSaveBlob(): string {
@@ -29,9 +34,13 @@ export async function seedTestAccount(reset = false): Promise<'created' | 'reset
   if (!seedAllowed()) {
     // A database that once served development must not carry the public login anywhere else.
     // No real sign-up can own this name: registration only accepts email addresses.
+    // Only the seeded row goes: a demo subscription and the public password. Anything else is left alone.
     const stale = users.byEmail(TEST_ACCOUNT.login);
-    if (stale) users.remove(stale.id);
-    return stale ? 'removed' : 'skipped';
+    if (stale && stale.sub_id?.startsWith('demo_') && (await verifyPassword(TEST_ACCOUNT.password, stale.password_hash))) {
+      users.remove(stale.id);
+      return 'removed';
+    }
+    return 'skipped';
   }
   let user = users.byEmail(TEST_ACCOUNT.login);
   const existed = !!user;

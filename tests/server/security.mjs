@@ -128,7 +128,7 @@ const signed = (event) => {
 console.log('Server security & billing tests');
 try {
   // ── Demo mode ──
-  let demo = await start(P.demo, { STRIPE_SECRET_KEY: '', TRUST_PROXY: '0' });
+  let demo = await start(P.demo, { STRIPE_SECRET_KEY: '', TRUST_PROXY: '0', SEED_TEST_ACCOUNT: '1' });
   const d = api(P.demo);
 
   await check('dev test account: danitest / AITEST logs in with a Miner Pass and a 1000-gem empty save', async () => {
@@ -143,6 +143,13 @@ try {
     assert(wrong.status === 401, 'a wrong password logged in');
     const taken = await d('POST', '/auth/register', { email: 'danitest', password: 'password123' });
     assert(taken.status === 400, 'the test login could be registered as a normal account');
+  });
+
+  await check('dev test account is opt-in: a default dev server (no SEED_TEST_ACCOUNT) does not seed it', async () => {
+    const solo = await start(P.prod, { STRIPE_SECRET_KEY: '', SEED_TEST_ACCOUNT: '' });
+    const r = await api(P.prod)('POST', '/auth/login', { email: 'danitest', password: 'AITEST' });
+    await stop(solo);
+    assert(r.status === 401, `danitest logged in without the opt-in: ${r.status}`);
   });
 
   await check('X-Forwarded-For rotation does not bypass the register limit', async () => {
@@ -176,7 +183,7 @@ try {
 
   await check('demo: cancel then re-subscribe resumes instead of stacking', async () => {
     await stop(demo);
-    demo = await start(P.demo, { STRIPE_SECRET_KEY: '', TRUST_PROXY: '1' });
+    demo = await start(P.demo, { STRIPE_SECRET_KEY: '', TRUST_PROXY: '1', SEED_TEST_ACCOUNT: '1' });
     const reg = { json: await signup(d, 'demo@x.io', 'password123', { 'X-Forwarded-For': '203.0.113.9' }) };
     const auth = { Authorization: `Bearer ${reg.json.token}` };
     await d('POST', '/billing/checkout', { plan: 'monthly' }, auth);
@@ -515,6 +522,16 @@ try {
     assert(r.status === 401, `danitest logged in on a production server: ${r.status}`);
     const users = new DatabaseSync(join(dataDir, 'hash-harvest.db'), { readOnly: true }).prepare("SELECT COUNT(*) AS n FROM users WHERE email = 'danitest'").get();
     assert(users.n === 0, 'the test account row survived on a production server');
+  });
+  await check('production: a real account that happens to be named danitest is left alone', async () => {
+    const rw = new DatabaseSync(join(dataDir, 'hash-harvest.db'));
+    rw.prepare("INSERT INTO users (id, email, password_hash, created_at, email_verified) VALUES ('usr_legacy', 'danitest', 'scrypt$x', ?, 1)").run(Date.now());
+    const again = await start(P.prod, { ...prodEnv, MAIL_MODE: 'http', MAIL_API_URL: `http://localhost:${P.mailApi}/emails`, MAIL_API_KEY: 'key_test_123', MAIL_FROM: 'Hash Harvest <noreply@example.com>' });
+    await stop(again);
+    const n = rw.prepare("SELECT COUNT(*) AS n FROM users WHERE id = 'usr_legacy'").get().n;
+    rw.prepare("DELETE FROM users WHERE id = 'usr_legacy'").run();
+    rw.close();
+    assert(n === 1, 'a non-seeded row named danitest was deleted');
   });
   await stop(httpMail);
 } catch (err) {
