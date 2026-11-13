@@ -1,7 +1,7 @@
 import type { NetworkEventDef, NetworkEventId, PoolDefinition, PoolMode } from '../types/economy';
 import type { AchievementDef } from '../types/player';
 
-export const SAVE_VERSION = 8;
+export const SAVE_VERSION = 9;
 export const SAVE_KEY = 'hash-harvest-tycoon';
 export const SAVE_SALT = 'HHT::pixel-rigs::v1';
 
@@ -53,17 +53,17 @@ export const POOLS: Record<PoolMode, PoolDefinition> = {
   public: {
     id: 'public', name: 'Public Stable Pool', tagline: 'Steady shares',
     description: 'Constant payouts for every valid share. The pool keeps a 2% fee.',
-    payoutMul: 1, fee: 0.02, unlockLevel: 1, color: '#22c55e',
+    scheme: 'pps', payoutMul: 1, fee: 0.02, unlockLevel: 1, color: '#22c55e',
   },
   solo: {
     id: 'solo', name: 'Solo Mining', tagline: 'Jackpot or nothing',
     description: 'Zero income between blocks, but every block found pays a massive jackpot (+15% EV) and may drop a gem.',
-    payoutMul: PHYSICS.soloEvMul, fee: 0, unlockLevel: 3, color: '#facc15',
+    scheme: 'solo', payoutMul: PHYSICS.soloEvMul, fee: 0, unlockLevel: 3, color: '#facc15',
   },
   darknet: {
     id: 'darknet', name: 'Darknet Anon Pool', tagline: 'Unregulated coins',
     description: '+75% yield on unregulated coins, but random fines and electrical inspections shut your rigs down.',
-    payoutMul: 1.75, fee: 0, unlockLevel: 6, color: '#f43f5e',
+    scheme: 'pps', payoutMul: 1.75, fee: 0, unlockLevel: 6, color: '#f43f5e',
   },
 };
 

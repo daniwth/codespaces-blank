@@ -1,8 +1,11 @@
-import { Lock, MapPin, Package, Radar } from 'lucide-react';
+import { HardHat, Lock, MapPin, Package, Radar, Thermometer } from 'lucide-react';
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { COOLER_BY_ID, GPU_BY_ID, PSU_BY_ID, RACK_BY_ID } from '../../config/hardwareCatalog';
+import { POOLS } from '../../config/gameBalance';
 import { ROOM_BY_ID, ROOM_ORDER } from '../../config/roomsCatalog';
-import { computePadLayout, ParticleSystem, PixelCanvas, WALL_H, WORLD_H, WORLD_W, type PadSlot } from '../../engine/PixelCanvas';
+import { computePadLayout, FloatingTextLayer, ParticleSystem, PixelCanvas, WALL_H, WORLD_H, WORLD_W, type PadSlot } from '../../engine/PixelCanvas';
+import type { AirdropKind } from '../../config/airdrops';
+import { BUFFS, crewRallied, crewReady, nitroActive } from '../../config/buffs';
 import {
   drawPixelText,
   fanSlotRect,
@@ -14,6 +17,8 @@ import {
   RACK_H,
   RACK_W,
   sprites,
+  thermalColor,
+  THERMAL_STOPS,
   type StatusIconKind,
 } from '../../engine/SpriteManager';
 import { padCount } from '../../store/slices/roomsSlice';
@@ -24,8 +29,11 @@ import type { RoomId } from '../../types/player';
 import { tr, useT } from '../../i18n';
 import { fxBus } from '../../utils/eventBus';
 import { cn } from '../../utils/cn';
-import { formatCash, formatHashrate, formatNumber, formatPower, formatTemp, tempColor } from '../../utils/formatters';
+import { formatCash, formatDuration, formatHashrate, formatNumber, formatPower, formatTemp, tempColor } from '../../utils/formatters';
 import { PixelButton } from '../ui/PixelButton';
+
+/** Seconds between the "+X $COIN" labels a rack floats on a steady-payout pool. */
+const PAY_LABEL_SEC = 7;
 
 const SHIRTS = ['#ef4444', '#22c55e', '#3b82f6', '#f97316', '#a855f7', '#14b8a6'];
 /**
@@ -282,8 +290,16 @@ function dronePos(drop: Airdrop, now: number): { x: number; y: number } {
   return { x: drop.id % 2 ? -20 + p * span : WORLD_W + 20 - p * span, y: 36 + Math.sin(p * Math.PI * 5) * 9 };
 }
 
-/** Quadcopter carrying a mystery crate on a rope. */
-function drawDrone(ctx: CanvasRenderingContext2D, x: number, y: number, t: number): void {
+/** Look of each special drone: crate colors, the glyph on it and the call-out above it. */
+const DRONE_LOOK: Partial<Record<AirdropKind, { body: string; lid: string; dark: string; glyph: string; ink: string; call: string; glow: string }>> = {
+  nitro: { body: '#cbd5e1', lid: '#f8fafc', dark: '#64748b', glyph: 'N', ink: '#0369a1', call: 'NITRO!', glow: '#7dd3fc' },
+  vip: { body: '#eab308', lid: '#fef08a', dark: '#854d0e', glyph: '$', ink: '#451a03', call: 'VIP!', glow: '#fde047' },
+  audit: { body: '#94a3b8', lid: '#e2e8f0', dark: '#334155', glyph: '%', ink: '#7c2d12', call: 'AUDIT!', glow: '#fb923c' },
+};
+
+/** Quadcopter carrying a crate on a rope: a mystery crate, or the payload of a special drone. */
+function drawDrone(ctx: CanvasRenderingContext2D, x: number, y: number, t: number, kind: AirdropKind): void {
+  const look = DRONE_LOOK[kind];
   const spin = Math.floor(t * 24) % 2;
   // Ground shadow sells the height.
   ctx.globalAlpha = 0.25;
@@ -291,12 +307,25 @@ function drawDrone(ctx: CanvasRenderingContext2D, x: number, y: number, t: numbe
   ctx.globalAlpha = 1;
   // Rope and crate.
   px(ctx, x, y + 4, 1, 6, '#94a3b8');
-  px(ctx, x - 5, y + 10, 11, 8, '#92400e');
-  px(ctx, x - 5, y + 10, 11, 1, '#f59e0b');
-  px(ctx, x - 5, y + 17, 11, 1, '#451a03');
-  px(ctx, x - 5, y + 10, 1, 8, '#b45309');
-  px(ctx, x + 5, y + 10, 1, 8, '#78350f');
-  drawPixelText(ctx, '?', x - 1, y + 12, '#fef08a');
+  if (look) {
+    // Halo so a rare drone is spotted at once.
+    ctx.globalAlpha = 0.22 + 0.12 * Math.sin(t * 6);
+    ctx.drawImage(sprites.glow(12, look.glow), x - 12, y + 2);
+    ctx.globalAlpha = 1;
+  }
+  px(ctx, x - 5, y + 10, 11, 8, look?.body ?? '#92400e');
+  px(ctx, x - 5, y + 10, 11, 1, look?.lid ?? '#f59e0b');
+  px(ctx, x - 5, y + 17, 11, 1, look?.dark ?? '#451a03');
+  px(ctx, x - 5, y + 10, 1, 8, look?.lid ?? '#b45309');
+  px(ctx, x + 5, y + 10, 1, 8, look?.dark ?? '#78350f');
+  if (kind === 'nitro') {
+    // Pressure tank: rounded ends, a hazard band and a venting valve.
+    px(ctx, x - 5, y + 10, 1, 1, '#000000');
+    px(ctx, x + 5, y + 10, 1, 1, '#000000');
+    px(ctx, x - 5, y + 14, 11, 1, '#38bdf8');
+    px(ctx, x - 1, y + 8, 3, 2, '#64748b');
+  }
+  drawPixelText(ctx, look?.glyph ?? '?', x - 1, y + 12, look?.ink ?? '#fef08a');
   // Arms, body and cockpit.
   px(ctx, x - 10, y, 21, 1, '#64748b');
   px(ctx, x - 5, y - 1, 11, 5, '#1e293b');
@@ -326,6 +355,9 @@ export function WorldCanvas() {
   const celebration = useRef<number | null>(null);
   /** Last drawn drone position: where the reward text pops when it is caught. */
   const droneAt = useRef({ x: WORLD_W / 2, y: 40 });
+  const floats = useRef(new FloatingTextLayer());
+  /** Seconds since each rack last showed its steady-payout label. */
+  const payTimers = useRef(new Map<string, number>());
   const hoverRef = useRef<HoverTarget | null>(null);
   const [hover, setHover] = useState<{ target: HoverTarget; left: number; top: number } | null>(null);
   const [placing, setPlacing] = useState<{ pad: number; left: number; top: number } | null>(null);
@@ -336,8 +368,21 @@ export function WorldCanvas() {
     racks: s.racks,
     talents: s.talents,
     airdrop: s.airdrop?.id ?? 0,
+    airdropKind: s.airdrop?.kind ?? 'cash',
+    thermal: s.thermalView,
+    technicians: s.technicians,
+    techUntil: s.buffs.techUntil,
+    techCooldownUntil: s.buffs.techCooldownUntil,
   }));
-  const { setActiveRoom, selectRack, placeRack, setSideTab, claimAirdrop } = useGameStore.getState();
+  const { setActiveRoom, selectRack, placeRack, setSideTab, claimAirdrop, rallyCrew, toggleThermalView } = useGameStore.getState();
+  // Re-render once a second while a rally or its cooldown is counting down.
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    setClock(Date.now());
+    if (ui.techCooldownUntil <= Date.now()) return undefined;
+    const timer = setInterval(() => setClock(Date.now()), 500);
+    return () => clearInterval(timer);
+  }, [ui.techCooldownUntil]);
 
   // ── FX bus: solo block celebration & raid inspections ──
   useEffect(
@@ -349,10 +394,19 @@ export function WorldCanvas() {
           inspections.current.set(fx.roomId, { until: Math.max(fx.until, prev?.until ?? 0), taped: live ? prev.taped : new Set() });
           return;
         }
+        if (fx.kind === 'rackText') {
+          // Only racks of the room on screen have a place to float a label over.
+          const st = useGameStore.getState();
+          const rack = st.racks[fx.rackUid];
+          if (!rack || rack.roomId !== st.activeRoom || rack.pad === null) return;
+          const pad = computePadLayout(padCount(st.activeRoom, st.talents))[rack.pad];
+          if (pad) floats.current.spawn(pad.x + RACK_W / 2, pad.y - 14, fx.text, fx.color, { big: fx.big });
+          return;
+        }
         if (fx.kind === 'airdrop') {
           const { x, y } = droneAt.current;
           const cx = Math.max(40, Math.min(WORLD_W - 40, x));
-          particles.current.text(cx, y + 6, fx.label, fx.color);
+          floats.current.spawn(cx, y + 6, fx.label, fx.color, { big: true });
           if (useGameStore.getState().settings.particles) {
             for (let i = 0; i < 16; i += 1) particles.current.sparkle(cx + (Math.random() - 0.5) * 24, y + 4 + Math.random() * 16, i % 2 ? fx.color : '#fef08a');
             for (let i = 0; i < 6; i += 1) particles.current.coin(cx, y + 12, 12, 9);
@@ -398,6 +452,16 @@ export function WorldCanvas() {
 
       ctx.drawImage(sprites.roomBackground(roomId, WORLD_W, WORLD_H, WALL_H), 0, 0);
       drawRoomLife(ctx, roomId, t, dt, s, particles.current);
+      const thermal = s.thermalView;
+      const wallNow = Date.now();
+      if (thermal) {
+        // Infrared scrim: the room goes dark and cold-tinted by its air temperature; only heat stands out.
+        ctx.globalAlpha = 0.78;
+        px(ctx, 0, 0, WORLD_W, WORLD_H, '#050816');
+        ctx.globalAlpha = 0.16;
+        px(ctx, 0, 0, WORLD_W, WORLD_H, thermalColor(roomLive?.temp ?? ROOM_BY_ID[roomId].ambient));
+        ctx.globalAlpha = 1;
+      }
 
       // Empty pads
       pads.forEach((pad) => {
@@ -437,7 +501,19 @@ export function WorldCanvas() {
         ctx.globalAlpha = 0.35;
         px(ctx, x - 3, y + RACK_H - 2, RACK_W + 6, 4, '#000000');
         ctx.globalAlpha = 1;
+        if (thermal && live && live.maxTemp > 0) {
+          // Heat halo around the rack, quantized so the glow sprites stay cached.
+          const halo = thermalColor(Math.round(live.maxTemp / 4) * 4);
+          ctx.globalAlpha = 0.2 + Math.min(0.35, Math.max(0, live.maxTemp - 40) / 160) + (live.maxTemp >= 88 ? 0.1 * Math.sin(t * 8) : 0);
+          ctx.drawImage(sprites.glow(34, halo), x + RACK_W / 2 - 34, y + RACK_H / 2 - 34);
+          ctx.globalAlpha = 1;
+        }
         ctx.drawImage(sprites.rackBody(model.style, model.slots, model.fanSlots), x, y);
+        if (thermal) {
+          ctx.globalAlpha = 0.72;
+          px(ctx, x, y, RACK_W, RACK_H, '#060a1c');
+          ctx.globalAlpha = 1;
+        }
 
         rack.gpuSlots.forEach((uid, i) => {
           if (!uid) return;
@@ -481,8 +557,19 @@ export function WorldCanvas() {
             ctx.globalAlpha = 1;
             if (r.h >= 5) px(ctx, x + r.x + 3, y + r.y + 1, 1, Math.max(1, r.h - 3), '#ffffff');
           }
-          if (fx && g.temp > 85 && Math.random() < dt * 4) particles.current.smoke(x + r.x + r.w / 2, y + r.y);
-          if (fx && g.temp > 90 && Math.random() < dt * 3) particles.current.spark(x + r.x + Math.random() * r.w, y + r.y + r.h / 2);
+          if (thermal) {
+            // Infrared: the card is a block of its die temperature, brighter the harder it works.
+            ctx.globalAlpha = gl?.running ? 0.92 : 0.6;
+            px(ctx, x + r.x, y + r.y, r.w, r.h, thermalColor(g.temp));
+            ctx.globalAlpha = 1;
+            if (g.temp >= 88 && Math.floor(t * 6) % 2 === 0) px(ctx, x + r.x, y + r.y, r.w, 1, '#ffffff');
+          }
+          // Smoke and sparks ramp up at the wear (88°C) and shutdown (95°C) thresholds; the thermal view exaggerates them.
+          const heatMul = thermal ? 1.6 : 1;
+          const smokeRate = g.temp >= 95 ? 14 : g.temp >= 88 ? 8 : g.temp > 85 ? 4 : 0;
+          const sparkRate = g.temp >= 95 ? 9 : g.temp >= 88 ? 4 : 0;
+          if (fx && smokeRate > 0 && Math.random() < dt * smokeRate * heatMul) particles.current.smoke(x + r.x + r.w / 2, y + r.y);
+          if (fx && sparkRate > 0 && Math.random() < dt * sparkRate * heatMul) particles.current.spark(x + r.x + Math.random() * r.w, y + r.y + r.h / 2);
         });
 
         rack.fanSlots.forEach((uid, i) => {
@@ -492,6 +579,13 @@ export function WorldCanvas() {
           const speed = cm.kind === 'immersion' ? 5 : cm.kind === 'cryo' ? 3 : 16;
           ctx.drawImage(sprites.cooler(cm, r.w, r.h, powered ? Math.floor(t * speed) + i : 0), x + r.x, y + r.y);
           if (fx && powered && cm.kind === 'cryo' && Math.random() < dt * 2) particles.current.sparkle(x + r.x + 4, y + r.y + 2, '#e0f2fe');
+          if (thermal) {
+            // Coolers show cold, and working ones blow visible air out of the rack.
+            ctx.globalAlpha = powered ? 0.9 : 0.5;
+            px(ctx, x + r.x, y + r.y, r.w, r.h, powered ? '#0e7490' : '#1e293b');
+            ctx.globalAlpha = 1;
+            if (powered && Math.random() < dt * (3 + Math.min(9, cm.cooling / 4))) particles.current.air(x + r.x + r.w, y + r.y + r.h / 2, 1, 0.7 + Math.min(1.2, cm.cooling / 40));
+          }
         });
 
         if (model.selfPowered) {
@@ -537,7 +631,7 @@ export function WorldCanvas() {
           }
           if (status === 'empty' || Math.floor(t * 2) % 2 === 0) drawPixelText(ctx, lblText, icon ? left + 11 : left, y - 8, lbl.color, { shadow: '#000000' });
         }
-        if (live && live.maxTemp > 0) drawPixelText(ctx, `${Math.round(live.maxTemp)}°`, x, y + RACK_H + 1, tempColor(live.maxTemp), { shadow: '#000000' });
+        if (live && live.maxTemp > 0) drawPixelText(ctx, `${Math.round(live.maxTemp)}°`, x, y + RACK_H + 1, thermal ? thermalColor(live.maxTemp) : tempColor(live.maxTemp), { shadow: '#000000' });
         if (live && live.hash > 0) drawPixelText(ctx, shortHash(live.hash), x + RACK_W, y + RACK_H + 1, '#a3e635', { align: 'right', shadow: '#000000' });
 
         if (hovered?.kind === 'rack' && hovered.rackUid === rack.uid) {
@@ -557,7 +651,16 @@ export function WorldCanvas() {
             coinTimers.current.set(rack.uid, 0);
           } else coinTimers.current.set(rack.uid, tm);
         } else if (fx && powered && live && live.hash > 0 && Math.random() < dt * 0.25) {
-          particles.current.text(x + 20, y - 2, 'SHARE', '#22d3ee');
+          particles.current.text(x + 20, y - 2, tr('SHARE'), '#22d3ee');
+        }
+        // Steady pools: every few seconds the rack shows what it has just mined.
+        if (fx && powered && live && live.hash > 0 && s.live.totalHash > 0 && s.live.coinPerSec > 0 && POOLS[s.pool].scheme === 'pps') {
+          const acc = (payTimers.current.get(rack.uid) ?? hash01(rack.uid) * PAY_LABEL_SEC) + dt;
+          if (acc >= PAY_LABEL_SEC) {
+            const mined = s.live.coinPerSec * (live.hash / s.live.totalHash) * PAY_LABEL_SEC;
+            floats.current.spawn(x + RACK_W / 2, y - 14, `+${formatNumber(mined)} $${s.minedCoin}`, '#fde047');
+            payTimers.current.set(rack.uid, 0);
+          } else payTimers.current.set(rack.uid, acc);
         }
       });
 
@@ -569,6 +672,8 @@ export function WorldCanvas() {
       }
       if (techs.current.length > want) techs.current.length = want;
       const rackList = [...byPad.entries()];
+      const rallied = crewRallied(s.buffs, wallNow);
+      const rallyReady = crewReady(s.buffs, wallNow);
       techs.current.forEach((tech, i) => {
         if (tech.mode === 'walk') {
           const dx = tech.tx - tech.x;
@@ -578,13 +683,13 @@ export function WorldCanvas() {
             tech.mode = tech.rackUid ? 'work' : 'idle';
             tech.timer = tech.rackUid ? 2.5 + Math.random() * 2 : 0.8 + Math.random();
           } else {
-            const sp = 30 * dt;
+            const sp = (rallied ? 62 : 30) * dt;
             tech.x += (dx / dist) * Math.min(sp, dist);
             tech.y += (dy / dist) * Math.min(sp, dist);
             tech.dir = dx >= 0 ? 1 : -1;
           }
         } else {
-          tech.timer -= dt;
+          tech.timer -= dt * (rallied ? 2.5 : 1);
           if (tech.mode === 'work' && fx && Math.random() < dt * 3) particles.current.sparkle(tech.x + tech.dir * 5, tech.y - 9, '#fef08a');
           if (tech.timer <= 0) {
             const pick = rackList.length ? rackList[Math.floor(Math.random() * rackList.length)] : null;
@@ -602,8 +707,28 @@ export function WorldCanvas() {
             tech.mode = 'walk';
           }
         }
-        const walkFrame = tech.mode === 'walk' ? Math.floor(t * 8 + i) : Math.floor(t * 4);
+        const walkFrame = tech.mode === 'walk' ? Math.floor(t * (rallied ? 14 : 8) + i) : Math.floor(t * 4);
         const spr = sprites.technician(walkFrame, tech.shirt, tech.mode === 'work');
+        const hx = Math.round(tech.x);
+        const hy = Math.round(tech.y) - 22;
+        if (rallied) {
+          // Rally: speed lines, sparks and a draining bar over the hard hat.
+          if (fx && Math.random() < dt * 9) particles.current.sparkle(tech.x + (Math.random() - 0.5) * 8, tech.y - 6 - Math.random() * 10, '#a3e635');
+          const left = Math.max(0, (s.buffs.techUntil - wallNow) / (BUFFS.crew.durationSec * 1000));
+          px(ctx, hx - 5, hy, 11, 2, '#07060f');
+          px(ctx, hx - 4, hy, Math.round(9 * left), 1, '#a3e635');
+        } else if (!rallyReady) {
+          // Cooldown: a grey bar filling back up.
+          const span = Math.max(1, (BUFFS.crew.cooldownSec - BUFFS.crew.durationSec) * 1000);
+          const done = 1 - Math.max(0, Math.min(1, (s.buffs.techCooldownUntil - wallNow) / span));
+          px(ctx, hx - 5, hy, 11, 2, '#07060f');
+          px(ctx, hx - 4, hy, Math.round(9 * done), 1, '#64748b');
+        } else if (Math.floor(t * 2 + i) % 2 === 0) {
+          // Ready: a speech bubble invites the click.
+          px(ctx, hx - 2, hy - 5, 5, 7, '#f8fafc');
+          px(ctx, hx, hy + 2, 1, 1, '#f8fafc');
+          drawPixelText(ctx, '!', hx - 1, hy - 4, '#15803d');
+        }
         ctx.save();
         if (tech.dir < 0) {
           ctx.translate(Math.round(tech.x) + 5, 0);
@@ -683,14 +808,15 @@ export function WorldCanvas() {
 
       // Supply drone
       const drop = s.airdrop;
-      const wall = Date.now();
+      const wall = wallNow;
       if (drop && wall < drop.expiresAt) {
         const pos = dronePos(drop, wall);
         const dx = Math.round(pos.x);
         const dy = Math.round(pos.y);
         droneAt.current = { x: dx, y: dy };
-        drawDrone(ctx, dx, dy, t);
-        if (Math.floor(t * 2.5) % 2 === 0) drawPixelText(ctx, tr('CATCH!'), Math.max(16, Math.min(WORLD_W - 16, dx)), dy - 12, '#fef08a', { align: 'center', shadow: '#000000' });
+        drawDrone(ctx, dx, dy, t, drop.kind);
+        if (drop.kind === 'nitro' && fx && Math.random() < dt * 14) particles.current.sparkle(dx + (Math.random() - 0.5) * 12, dy + 12 + Math.random() * 10, '#e0f2fe');
+        if (Math.floor(t * 2.5) % 2 === 0) drawPixelText(ctx, tr(DRONE_LOOK[drop.kind]?.call ?? 'CATCH!'), Math.max(16, Math.min(WORLD_W - 16, dx)), dy - 12, DRONE_LOOK[drop.kind]?.glow ?? '#fef08a', { align: 'center', shadow: '#000000' });
         if (fx && Math.random() < dt * 5) particles.current.sparkle(dx + (Math.random() - 0.5) * 8, dy + 20, '#fef08a');
       }
 
@@ -702,6 +828,8 @@ export function WorldCanvas() {
         (p, frame) => ctx.drawImage(p.kind === 'coin' ? sprites.coin(frame) : sprites.dataBlock(), Math.round(p.x - 3), Math.round(p.y - 3)),
         (p) => drawPixelText(ctx, p.text ?? '', p.x, p.y, p.color, { align: 'center', shadow: '#000000' }),
       );
+      floats.current.update(dt);
+      floats.current.draw(ctx);
 
       // Environmental overlays
       const ev = s.event;
@@ -757,6 +885,36 @@ export function WorldCanvas() {
         });
       } else if (inspection) {
         inspections.current.delete(roomId);
+      }
+
+      // Liquid nitrogen: frosty tint, drifting ice crystals and a countdown
+      if (nitroActive(s.buffs, wallNow)) {
+        ctx.globalAlpha = 0.1 + 0.03 * Math.sin(t * 3);
+        px(ctx, 0, 0, WORLD_W, WORLD_H, '#7dd3fc');
+        ctx.globalAlpha = 0.8;
+        for (let i = 0; i < 26; i += 1) {
+          const ix = (hash01('ice', i) * WORLD_W + t * (8 + hash01('iv', i) * 10)) % WORLD_W;
+          const iy = (hash01('icy', i) * WORLD_H + t * (14 + hash01('iw', i) * 18)) % WORLD_H;
+          px(ctx, ix, iy, 1, 1, '#f0f9ff');
+        }
+        ctx.globalAlpha = 1;
+        drawPixelText(ctx, tr('LN2 {delta}C {s}S', { delta: BUFFS.nitro.delta, s: Math.max(0, Math.ceil((s.buffs.nitroUntil - wallNow) / 1000)) }), WORLD_W - 4, 21, '#e0f2fe', { align: 'right', shadow: '#000000' });
+      }
+
+      // Thermal view legend: the infrared ramp with its key temperatures and the room air
+      if (thermal) {
+        const lx = 6;
+        const ly = WORLD_H - 14;
+        const lw = 96;
+        const lo = THERMAL_STOPS[1][0];
+        const hi = THERMAL_STOPS[THERMAL_STOPS.length - 1][0];
+        px(ctx, lx - 2, ly - 9, lw + 4, 21, '#05040c');
+        for (let i = 0; i < lw; i += 1) px(ctx, lx + i, ly, 1, 4, thermalColor(lo + ((hi - lo) * i) / (lw - 1)));
+        [88, 95].forEach((mark) => px(ctx, lx + Math.round(((mark - lo) / (hi - lo)) * (lw - 1)), ly - 1, 1, 6, '#ffffff'));
+        drawPixelText(ctx, tr('THERMAL VIEW'), lx, ly - 7, '#e0f2fe');
+        drawPixelText(ctx, `${lo}C`, lx, ly + 6, '#93c5fd');
+        drawPixelText(ctx, '88 95C', lx + lw, ly + 6, '#fecaca', { align: 'right' });
+        drawPixelText(ctx, tr('AIR {temp}C', { temp: Math.round(roomLive?.temp ?? ROOM_BY_ID[roomId].ambient) }), WORLD_W - 4, WORLD_H - 8, thermalColor(roomLive?.temp ?? ROOM_BY_ID[roomId].ambient), { align: 'right', shadow: '#000000' });
       }
 
       // In-canvas counter (coins fly here)
@@ -866,9 +1024,22 @@ export function WorldCanvas() {
     return Math.abs(x - pos.x) <= 18 && y >= pos.y - 10 && y <= pos.y + 24;
   };
 
+  /** True when the click landed on a technician (their sprite is 10×16 with the feet at its position). */
+  const hitsTech = (clientX: number, clientY: number): boolean => {
+    const pc = pcRef.current;
+    if (!pc) return false;
+    const { x, y } = pc.toWorld(clientX, clientY);
+    return techs.current.some((tech) => Math.abs(x - tech.x) <= 8 && y >= tech.y - 24 && y <= tech.y + 3);
+  };
+
   const onClick = (e: ReactMouseEvent<HTMLCanvasElement>) => {
     if (hitsDrone(e.clientX, e.clientY)) {
       claimAirdrop();
+      return;
+    }
+    if (hitsTech(e.clientX, e.clientY)) {
+      setPlacing(null);
+      rallyCrew();
       return;
     }
     const target = hitTest(e.clientX, e.clientY);
@@ -904,6 +1075,9 @@ export function WorldCanvas() {
         <span className="ml-auto hidden font-silk text-[10px] text-dim sm:inline">
           {t(ROOM_BY_ID[ui.activeRoom].subtitle)} · {t('{n} pads', { n: padCount(ui.activeRoom, ui.talents) })}
         </span>
+        <PixelButton size="sm" variant={ui.thermal ? 'danger' : 'ghost'} aria-pressed={ui.thermal} onClick={toggleThermalView} title={t('Thermal view: color every rack by its real temperature (T)')} data-testid="thermal-toggle-room" icon={<Thermometer size={12} />} silent>
+          <span className="hidden sm:inline">{t('Thermal')}</span>
+        </PixelButton>
       </div>
 
       <div ref={wrapRef} className="pixel-box relative grid aspect-[16/9] max-h-[68vh] w-full place-items-center overflow-hidden bg-black">
@@ -921,8 +1095,29 @@ export function WorldCanvas() {
 
         {ui.airdrop > 0 && (
           <PixelButton size="sm" variant="gold" className="absolute left-1/2 top-2 z-10 -translate-x-1/2" icon={<Radar size={12} />} onClick={() => claimAirdrop()} data-testid="airdrop-catch" silent>
-            {t('Catch the drone')}
+            {ui.airdropKind === 'nitro' ? t('Catch the nitrogen drone') : ui.airdropKind === 'vip' ? t('Catch the VIP drone') : ui.airdropKind === 'audit' ? t('Catch the audit drone') : t('Catch the drone')}
           </PixelButton>
+        )}
+
+        {ui.technicians > 0 && (
+          <button
+            type="button"
+            className={cn(
+              'absolute bottom-2 right-2 z-10 flex items-center gap-1 px-2 py-1 font-pixel text-[8px] uppercase shadow-[0_0_0_2px_#07060f]',
+              clock < ui.techUntil ? 'bg-lime text-void' : clock < ui.techCooldownUntil ? 'bg-panel-2 text-dim' : 'bg-neon text-void',
+            )}
+            onClick={() => rallyCrew()}
+            disabled={clock < ui.techCooldownUntil}
+            title={t('Click a technician (or this button) to rally the crew: maintenance x{mul} and +{pct}% cooling for {sec}s.', { mul: BUFFS.crew.speedMul, pct: Math.round((BUFFS.crew.coolingMul - 1) * 100), sec: BUFFS.crew.durationSec })}
+            data-testid="crew-rally"
+          >
+            <HardHat size={11} />
+            {clock < ui.techUntil
+              ? t('Rally {time}', { time: formatDuration((ui.techUntil - clock) / 1000) })
+              : clock < ui.techCooldownUntil
+                ? t('Crew rests {time}', { time: formatDuration((ui.techCooldownUntil - clock) / 1000) })
+                : t('Rally the crew')}
+          </button>
         )}
 
         {hover && !placing && <HoverCard target={hover.target} left={hover.left} top={hover.top} />}

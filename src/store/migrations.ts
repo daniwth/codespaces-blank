@@ -4,6 +4,7 @@ import { AIRDROP } from '../config/airdrops';
 import { ALT_COIN_IDS, COIN_IDS, emptyAlts, isCoinId, isMineableCoin } from '../config/altcoins';
 import { CHALLENGE_IDS, isChallengeId } from '../config/challenges';
 import { AUTOPILOT } from '../config/autopilot';
+import { BUFFS, emptyBuffs } from '../config/buffs';
 import { localDay } from '../config/daily';
 import { RESEARCH_BY_ID, RESEARCH_IDS, isResearchId } from '../config/research';
 import { ROADMAP } from '../config/roadmap';
@@ -12,12 +13,12 @@ import { TALENT_BY_ID } from '../config/prestigeTree';
 import type { AltWallets, Candle, CoinMarket, MarketState, MineableCoin, TradingBot } from '../types/economy';
 import type { CoolerInstance, GpuInstance, PsuInstance, RackInstance, SiliconQuality } from '../types/hardware';
 import type {
-  ActiveChallenge, AutopilotState, ChallengeRecords, DailyState, GameData, HashBoost, ResearchLevels, ResearchState, RoadmapState, RoomId, TalentId, TalentLevels,
+  ActiveChallenge, AutopilotState, ChallengeRecords, DailyState, FarmBuffs, GameData, GameSettings, HashBoost, ResearchLevels, ResearchState, RoadmapState, RoomId, TalentId, TalentLevels,
 } from '../types/player';
 import { clamp } from '../utils/random';
 import { contractContext, sanitizeBoard } from './contracts';
 import { STOCK_OC } from './gamePhysics';
-import { createInitialData } from './initialState';
+import { createInitialData, DEFAULT_SETTINGS } from './initialState';
 
 type Json = Record<string, unknown>;
 
@@ -225,6 +226,33 @@ function sanitizeAutopilot(raw: unknown): AutopilotState {
   };
 }
 
+/** No boost outlives its own duration from now: a tampered deadline cannot make one permanent. */
+function sanitizeBuffs(raw: unknown, now: number): FarmBuffs {
+  if (!isObject(raw)) return emptyBuffs();
+  const until = (v: unknown, maxSec: number): number => clamp(finite(v, 0), 0, now + maxSec * 1000);
+  return {
+    techUntil: until(raw.techUntil, BUFFS.crew.durationSec),
+    techCooldownUntil: until(raw.techCooldownUntil, BUFFS.crew.cooldownSec),
+    nitroUntil: until(raw.nitroUntil, BUFFS.nitro.durationSec),
+    blockMulUntil: until(raw.blockMulUntil, BUFFS.vip.durationSec),
+    auditClaims: clamp(Math.floor(finite(raw.auditClaims, 0)), 0, BUFFS.audit.maxClaims),
+  };
+}
+
+function sanitizeSettings(raw: unknown): GameSettings {
+  const src = isObject(raw) ? raw : {};
+  const flag = (key: keyof GameSettings): boolean => (typeof src[key] === 'boolean' ? (src[key] as boolean) : (DEFAULT_SETTINGS[key] as boolean));
+  return {
+    muted: flag('muted'),
+    volume: clamp(finite(src.volume, DEFAULT_SETTINGS.volume), 0, 1),
+    ambientHum: flag('ambientHum'),
+    // Older saves had one volume for everything: the ambience starts at that same level.
+    ambientVolume: clamp(finite(src.ambientVolume, finite(src.volume, DEFAULT_SETTINGS.ambientVolume)), 0, 1),
+    particles: flag('particles'),
+    offlineProgress: flag('offlineProgress'),
+  };
+}
+
 function sanitizeTalents(raw: unknown): TalentLevels {
   if (!isObject(raw)) return {};
   const out: TalentLevels = {};
@@ -294,6 +322,8 @@ function sanitize(data: GameData, source: Json): GameData {
     roadmap: sanitizeRoadmap(source.roadmap),
     daily: sanitizeDaily(source.daily, now),
     autopilot: sanitizeAutopilot(source.autopilot),
+    buffs: sanitizeBuffs(source.buffs, now),
+    settings: sanitizeSettings(source.settings),
     achievements: (Array.isArray(data.achievements) ? data.achievements : []).filter((a): a is string => typeof a === 'string'),
     technicians: clamp(Math.floor(finite(data.technicians, 0)), 0, 6),
     meme: Math.max(0, finite(data.meme, 0)),
@@ -319,6 +349,8 @@ function sanitize(data: GameData, source: Json): GameData {
  *            and altcoins ($BYT/$NOVA wallets, minedCoin and their markets): older saves hold none and mine $CC.
  * v6 → v7: added Lab research, the Overdrive surge and supply drones, the roadmap, the daily bonus and four
  *            stats counters: older saves start with no research, the roadmap at its first goal and no streak.
+ * v7 → v8: added the AI Farm Manager.
+ * v8 → v9: added the crew rally and special drone boosts (`buffs`) and a separate ambience volume.
  */
 export function migrateSave(raw: unknown, fromVersion: number): GameData {
   const defaults = createInitialData();
@@ -349,6 +381,10 @@ export function migrateSave(raw: unknown, fromVersion: number): GameData {
   }
   // v7 → v8: the AI Farm Manager did not exist; sanitize() gives it no time left.
   if (fromVersion < 8) delete source.autopilot;
+  // v8 → v9: none of the v9 systems existed; sanitize() fills each with its "nothing yet" default.
+  if (fromVersion < 9) {
+    delete source.buffs;
+  }
   const merged = mergeTyped(defaults, source);
   merged.saveVersion = SAVE_VERSION;
   return sanitize(merged, source);

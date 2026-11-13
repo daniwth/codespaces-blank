@@ -66,11 +66,13 @@ export function RetroHUD() {
     event: st.event,
     lifetime: st.lifetimeEarnings,
     muted: st.settings.muted,
+    thermal: st.thermalView,
   }));
   const updateSettings = useGameStore((st) => st.updateSettings);
   const sellCoin = useGameStore((st) => st.sellCoin);
   const setSideTab = useGameStore((st) => st.setSideTab);
   const setWikiOpen = useGameStore((st) => st.setWikiOpen);
+  const toggleThermalView = useGameStore((st) => st.toggleThermalView);
   const account = useAccountStore(useShallow((a) => ({ email: a.user?.email ?? null, active: !!a.user?.subscription.active, sync: a.syncState })));
   const [now, setNow] = useState(() => Date.now());
   const [pops, setPops] = useState<{ id: number; text: string }[]>([]);
@@ -198,6 +200,9 @@ export function RetroHUD() {
           </PixelButton>
           <PixelButton size="sm" variant="primary" disabled={bnToNumber(s.cc) <= 0} onClick={() => sellCoin('CC', bnToNumber(s.cc))} title={t('Sell every $CC at market price')}>
             {t('Sell all CC')}
+          </PixelButton>
+          <PixelButton size="sm" variant={s.thermal ? 'danger' : 'ghost'} aria-pressed={s.thermal} onClick={toggleThermalView} aria-label={t('Thermal view')} title={t('Thermal view: color every rack by its real temperature (T)')} data-testid="thermal-toggle" silent>
+            <Thermometer size={14} />
           </PixelButton>
           <PixelButton size="sm" variant="ghost" onClick={() => setWikiOpen(true)} aria-label={t('How to play')} title={t('How to play (wiki)')}>
             <CircleHelp size={14} />

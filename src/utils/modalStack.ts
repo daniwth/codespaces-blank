@@ -17,4 +17,7 @@ export function popLayer(id: number): void {
   if (i >= 0) stack.splice(i, 1);
 }
 
+/** True while any modal layer is open (global hotkeys stay out of the way). */
+export const hasOpenLayer = (): boolean => stack.length > 0;
+
 export const isTopLayer = (id: number): boolean => stack[stack.length - 1] === id;

@@ -1,4 +1,5 @@
 import { tr } from '../../i18n';
+import { BUFFS } from '../../config/buffs';
 import { CONTRACT_DEFS, CONTRACTS } from '../../config/contracts';
 import { GPU_BY_ID } from '../../config/hardwareCatalog';
 import { talentModifiers } from '../../config/prestigeTree';
@@ -79,10 +80,14 @@ export function createContractsSlice(set: SetState, get: GetState): ContractsSli
         return false;
       }
       const now = Date.now();
+      // Audit drone: the claim pays extra cash and uses one audit up.
+      const audited = s.buffs.auditClaims > 0;
+      const cashReward = c.reward.cash * (audited ? BUFFS.audit.cashMul : 1);
       const patch: Partial<GameStore> = {
         contracts: removeContract(s.contracts, id, now),
+        buffs: audited ? { ...s.buffs, auditClaims: s.buffs.auditClaims - 1 } : s.buffs,
         // A gift, not realized profit: it does not count towards run/lifetime earnings.
-        cash: bnAdd(s.cash, c.reward.cash),
+        cash: bnAdd(s.cash, cashReward),
         gems: s.gems + c.reward.gems,
         stats: { ...s.stats, contractsCompleted: s.stats.contractsCompleted + 1 },
         contractToast: s.contractToast?.contractId === id ? null : s.contractToast,
@@ -98,8 +103,9 @@ export function createContractsSlice(set: SetState, get: GetState): ContractsSli
       s.pushLog(model
         ? tr('Contract claimed: {title} → {reward} (in Rigs storage).', { title: contractTitle(c), reward: rewardText(c) })
         : tr('Contract claimed: {title} → {reward}.', { title: contractTitle(c), reward: rewardText(c) }), 'good');
+      if (audited) s.logT('Audit bonus: +{cash} on that contract.', { cash: formatCash(cashReward - c.reward.cash) }, 'good');
       sfxBus.emit('claim');
-      fxBus.emit({ kind: 'sell', amount: c.reward.cash });
+      fxBus.emit({ kind: 'sell', amount: cashReward });
       fxBus.emit({ kind: 'confetti', intensity: c.difficulty === 3 ? 0.5 : 0.25 });
       get().checkAchievements();
       return true;

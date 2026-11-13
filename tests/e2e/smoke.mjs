@@ -542,7 +542,7 @@ try {
       for (const label of ['Mute all sound', 'Particles (smoke, coins)', 'Offline earnings']) {
         assert(await settings.getByLabel(label).isVisible(), `${label} toggle missing`);
       }
-      assert(await settings.locator('input[type="range"]').isVisible(), 'volume slider missing');
+      assert(await settings.getByTestId('volume-sfx').isVisible() && (await settings.getByTestId('volume-ambient').isVisible()), 'volume slider missing');
       assert(await settings.locator('button:has-text("Export")').isVisible(), 'export missing');
       assert(await settings.locator('button:has-text("Import pasted save")').isVisible(), 'import missing');
       await settings.getByLabel('Mute all sound').check();
@@ -1084,6 +1084,50 @@ try {
       assert(pageErrors.length === 0, pageErrors.join(' | '));
     } finally {
       await context.close();
+    }
+  });
+
+  await check('v9: thermal view (button + T), crew rally with cooldown and ambience volume (desktop + 390 px)', async () => {
+    for (const viewport of [{ width: 1600, height: 1000 }, { width: 390, height: 844 }]) {
+      const { context, p } = await fresh({ viewport });
+      const pageErrors = [];
+      p.on('pageerror', (e) => pageErrors.push(e.message));
+      try {
+        await p.addInitScript(() => localStorage.getItem('hh-lang') ?? localStorage.setItem('hh-lang', 'en'));
+        await bootPatched(p, `state.technicians = 1; state.cash = '5000'; state.nextAirdropAt = Date.now() + 3600000;`);
+        const tag = viewport.width === 390 ? 'mobile' : 'desktop';
+        // Thermal view: the HUD button and the T key toggle the same overlay.
+        const toggle = p.getByTestId('thermal-toggle');
+        assert((await toggle.getAttribute('aria-pressed')) === 'false', 'thermal view should start off');
+        await toggle.click();
+        assert((await toggle.getAttribute('aria-pressed')) === 'true', 'the HUD button did not turn the thermal view on');
+        await p.waitForTimeout(700);
+        await p.screenshot({ path: join(ART, `v9-thermal-${tag}.png`) });
+        await p.keyboard.press('t');
+        assert((await toggle.getAttribute('aria-pressed')) === 'false', 'T did not turn the thermal view off');
+        // T is ignored while typing in a field.
+        await p.locator('nav[aria-label="Panels"] button[title="System"]').click();
+        await p.locator('textarea').first().click();
+        await p.keyboard.type('t');
+        assert((await toggle.getAttribute('aria-pressed')) === 'false', 'T typed in a field toggled the thermal view');
+        await p.locator('textarea').first().fill('');
+        // Ambience volume is its own slider and is saved.
+        await p.getByTestId('volume-ambient').fill('0.2');
+        await p.waitForFunction(() => JSON.parse(localStorage.getItem('hash-harvest-tycoon')).state.settings.ambientVolume === 0.2, null, { timeout: 5000 });
+        // Crew rally: the chip starts it and then shows the cooldown.
+        const rally = p.getByTestId('crew-rally');
+        await rally.click();
+        await p.getByText(/CREW RALLY!/).first().waitFor({ timeout: 3000 });
+        await rally.getByText(/Rally \d/).waitFor({ timeout: 3000 });
+        assert(await rally.isDisabled(), 'the rally can be clicked again while it is cooling down');
+        // The cooldown is part of the save (autosave is throttled to 2 s).
+        await p.waitForFunction(() => JSON.parse(localStorage.getItem('hash-harvest-tycoon')).state.buffs.techCooldownUntil > Date.now(), null, { timeout: 6000 });
+        assert(pageErrors.length === 0, pageErrors.join(' | '));
+        const overflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        assert(overflow <= 1, `page scrolls horizontally by ${overflow}px`);
+      } finally {
+        await context.close();
+      }
     }
   });
 } catch (err) {

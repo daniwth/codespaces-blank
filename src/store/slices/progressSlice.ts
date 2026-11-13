@@ -1,4 +1,6 @@
 import { AIRDROP } from '../../config/airdrops';
+import { BUFFS, crewReady } from '../../config/buffs';
+import { POOLS } from '../../config/gameBalance';
 import { CHALLENGE_IDS } from '../../config/challenges';
 import { dailyCash, dailyRewardFor, localDay } from '../../config/daily';
 import { talentModifiers } from '../../config/prestigeTree';
@@ -135,11 +137,15 @@ export function createProgressSlice(set: SetState, get: GetState): ProgressSlice
       }
       if (now < s.nextAirdropAt) return;
       airdropSeq += 1;
+      const kind = weightedPick(AIRDROP.weights);
       set({
-        airdrop: { id: airdropSeq, kind: weightedPick(AIRDROP.weights), spawnedAt: now, expiresAt: now + AIRDROP.lifetimeSec * 1000 },
+        airdrop: { id: airdropSeq, kind, spawnedAt: now, expiresAt: now + AIRDROP.lifetimeSec * 1000 },
         nextAirdropAt: now + randRange(AIRDROP.interval[0], AIRDROP.interval[1]) * 1000,
       });
-      s.logT('A supply drone is crossing the room: catch it before it leaves!', undefined, 'good');
+      if (kind === 'nitro') s.logT('A LIQUID NITROGEN DRONE is crossing the room: catch it to chill every room!', undefined, 'good');
+      else if (kind === 'vip') s.logT('A VIP DRONE is crossing the room: catch it before it leaves!', undefined, 'good');
+      else if (kind === 'audit') s.logT('An AUDIT DRONE is crossing the room: catch it for a contract bonus!', undefined, 'good');
+      else s.logT('A supply drone is crossing the room: catch it before it leaves!', undefined, 'good');
       sfxBus.emit('drone');
     },
 
@@ -175,6 +181,30 @@ export function createProgressSlice(set: SetState, get: GetState): ProgressSlice
         s.logT('DRONE CRATE: OVERDRIVE! Hashrate x{mul} for {sec}s.', { mul: AIRDROP.overdriveMul, sec: Math.round((until - now) / 1000) }, 'good');
         label = `OVERDRIVE X${AIRDROP.overdriveMul}`;
         color = '#a3e635';
+      } else if (kind === 'nitro') {
+        set({ airdrop: null, stats, buffs: { ...s.buffs, nitroUntil: now + BUFFS.nitro.durationSec * 1000 } });
+        s.logT('LIQUID NITROGEN DRONE: ambient {delta}°C in every room for {sec}s.', { delta: BUFFS.nitro.delta, sec: BUFFS.nitro.durationSec }, 'good');
+        label = `${BUFFS.nitro.delta}C LN2`;
+        color = '#7dd3fc';
+        sfxBus.emit('frost');
+      } else if (kind === 'vip') {
+        // A block multiplier only helps a pool that pays per block; steady pools get gems instead.
+        if (POOLS[s.pool].scheme !== 'pps') {
+          set({ airdrop: null, stats, buffs: { ...s.buffs, blockMulUntil: Math.max(s.buffs.blockMulUntil, now) + BUFFS.vip.durationSec * 1000 } });
+          s.logT('VIP DRONE: every block pays x{mul} for {min} min.', { mul: BUFFS.vip.blockMul, min: BUFFS.vip.durationSec / 60 }, 'good');
+          label = `BLOCKS X${BUFFS.vip.blockMul}`;
+        } else {
+          set({ airdrop: null, stats, gems: s.gems + BUFFS.vip.gems });
+          s.logT('VIP DRONE: {n} gems!', { n: BUFFS.vip.gems }, 'good');
+          label = `+${BUFFS.vip.gems} GEMS`;
+        }
+        color = '#fde047';
+        fxBus.emit({ kind: 'confetti', intensity: 0.3 });
+      } else if (kind === 'audit') {
+        set({ airdrop: null, stats, buffs: { ...s.buffs, auditClaims: Math.min(BUFFS.audit.maxClaims, s.buffs.auditClaims + BUFFS.audit.claims) } });
+        s.logT('AUDIT DRONE: clean books. Your next contract claim pays +{pct}% cash.', { pct: Math.round((BUFFS.audit.cashMul - 1) * 100) }, 'good');
+        label = `AUDIT +${Math.round((BUFFS.audit.cashMul - 1) * 100)}%`;
+        color = '#fb923c';
       } else {
         set({ airdrop: null, stats, gems: s.gems + AIRDROP.gems });
         s.logT('DRONE CRATE: a gem!', undefined, 'good');
@@ -185,6 +215,20 @@ export function createProgressSlice(set: SetState, get: GetState): ProgressSlice
       fxBus.emit({ kind: 'airdrop', label, color });
       get().checkRoadmap();
       get().checkAchievements();
+      return true;
+    },
+
+    rallyCrew: () => {
+      const s = get();
+      const now = Date.now();
+      if (s.technicians <= 0) return false;
+      if (!crewReady(s.buffs, now)) {
+        sfxBus.emit('error');
+        return false;
+      }
+      set({ buffs: { ...s.buffs, techUntil: now + BUFFS.crew.durationSec * 1000, techCooldownUntil: now + BUFFS.crew.cooldownSec * 1000 } });
+      s.logT('CREW RALLY! Maintenance x{mul} and +{pct}% cooling for {sec}s.', { mul: BUFFS.crew.speedMul, pct: Math.round((BUFFS.crew.coolingMul - 1) * 100), sec: BUFFS.crew.durationSec }, 'good');
+      sfxBus.emit('rally');
       return true;
     },
   };

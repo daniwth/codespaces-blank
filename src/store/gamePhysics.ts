@@ -17,6 +17,7 @@ import {
   hashDifficulty,
   spikeDifficulty,
 } from '../config/altcoins';
+import { BUFFS, blockMulOf, crewRallied, nitroActive } from '../config/buffs';
 import { challengeRules } from '../config/challenges';
 import { ROOM_BY_ID } from '../config/roomsCatalog';
 import { runModifiers, type RunModifiers } from '../config/modifiers';
@@ -51,7 +52,7 @@ export type SimInput = Pick<
   | 'gpus' | 'psus' | 'coolers' | 'racks' | 'ownedRooms' | 'roomTemps' | 'technicians'
   | 'pool' | 'market' | 'bots' | 'event' | 'nextEventAt' | 'talents' | 'vip'
   | 'cash' | 'cc' | 'ccCostBasis' | 'meme' | 'memeCostBasis' | 'alts' | 'minedCoin' | 'lastTick' | 'challenge'
-  | 'research' | 'boost'
+  | 'research' | 'boost' | 'buffs'
 >;
 
 export type MessageTone = 'info' | 'good' | 'warn' | 'bad';
@@ -105,11 +106,22 @@ export interface LiveMetrics {
   gridDemand: number;
   difficulty: number;
   hottest: number;
+  /** Mean die temperature of the GPUs that are hashing (°C, 0 when none is). */
+  avgTemp: number;
   /** Hashrate multiplier of the Overdrive surge right now (1 = none). */
   surge: number;
   rooms: Partial<Record<RoomId, RoomLive>>;
   racks: Record<string, RackLive>;
   gpus: Record<string, GpuLive>;
+}
+
+/** Something worth a floating label over one rack (online ticks only). */
+export interface RackFx {
+  kind: 'block' | 'hot' | 'shutdown';
+  rackUid: string;
+  /** Coins paid (block) or die temperature in °C (hot, shutdown). */
+  value: number;
+  coin?: MineableCoin;
 }
 
 export type GpuThermalUpdate = Pick<GpuInstance, 'temp' | 'wear' | 'paste' | 'shutdown' | 'overheatSeconds'>;
@@ -151,6 +163,8 @@ export interface SimOutput {
   live: LiveMetrics;
   messages: GameMessage[];
   sounds: SoundCue[];
+  /** Per-rack events for the canvas (floating labels). Empty offline. */
+  rackFx: RackFx[];
 }
 
 export interface SimOptions {
@@ -200,6 +214,14 @@ export const pasteFactor = (paste: number): number =>
 
 /** Expected payout multiplier of a pool on the base yield (fee for the public pool, bonus for the others). */
 export const poolYieldMul = (pool: PoolMode): number => (pool === 'public' ? 1 - POOLS[pool].fee : POOLS[pool].payoutMul);
+
+/**
+ * Degrees a fresh coat of paste takes off a die at steady state. The die sits `temp - air` above the
+ * room air with heat transfer k·pasteFactor(paste); new paste restores the full k, so the gap shrinks
+ * to gap · pasteFactor(paste).
+ */
+export const repasteCooling = (temp: number, air: number, paste: number): number =>
+  Math.max(0, temp - air) * (1 - pasteFactor(paste));
 
 // ───────────────────────── Market helpers ─────────────────────────
 
@@ -368,7 +390,7 @@ const emptyYields = (): Record<MineableCoin, CoinYield> => ({
 });
 
 function emptyLive(): LiveMetrics {
-  return { totalHash: 0, ccPerSec: 0, minedCoin: 'CC', coinPerSec: 0, yields: emptyYields(), electricityPerSec: 0, gridDemand: 1, difficulty: 1, hottest: 0, surge: 1, rooms: {}, racks: {}, gpus: {} };
+  return { totalHash: 0, ccPerSec: 0, minedCoin: 'CC', coinPerSec: 0, yields: emptyYields(), electricityPerSec: 0, gridDemand: 1, difficulty: 1, hottest: 0, avgTemp: 0, surge: 1, rooms: {}, racks: {}, gpus: {} };
 }
 
 interface StepAccumulator {
@@ -385,6 +407,13 @@ interface StepAccumulator {
   botEarned: number;
   messages: GameMessage[];
   sounds: SoundCue[];
+  rackFx: RackFx[];
+}
+
+/** Floating labels are eye candy: a busy tick keeps only the first few. */
+const MAX_RACK_FX = 12;
+function pushRackFx(acc: StepAccumulator, opts: SimOptions, fx: RackFx): void {
+  if (!opts.offline && acc.rackFx.length < MAX_RACK_FX) acc.rackFx.push(fx);
 }
 
 /**
@@ -449,7 +478,13 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
   const gpuOc = (g: GpuInstance): OverclockSettings => (rules.lockOverclock ? STOCK_OC : g.oc);
   if (!opts.offline) stepEvents(w, rooms, now, acc);
   const ev = opts.offline ? null : w.event;
-  const ambientDelta = ev?.id === 'heatwave' ? EVENT_EFFECTS.heatwaveDelta : ev?.id === 'cold_snap' ? EVENT_EFFECTS.coldSnapDelta : 0;
+  const ambientDelta = (ev?.id === 'heatwave' ? EVENT_EFFECTS.heatwaveDelta : ev?.id === 'cold_snap' ? EVENT_EFFECTS.coldSnapDelta : 0)
+    // Liquid nitrogen drone: a short, deep ambient drop.
+    + (nitroActive(input.buffs, now) ? BUFFS.nitro.delta : 0);
+  // Crew rally (a clicked technician): faster maintenance and a little extra airflow while it lasts.
+  const rally = input.technicians > 0 && crewRallied(input.buffs, now);
+  const crewSpeed = rally ? BUFFS.crew.speedMul : 1;
+  const crewCooling = rally ? BUFFS.crew.coolingMul : 1;
   const spiking = ev?.id === 'difficulty_spike';
   const coinId = input.minedCoin;
   const eventDifficulty = (coin: MineableCoin): number => (spiking ? spikeDifficulty(coin) : 1);
@@ -459,8 +494,8 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
     0,
   );
   const techShare = totalMounted > 0 ? Math.min(1, 8 / totalMounted) : 0;
-  const techPaste = input.technicians * PHYSICS.techPastePerSec * mods.techSpeed * techShare;
-  const techRepair = input.technicians * PHYSICS.techWearRepairPerSec * mods.techSpeed * techShare;
+  const techPaste = input.technicians * PHYSICS.techPastePerSec * mods.techSpeed * techShare * crewSpeed;
+  const techRepair = input.technicians * PHYSICS.techWearRepairPerSec * mods.techSpeed * techShare * crewSpeed;
 
   live.rooms = {};
   live.racks = {};
@@ -471,6 +506,10 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
   let farmPaidWall = 0;
   let farmBilledWall = 0;
   let hottest = 0;
+  let tempSum = 0;
+  let tempCount = 0;
+  /** Rack with the most hashrate: where a found block is celebrated. */
+  const topRack = { uid: '', hash: 0 };
 
   const racksByRoom: Partial<Record<RoomId, RackInstance[]>> = {};
   Object.values(w.racks).forEach((r) => {
@@ -550,8 +589,9 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
         const running = powered && !g.shutdown;
         const powerMul = ocPowerMul(gpuOc(g));
         const heat = running ? model.power * powerMul * mods.heatMul * rackModel.heatMul * brownout : 0;
-        const k = (PHYSICS.baseCooling + fanK / n) * pasteFactor(g.paste) * room.coolingMul * mods.coolingMul;
+        const k = (PHYSICS.baseCooling + fanK / n) * pasteFactor(g.paste) * room.coolingMul * mods.coolingMul * crewCooling;
         const tEq = roomTemp + heat / k;
+        const tempBefore = g.temp;
         g.temp = tEq + (g.temp - tEq) * Math.exp((-k * dt) / model.thermalMass);
 
         if (!g.shutdown && g.temp >= PHYSICS.shutdownTemp) {
@@ -559,6 +599,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
           acc.overheats += 1;
           acc.messages.push(gameMsg('bad', 'THERMAL SHUTDOWN: {name} hit {temp}°C!', { name: model.name, temp: g.temp.toFixed(0) }));
           acc.sounds.push('shutdown');
+          pushRackFx(acc, opts, { kind: 'shutdown', rackUid: rack.uid, value: g.temp });
         } else if (g.shutdown && g.temp <= PHYSICS.restartTemp) {
           g.shutdown = false;
           acc.messages.push(gameMsg('info', '{name} cooled down and restarted.', { name: model.name }));
@@ -569,6 +610,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
         const active = powered && !g.shutdown;
         const throttled = active && g.temp > PHYSICS.throttleTemp;
         if (active && g.temp > PHYSICS.wearTemp) {
+          if (tempBefore <= PHYSICS.wearTemp) pushRackFx(acc, opts, { kind: 'hot', rackUid: rack.uid, value: g.temp });
           g.overheatSeconds += dt;
           g.wear = Math.min(PHYSICS.maxWear, g.wear + (PHYSICS.wearPerMinute * dt) / 60);
         }
@@ -582,11 +624,19 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
         rackHash += hash;
         rackMax = Math.max(rackMax, g.temp);
         hottest = Math.max(hottest, g.temp);
+        if (active) {
+          tempSum += g.temp;
+          tempCount += 1;
+        }
         roomHeat += heat;
         live.gpus[uid] = { hash, running: active, throttled, heat, load: active ? clamp(heat / model.power, 0, 2) : 0 };
       });
       roomHeat += load > 0 ? topo.fanPower + (wall - load) : 0;
       roomHash += rackHash;
+      if (rackHash > topRack.hash) {
+        topRack.uid = rack.uid;
+        topRack.hash = rackHash;
+      }
       const allShutdown = powered && topo.gpuUids.length > 0 && topo.gpuUids.every((u) => w.gpus[u].shutdown);
       live.racks[rack.uid] = {
         status: allShutdown ? 'overheat' : status,
@@ -595,7 +645,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
         capacity: topo.capacity,
         hash: rackHash,
         maxTemp: rackMax,
-        cooling: (PHYSICS.baseCooling * n + topo.fanCooling) * room.coolingMul * mods.coolingMul,
+        cooling: (PHYSICS.baseCooling * n + topo.fanCooling) * room.coolingMul * mods.coolingMul * crewCooling,
         tariff,
         powerCost: wall * paidShare * tariff * price,
       };
@@ -630,8 +680,9 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
   } else if (input.pool === 'solo') {
     if (opts.offline) gain = baseRate * pool.payoutMul * dt;
     else if (baseRate > 0 && Math.random() < dt / PHYSICS.soloBlockMeanSec) {
-      gain = baseRate * PHYSICS.soloBlockMeanSec * pool.payoutMul;
+      gain = baseRate * PHYSICS.soloBlockMeanSec * pool.payoutMul * blockMulOf(input.buffs, now);
       acc.blocks += 1;
+      if (topRack.uid) pushRackFx(acc, opts, { kind: 'block', rackUid: topRack.uid, value: gain, coin: coinId });
       const gem = Math.random() < 0.3;
       if (gem) acc.gems += 1;
       if (coinId === 'CC') {
@@ -720,6 +771,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
   live.electricityPerSec = electricityRate;
   live.gridDemand = farmPaidWall > 0 ? farmBilledWall / farmPaidWall : 1;
   live.hottest = hottest;
+  live.avgTemp = tempCount > 0 ? tempSum / tempCount : 0;
   live.surge = surge;
   acc.peakTemp = Math.max(acc.peakTemp, hottest);
 }
@@ -733,7 +785,7 @@ export function simulate(input: SimInput, dtSec: number, now: number, opts: SimO
   const modsAfter = pending
     ? runModifiers(input.talents, { ...input.research.levels, [pending.id]: (input.research.levels[pending.id] ?? 0) + 1 })
     : mods;
-  const acc: StepAccumulator = { ccMined: 0, coinMined: 0, electricity: 0, earnedCash: 0, gems: 0, blocks: 0, raids: 0, overheats: 0, bestTrade: 0, peakTemp: 0, botEarned: 0, messages: [], sounds: [] };
+  const acc: StepAccumulator = { ccMined: 0, coinMined: 0, electricity: 0, earnedCash: 0, gems: 0, blocks: 0, raids: 0, overheats: 0, bestTrade: 0, peakTemp: 0, botEarned: 0, messages: [], sounds: [], rackFx: [] };
   const live = emptyLive();
   const cash0 = w.cash;
   const cc0 = w.cc;
@@ -796,6 +848,7 @@ export function simulate(input: SimInput, dtSec: number, now: number, opts: SimO
     live,
     messages: acc.messages.slice(-12),
     sounds: Array.from(new Set(acc.sounds)),
+    rackFx: acc.rackFx,
   };
 }
 

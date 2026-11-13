@@ -6,6 +6,7 @@ import { useSfxBridge } from '../hooks/useAudioFx';
 import { useCloudSync } from '../hooks/useCloudSync';
 import { AccountPanel } from './account/AccountPanel';
 import { useGameLoop, type LoopMode } from '../hooks/useGameLoop';
+import { useHotkeys } from '../hooks/useHotkeys';
 import type { SideTab } from '../store/storeTypes';
 import { useGameShallow, useGameStore } from '../store/useGameStore';
 import { fxBus } from '../utils/eventBus';
@@ -98,6 +99,11 @@ function GameScreen({ loopMode }: { loopMode: LoopMode | null }) {
   const badges: Partial<Record<SideTab, number>> = { contracts: contractsReady, trophies: goalReady };
 
   const tab = TABS.find((x) => x.id === ui.sideTab) ?? TABS[0];
+
+  useHotkeys({
+    t: () => useGameStore.getState().toggleThermalView(),
+    m: () => useGameStore.getState().updateSettings({ muted: !useGameStore.getState().settings.muted }),
+  });
 
   return (
     <div className="flex min-h-full flex-col">

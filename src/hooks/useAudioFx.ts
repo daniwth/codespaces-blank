@@ -20,6 +20,51 @@ interface NoiseOpts {
   freq?: number;
 }
 
+/** Room ambience: what the hum synth should sound like right now. */
+export interface Ambience {
+  /** Gain of the filtered-noise hum (0 = silent). */
+  gain: number;
+  /** Low-pass cutoff of the hum in Hz. */
+  cutoff: number;
+  whineFreq: number;
+  whineGain: number;
+}
+
+/** Ranges of the ambience synth: all of it stays quiet and low, under the effects. */
+export const AMBIENCE = {
+  gain: [0.035, 0.13] as const,
+  cutoff: [150, 620] as const,
+  whine: [70, 190] as const,
+  whineGain: 0.012,
+  /** Hashrate (H/s) at which the "size of the farm" term saturates, on a log scale from 1 MH/s. */
+  hashFloor: 1e6,
+  hashCeil: 1e15,
+  /** Mean die temperatures between which fans go from idle to flat out. */
+  tempIdle: 35,
+  tempMax: 90,
+} as const;
+
+export const SILENT_AMBIENCE: Ambience = { gain: 0, cutoff: AMBIENCE.cutoff[0], whineFreq: AMBIENCE.whine[0], whineGain: 0 };
+
+const lerp = (range: readonly [number, number], k: number): number => range[0] + (range[1] - range[0]) * k;
+const unit = (v: number): number => Math.max(0, Math.min(1, v));
+
+/**
+ * Maps the farm to its ambience. A bigger farm (log of the hashrate) is louder; hotter dies spin the
+ * fans up, which opens the filter and raises the whine. No rack online means silence. Pure.
+ */
+export function ambienceFor(totalHash: number, avgTemp: number, racksOnline: number): Ambience {
+  if (!(racksOnline > 0) || !(totalHash > 0)) return SILENT_AMBIENCE;
+  const size = unit(Math.log10(Math.max(AMBIENCE.hashFloor, totalHash) / AMBIENCE.hashFloor) / Math.log10(AMBIENCE.hashCeil / AMBIENCE.hashFloor));
+  const fans = unit((avgTemp - AMBIENCE.tempIdle) / (AMBIENCE.tempMax - AMBIENCE.tempIdle));
+  return {
+    gain: lerp(AMBIENCE.gain, unit(0.25 + size * 0.45 + fans * 0.3)),
+    cutoff: lerp(AMBIENCE.cutoff, unit(size * 0.35 + fans * 0.65)),
+    whineFreq: lerp(AMBIENCE.whine, fans),
+    whineGain: AMBIENCE.whineGain * (0.3 + 0.7 * fans),
+  };
+}
+
 /**
  * Procedural chiptune SFX engine built purely on the Web Audio API.
  * No samples are loaded: every sound is synthesized from oscillators and noise.
@@ -27,12 +72,19 @@ interface NoiseOpts {
 class AudioEngine {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
+  /** Effects bus and ambience bus, both under `master` (mute), each with its own volume. */
+  private sfx: GainNode | null = null;
+  private ambient: GainNode | null = null;
   private noiseBuffer: AudioBuffer | null = null;
   private humGain: GainNode | null = null;
+  private humFilter: BiquadFilterNode | null = null;
   private humSource: AudioBufferSourceNode | null = null;
+  private whine: OscillatorNode | null = null;
+  private whineGain: GainNode | null = null;
   private volume = 0.6;
+  private ambientVolume = 0.6;
   private muted = false;
-  private humLevel = 0;
+  private ambience: Ambience = SILENT_AMBIENCE;
   private humEnabled = true;
   private lastPlayed = new Map<SfxCue, number>();
 
@@ -44,6 +96,10 @@ class AudioEngine {
       this.ctx = new Ctor();
       this.master = this.ctx.createGain();
       this.master.connect(this.ctx.destination);
+      this.sfx = this.ctx.createGain();
+      this.sfx.connect(this.master);
+      this.ambient = this.ctx.createGain();
+      this.ambient.connect(this.master);
       this.applyVolume();
       const len = this.ctx.sampleRate * 2;
       this.noiseBuffer = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
@@ -60,41 +116,64 @@ class AudioEngine {
   }
 
   private applyVolume(): void {
-    if (this.master && this.ctx) this.master.gain.setTargetAtTime(this.muted ? 0 : this.volume * 0.5, this.ctx.currentTime, 0.02);
+    const ctx = this.ctx;
+    if (!ctx || !this.master) return;
+    this.master.gain.setTargetAtTime(this.muted ? 0 : 0.5, ctx.currentTime, 0.02);
+    this.sfx?.gain.setTargetAtTime(this.volume, ctx.currentTime, 0.02);
+    this.ambient?.gain.setTargetAtTime(this.ambientVolume, ctx.currentTime, 0.05);
   }
 
-  configure(volume: number, muted: boolean, humEnabled: boolean): void {
+  configure(volume: number, muted: boolean, humEnabled: boolean, ambientVolume: number): void {
     this.volume = volume;
+    this.ambientVolume = ambientVolume;
     this.muted = muted;
     this.humEnabled = humEnabled;
     this.applyVolume();
     this.syncHum();
   }
 
-  setHumLevel(level: number): void {
-    this.humLevel = Math.max(0, Math.min(1, level));
+  /** Target of the room ambience; every parameter glides there over about a second. */
+  setAmbience(ambience: Ambience): void {
+    this.ambience = ambience;
     this.syncHum();
   }
 
+  /**
+   * Fan hum: looped noise through a low-pass whose cutoff opens with the farm's load, plus a barely
+   * audible sine "whine" tracking fan speed. Built lazily, then only its parameters move.
+   */
   private syncHum(): void {
     const ctx = this.ctx;
-    if (!ctx || !this.master || !this.noiseBuffer) return;
+    if (!ctx || !this.ambient || !this.noiseBuffer) return;
     if (!this.humSource) {
       const src = ctx.createBufferSource();
       src.buffer = this.noiseBuffer;
       src.loop = true;
       const lp = ctx.createBiquadFilter();
       lp.type = 'lowpass';
-      lp.frequency.value = 220;
-      lp.Q.value = 0.8;
+      lp.frequency.value = AMBIENCE.cutoff[0];
+      lp.Q.value = 0.7;
+      this.humFilter = lp;
       this.humGain = ctx.createGain();
       this.humGain.gain.value = 0;
-      src.connect(lp).connect(this.humGain).connect(this.master);
+      src.connect(lp).connect(this.humGain).connect(this.ambient);
       src.start();
       this.humSource = src;
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = AMBIENCE.whine[0];
+      this.whineGain = ctx.createGain();
+      this.whineGain.gain.value = 0;
+      osc.connect(this.whineGain).connect(this.ambient);
+      osc.start();
+      this.whine = osc;
     }
-    const target = this.humEnabled ? this.humLevel * 0.12 : 0;
-    this.humGain?.gain.setTargetAtTime(target, ctx.currentTime, 0.4);
+    const a = this.humEnabled ? this.ambience : SILENT_AMBIENCE;
+    const now = ctx.currentTime;
+    this.humGain?.gain.setTargetAtTime(a.gain, now, 0.6);
+    this.humFilter?.frequency.setTargetAtTime(a.cutoff, now, 0.9);
+    this.whine?.frequency.setTargetAtTime(a.whineFreq, now, 1.2);
+    this.whineGain?.gain.setTargetAtTime(a.whineGain, now, 0.8);
   }
 
   private tone({ freq, to, type = 'square', dur, gain = 0.25, delay = 0, attack = 0.004 }: ToneOpts): void {
@@ -109,7 +188,7 @@ class AudioEngine {
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(gain, t + attack);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    osc.connect(g).connect(this.master);
+    osc.connect(g).connect(this.sfx ?? this.master);
     osc.start(t);
     osc.stop(t + dur + 0.05);
   }
@@ -126,7 +205,7 @@ class AudioEngine {
     const g = ctx.createGain();
     g.gain.setValueAtTime(gain, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    src.connect(f).connect(g).connect(this.master);
+    src.connect(f).connect(g).connect(this.sfx ?? this.master);
     src.start(t, Math.random());
     src.stop(t + dur + 0.02);
   }
@@ -244,6 +323,16 @@ class AudioEngine {
         this.tone({ freq: 180, to: 60, type: 'square', dur: 0.12, gain: 0.2, delay: 0.3 });
         this.arp([659, 988, 1319, 1976], 0.06, 'triangle', 0.16);
         break;
+      case 'rally':
+        // Whistle + three quick rising taps: "move, move, move".
+        this.tone({ freq: 1800, to: 2600, type: 'sine', dur: 0.16, gain: 0.12 });
+        this.arp([523, 659, 784, 1047], 0.05, 'square', 0.12);
+        break;
+      case 'frost':
+        // Venting gas and a glassy descending shimmer.
+        this.noise({ dur: 0.7, gain: 0.14, filter: 'highpass', freq: 5000 });
+        this.arp([2093, 1760, 1397, 1175, 988], 0.06, 'triangle', 0.1);
+        break;
       case 'start':
         // Title screen "insert coin": PC speaker beep, then a rising power-on arpeggio.
         this.tone({ freq: 1000, type: 'square', dur: 0.08, gain: 0.08 });
@@ -269,10 +358,11 @@ export function useSfxBridge(): void {
   const volume = useGameStore((s) => s.settings.volume);
   const muted = useGameStore((s) => s.settings.muted);
   const hum = useGameStore((s) => s.settings.ambientHum);
+  const ambientVolume = useGameStore((s) => s.settings.ambientVolume);
 
   useEffect(() => {
-    audioEngine.configure(volume, muted, hum);
-  }, [volume, muted, hum]);
+    audioEngine.configure(volume, muted, hum, ambientVolume);
+  }, [volume, muted, hum, ambientVolume]);
 
   useEffect(() => {
     const off = sfxBus.on((cue) => audioEngine.play(cue));
@@ -282,9 +372,12 @@ export function useSfxBridge(): void {
     const humTimer = setInterval(() => {
       const s = useGameStore.getState();
       // Rigs are not running behind the title menu: no fan hum there.
-      const room = s.screen === 'game' ? s.live.rooms[s.activeRoom] : undefined;
-      const capacity = room?.capacity ?? 1;
-      audioEngine.setHumLevel(room ? Math.min(1, 0.25 + (room.load / capacity) * 1.5) * (room.racksOnline > 0 ? 1 : 0) : 0);
+      if (s.screen !== 'game') {
+        audioEngine.setAmbience(SILENT_AMBIENCE);
+        return;
+      }
+      const racksOnline = Object.values(s.live.rooms).reduce((acc, room) => acc + (room?.racksOnline ?? 0), 0);
+      audioEngine.setAmbience(ambienceFor(s.live.totalHash, s.live.avgTemp, racksOnline));
     }, 1000);
     return () => {
       off();

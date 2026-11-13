@@ -6,9 +6,10 @@ import { CHALLENGE_BY_ID } from '../config/challenges';
 import { SAVE_KEY, SAVE_VERSION } from '../config/gameBalance';
 import type { GameData, RoomId } from '../types/player';
 import { bnAdd, bnMax, bnToNumber } from '../utils/bignum';
-import { fxBus, sfxBus, type SfxCue } from '../utils/eventBus';
+import { fxBus, sfxBus, type SfxCue, type VisualFx } from '../utils/eventBus';
+import { formatNumber } from '../utils/formatters';
 import { decodeSave, encodeSave } from '../utils/saveCodec';
-import { emptyLive, type SimInput, type SimOutput, type SoundCue } from './gamePhysics';
+import { emptyLive, type RackFx, type SimInput, type SimOutput, type SoundCue } from './gamePhysics';
 import { pruneGpuEdits, reconcileGpuUpdate } from './editLedger';
 import { createInitialData } from './initialState';
 import { fillLog } from './logLine';
@@ -30,7 +31,7 @@ const DATA_KEYS: (keyof GameData)[] = [
   'runEarnings', 'lifetimeEarnings', 'runStartedAt', 'gpus', 'psus', 'coolers', 'racks', 'ownedRooms', 'activeRoom',
   'roomTemps', 'technicians', 'pool', 'market', 'bots', 'event', 'nextEventAt', 'talents', 'vip',
   'achievements', 'stats', 'settings', 'contracts', 'challenge', 'challengeRecords', 'alts', 'minedCoin',
-  'research', 'boost', 'nextAirdropAt', 'roadmap', 'daily', 'autopilot',
+  'research', 'boost', 'nextAirdropAt', 'roadmap', 'daily', 'autopilot', 'buffs',
 ];
 
 export const extractData = (s: GameStore): GameData => {
@@ -47,7 +48,7 @@ export const selectSimInput = (s: GameStore): SimInput => ({
   roomTemps: s.roomTemps, technicians: s.technicians, pool: s.pool, market: s.market, bots: s.bots,
   event: s.event, nextEventAt: s.nextEventAt, talents: s.talents, vip: s.vip, cash: s.cash, cc: s.cc,
   meme: s.meme, memeCostBasis: s.memeCostBasis, ccCostBasis: s.ccCostBasis, alts: s.alts, minedCoin: s.minedCoin, lastTick: s.lastTick, challenge: s.challenge,
-  research: s.research, boost: s.boost,
+  research: s.research, boost: s.boost, buffs: s.buffs,
 });
 
 /**
@@ -106,6 +107,13 @@ const SOUND_MAP: Record<SoundCue, SfxCue> = {
 
 let logId = 0;
 
+/** Floating canvas label of a simulated rack event (3×5 font: short, no accents needed). */
+export function rackFxLabel(fx: RackFx): Extract<VisualFx, { kind: 'rackText' }> {
+  if (fx.kind === 'block') return { kind: 'rackText', rackUid: fx.rackUid, text: `+${formatNumber(fx.value)} $${fx.coin ?? 'CC'}`, color: '#fde047', big: true };
+  if (fx.kind === 'shutdown') return { kind: 'rackText', rackUid: fx.rackUid, text: `${Math.round(fx.value)}C OFF!`, color: '#f43f5e' };
+  return { kind: 'rackText', rackUid: fx.rackUid, text: `${Math.round(fx.value)}C!`, color: '#fb923c' };
+}
+
 /** Rooms whose racks a raid just put into inspection reboot (raids are the only simulated reboots). */
 export function raidRooms(out: Pick<SimOutput, 'rackReboots' | 'now'>, racks: GameData['racks']): Map<RoomId, number> {
   const rooms = new Map<RoomId, number>();
@@ -131,6 +139,7 @@ const initialUi = (): UiState => ({
   history: [],
   dailyOpen: false,
   autopilotStatus: null,
+  thermalView: false,
 });
 
 /** Stats charts: one sample every few seconds, about half an hour of session history. */
@@ -227,6 +236,7 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
       advanceContractBoard(out, false);
       out.sounds.forEach((cue) => sfxBus.emit(SOUND_MAP[cue]));
       if (out.blocksFound > 0) fxBus.emit({ kind: 'block' });
+      out.rackFx.forEach((fx) => fxBus.emit(rackFxLabel(fx)));
       if (out.raids > 0) raidRooms(out, get().racks).forEach((until, roomId) => fxBus.emit({ kind: 'raid', roomId, until }));
       checkResearch(out.now);
       tickAirdrop(out.now);
@@ -321,11 +331,16 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
     },
 
     returnToMenu: () => {
-      set({ screen: 'menu', selectedRack: null, biosGpu: null, lottery: null, contractToast: null, offlineReport: null, wikiOpen: false, airdrop: null, dailyOpen: false });
+      set({ thermalView: false, screen: 'menu', selectedRack: null, biosGpu: null, lottery: null, contractToast: null, offlineReport: null, wikiOpen: false, airdrop: null, dailyOpen: false });
       gameStorage.flush();
     },
 
     setWikiOpen: (open) => set({ wikiOpen: open }),
+
+    toggleThermalView: () => {
+      set((s) => ({ thermalView: !s.thermalView }));
+      sfxBus.emit('switch');
+    },
   };
 }
 

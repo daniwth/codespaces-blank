@@ -121,6 +121,36 @@ export function drawPixelText(ctx: Ctx, text: string, x: number, y: number, colo
   return width;
 }
 
+// ───────────────────────── Thermal palette ─────────────────────────
+
+/** Infrared ramp of the thermal view: cold blue → cyan → green → yellow → orange → red → white-hot. */
+export const THERMAL_STOPS: readonly (readonly [number, string])[] = [
+  [-20, '#1e1b4b'], [10, '#1d4ed8'], [35, '#06b6d4'], [55, '#22c55e'], [70, '#facc15'], [82, '#f97316'], [88, '#ef4444'], [95, '#fda4af'], [105, '#ffffff'],
+];
+
+const hexRgb = (hex: string): [number, number, number] => {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+};
+
+/** Color of a temperature on the infrared ramp (linear between stops, clamped at both ends). */
+export function thermalColor(celsius: number): string {
+  const stops = THERMAL_STOPS;
+  if (!(celsius > stops[0][0])) return stops[0][1];
+  for (let i = 1; i < stops.length; i += 1) {
+    if (celsius <= stops[i][0]) {
+      const [t0, c0] = stops[i - 1];
+      const [t1, c1] = stops[i];
+      const k = (celsius - t0) / (t1 - t0);
+      const a = hexRgb(c0);
+      const b = hexRgb(c1);
+      const ch = (j: number) => Math.round(a[j] + (b[j] - a[j]) * k);
+      return `#${((1 << 24) | (ch(0) << 16) | (ch(1) << 8) | ch(2)).toString(16).slice(1)}`;
+    }
+  }
+  return stops[stops.length - 1][1];
+}
+
 // ───────────────────────── Layout constants ─────────────────────────
 
 export const RACK_W = 40;

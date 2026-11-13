@@ -42,7 +42,9 @@ export type SfxCue =
   | 'contract'
   | 'claim'
   | 'drone'
-  | 'fuse';
+  | 'fuse'
+  | 'rally'
+  | 'frost';
 
 export type VisualFx =
   | { kind: 'confetti'; intensity: number }
@@ -52,7 +54,9 @@ export type VisualFx =
   /** Darknet raid: electrical inspection of `roomId` until epoch ms `until`. */
   | { kind: 'raid'; roomId: RoomId; until: number }
   /** A supply drone was caught: `label` floats up from where it was. */
-  | { kind: 'airdrop'; label: string; color: string };
+  | { kind: 'airdrop'; label: string; color: string }
+  /** Floating label over one rack: a mined block, a re-paste, a thermal alert, a crashed overclock. */
+  | { kind: 'rackText'; rackUid: string; text: string; color: string; big?: boolean };
 
 export const sfxBus = createBus<SfxCue>();
 export const fxBus = createBus<VisualFx>();

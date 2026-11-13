@@ -3,7 +3,7 @@
  * resolution and presents it to the visible canvas with an integer device-pixel
  * scale (no blurry interpolation), plus a lightweight particle system.
  */
-import { px, RACK_H, RACK_W } from './SpriteManager';
+import { drawPixelText, measurePixelText, px, RACK_H, RACK_W } from './SpriteManager';
 
 export const WORLD_W = 480;
 export const WORLD_H = 270;
@@ -126,7 +126,7 @@ export function computePadLayout(count: number): PadSlot[] {
 
 // ───────────────────────── Particles ─────────────────────────
 
-export type ParticleKind = 'smoke' | 'spark' | 'coin' | 'block' | 'text' | 'sparkle' | 'snow' | 'bubble';
+export type ParticleKind = 'smoke' | 'spark' | 'coin' | 'block' | 'text' | 'sparkle' | 'snow' | 'bubble' | 'air';
 
 export interface Particle {
   kind: ParticleKind;
@@ -184,6 +184,11 @@ export class ParticleSystem {
     this.spawn({ kind: 'sparkle', x, y, vx: (Math.random() - 0.5) * 10, vy: -6 - Math.random() * 6, life: 0.6, size: 1, color });
   }
 
+  /** Airflow streak leaving a cooler (thermal view): drifts sideways and up, then fades. */
+  air(x: number, y: number, dir: 1 | -1, strength = 1): void {
+    this.spawn({ kind: 'air', x, y: y + (Math.random() - 0.5) * 6, vx: dir * (14 + Math.random() * 16) * strength, vy: -3 - Math.random() * 5, life: 0.5 + Math.random() * 0.5, size: 2, color: Math.random() < 0.5 ? '#a5f3fc' : '#e0f2fe' });
+  }
+
   update(dt: number): void {
     const next: Particle[] = [];
     for (const p of this.particles) {
@@ -215,7 +220,106 @@ export class ParticleSystem {
       ctx.globalAlpha = p.kind === 'smoke' ? alpha * 0.55 : alpha;
       if (p.kind === 'coin' || p.kind === 'block') drawSprite(p, Math.floor(time * 10 + p.x));
       else if (p.kind === 'text') drawText(p);
+      else if (p.kind === 'air') px(ctx, p.x, p.y, p.size, 1, p.color);
       else px(ctx, p.x, p.y, p.size, p.size, p.color);
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
+// ───────────────────────── Floating text ─────────────────────────
+
+export interface FloatingText {
+  text: string;
+  x: number;
+  /** Current top of the label; it rises from `y0` by `rise` pixels over its life. */
+  y: number;
+  y0: number;
+  color: string;
+  age: number;
+  life: number;
+  scale: 1 | 2;
+  rise: number;
+}
+
+export interface FloatingTextOpts {
+  /** Double-size label for the big moments (a block, a BSOD). */
+  big?: boolean;
+  life?: number;
+}
+
+const easeOutCubic = (k: number): number => 1 - (1 - k) ** 3;
+
+/**
+ * Pixel labels that pop over a spot of the world and float up: "+1.2 $CC" on the rack that mined it,
+ * "-15C" after a re-paste, "88C!" when a die starts to cook, "BSOD" on a crashed overclock.
+ * Drawn with the 3×5 bitmap font. Labels spawned on top of each other are stacked, never overlapped,
+ * and every label is kept inside the world horizontally.
+ */
+export class FloatingTextLayer {
+  items: FloatingText[] = [];
+  private max: number;
+  private worldW: number;
+
+  constructor(max = 48, worldW = WORLD_W) {
+    this.max = max;
+    this.worldW = worldW;
+  }
+
+  spawn(x: number, y: number, text: string, color: string, opts: FloatingTextOpts = {}): FloatingText {
+    const scale: 1 | 2 = opts.big ? 2 : 1;
+    const half = measurePixelText(text, scale) / 2;
+    const cx = Math.round(Math.max(half + 2, Math.min(this.worldW - half - 2, x)));
+    const lineH = 5 * scale + 2;
+    // Stack above any young label that would be drawn over this one.
+    let top = Math.round(y);
+    let moved = true;
+    while (moved) {
+      moved = false;
+      for (const it of this.items) {
+        const itH = 5 * it.scale + 2;
+        const overlapX = Math.abs(it.x - cx) < half + measurePixelText(it.text, it.scale) / 2 + 2;
+        if (overlapX && top < it.y + itH && top + lineH > it.y) {
+          top = it.y - lineH;
+          moved = true;
+        }
+      }
+    }
+    const item: FloatingText = { text, x: cx, y: top, y0: top, color, age: 0, life: opts.life ?? (opts.big ? 2.2 : 1.6), scale, rise: opts.big ? 22 : 16 };
+    if (this.items.length >= this.max) this.items.shift();
+    this.items.push(item);
+    return item;
+  }
+
+  update(dt: number): void {
+    const next: FloatingText[] = [];
+    for (const it of this.items) {
+      it.age += dt;
+      if (it.age >= it.life) continue;
+      it.y = it.y0 - it.rise * easeOutCubic(it.age / it.life);
+      next.push(it);
+    }
+    this.items = next;
+  }
+
+  /** Opacity of a label: quick pop-in, hold, fade over the last third. */
+  static alpha(it: Pick<FloatingText, 'age' | 'life'>): number {
+    const k = it.age / it.life;
+    if (k < 0.06) return k / 0.06;
+    return k > 0.66 ? Math.max(0, (1 - k) / 0.34) : 1;
+  }
+
+  draw(ctx: CanvasRenderingContext2D): void {
+    for (const it of this.items) {
+      ctx.globalAlpha = FloatingTextLayer.alpha(it);
+      const y = Math.round(it.y);
+      // 1-px dark outline so the label reads over any room.
+      const s = it.scale;
+      drawPixelText(ctx, it.text, it.x - s, y, '#05040c', { align: 'center', scale: s });
+      drawPixelText(ctx, it.text, it.x + s, y, '#05040c', { align: 'center', scale: s });
+      drawPixelText(ctx, it.text, it.x, y - s, '#05040c', { align: 'center', scale: s });
+      drawPixelText(ctx, it.text, it.x, y + s, '#05040c', { align: 'center', scale: s });
+      drawPixelText(ctx, it.text, it.x, y, it.color, { align: 'center', scale: s });
     }
     ctx.globalAlpha = 1;
   }

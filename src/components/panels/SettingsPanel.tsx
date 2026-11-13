@@ -74,9 +74,14 @@ export function SettingsPanel({ loopMode, inMenu = false }: { loopMode: LoopMode
       <section className="flex flex-col gap-2 bg-panel-2 p-2">
         <h3 className="font-pixel text-[9px] text-neon">{t('AUDIO & VIDEO')}</h3>
         <label className="flex items-center gap-2">
-          <span className="w-28 text-dim">{t('Volume')}</span>
-          <input type="range" min={0} max={1} step={0.05} value={settings.volume} onChange={(e) => updateSettings({ volume: Number(e.target.value) })} className="flex-1 accent-cyan-400" />
+          <span className="w-28 text-dim">{t('Effects volume')}</span>
+          <input type="range" min={0} max={1} step={0.05} value={settings.volume} onChange={(e) => updateSettings({ volume: Number(e.target.value) })} className="flex-1 accent-cyan-400" data-testid="volume-sfx" />
           <span className="w-10 text-right">{Math.round(settings.volume * 100)}</span>
+        </label>
+        <label className="flex items-center gap-2" title={t('Fan and room hum: it follows the hashrate and the average temperature of the farm.')}>
+          <span className="w-28 text-dim">{t('Ambience volume')}</span>
+          <input type="range" min={0} max={1} step={0.05} value={settings.ambientVolume} disabled={!settings.ambientHum} onChange={(e) => updateSettings({ ambientVolume: Number(e.target.value) })} className="flex-1 accent-lime-400" data-testid="volume-ambient" />
+          <span className="w-10 text-right">{Math.round(settings.ambientVolume * 100)}</span>
         </label>
         {([
           ['muted', 'Mute all sound'],

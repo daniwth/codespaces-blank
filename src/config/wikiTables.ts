@@ -39,6 +39,7 @@ import {
 } from './prestigeTree';
 import { COIN_INFO, COIN_MARKET, MINEABLE, MINEABLE_COIN_IDS, hashDifficulty } from './altcoins';
 import { AIRDROP, AIRDROP_KINDS, type AirdropKind } from './airdrops';
+import { BUFFS } from './buffs';
 import { CHALLENGES, POWER_CAP_MUL } from './challenges';
 import { DAILY_MIN_CASH, DAILY_REWARDS } from './daily';
 import { RESEARCH, researchCost, researchTime } from './research';
@@ -1058,6 +1059,30 @@ const AIRDROP_TEXT: Record<AirdropKind, { color: string; name: readonly [string,
     ],
   },
   gem: { color: '#e879f9', name: ['Gema', 'Gem'], reward: [`${AIRDROP.gems} gema.`, `${AIRDROP.gems} gem.`] },
+  nitro: {
+    color: '#7dd3fc',
+    name: ['Dron de nitrógeno líquido', 'Liquid Nitrogen drone'],
+    reward: [
+      `${BUFFS.nitro.delta} °C de temperatura ambiente en todas las salas durante ${BUFFS.nitro.durationSec} s.`,
+      `${BUFFS.nitro.delta} °C ambient temperature in every room for ${BUFFS.nitro.durationSec} s.`,
+    ],
+  },
+  vip: {
+    color: '#fde047',
+    name: ['Dron VIP', 'VIP drone'],
+    reward: [
+      `Si tu pool paga por bloque: bloques x${BUFFS.vip.blockMul} durante ${BUFFS.vip.durationSec / 60} min. En un pool de pago continuo: ${BUFFS.vip.gems} gemas.`,
+      `If your pool pays per block: blocks x${BUFFS.vip.blockMul} for ${BUFFS.vip.durationSec / 60} min. On a steady-payout pool: ${BUFFS.vip.gems} gems.`,
+    ],
+  },
+  audit: {
+    color: '#fb923c',
+    name: ['Dron de auditoría', 'Audit drone'],
+    reward: [
+      `El próximo contrato que reclames paga +${Math.round((BUFFS.audit.cashMul - 1) * 100)}% de efectivo (se acumulan hasta ${BUFFS.audit.maxClaims}).`,
+      `The next contract you claim pays +${Math.round((BUFFS.audit.cashMul - 1) * 100)}% cash (stacks up to ${BUFFS.audit.maxClaims}).`,
+    ],
+  },
 };
 
 export function airdropTable(lang: Lang = curLang()): WikiTable {

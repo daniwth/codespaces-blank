@@ -1,11 +1,12 @@
 import { AIRDROP } from '../config/airdrops';
+import { emptyBuffs } from '../config/buffs';
 import { COIN_MARKET, emptyAlts } from '../config/altcoins';
 import { GPU_BY_ID, QUALITY_DEFS } from '../config/hardwareCatalog';
 import { MARKET, SAVE_VERSION, STARTING_CASH, EVENT_INTERVAL } from '../config/gameBalance';
 import { talentModifiers } from '../config/prestigeTree';
 import type { CoinId, CoinMarket, MarketState } from '../types/economy';
 import type { GpuInstance, RackInstance, SiliconQuality } from '../types/hardware';
-import type { ChallengeId, GameData, RoomId, TalentLevels, VipState } from '../types/player';
+import type { ChallengeId, GameData, GameSettings, RoomId, TalentLevels, VipState } from '../types/player';
 import { bn } from '../utils/bignum';
 import { makeUid } from '../utils/eventBus';
 import { randRange, weightedPick } from '../utils/random';
@@ -82,6 +83,8 @@ export const createMarket = (now: number): MarketState => ({
   NOVA: createCoin('NOVA', now),
 });
 
+export const DEFAULT_SETTINGS: GameSettings = { muted: false, volume: 0.6, ambientHum: true, ambientVolume: 0.6, particles: true, offlineProgress: true };
+
 export const DEFAULT_VIP: VipState = { goldRacksBought: 0, aiDiagnostics: false, autoSellPeaks: false, autoSellEnabled: true };
 
 /**
@@ -152,7 +155,9 @@ export function createInitialData(carry?: Partial<GameData>, challenge?: Challen
     roadmap: carry?.roadmap ?? { step: 0, ready: false },
     daily: carry?.daily ?? { lastDay: 0, streak: 0 },
     autopilot: carry?.autopilot ?? { remainingSec: 0, paused: false, purchases: 0, spent: 0, autoHalving: false },
-    settings: carry?.settings ?? { muted: false, volume: 0.6, ambientHum: true, particles: true, offlineProgress: true },
+    settings: carry?.settings ?? { ...DEFAULT_SETTINGS },
+    // Rallies and drone boosts belong to the run.
+    buffs: emptyBuffs(),
   };
   // A fresh board scaled to this run (The Halving starts a new one: the old targets were sized for the old farm).
   return { ...data, contracts: carry?.contracts ?? createBoard(contractContext(data), now) };

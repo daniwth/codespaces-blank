@@ -215,6 +215,19 @@ export interface AutopilotState {
   autoHalving: boolean;
 }
 
+/** Short player-triggered boosts (see `config/buffs.ts`): epoch-ms deadlines read by the simulation. */
+export interface FarmBuffs {
+  /** Crew rally (click a technician): active until `techUntil`, available again at `techCooldownUntil`. */
+  techUntil: number;
+  techCooldownUntil: number;
+  /** Liquid nitrogen drone: ambient drop until this time. */
+  nitroUntil: number;
+  /** VIP drone: block payouts are multiplied until this time. */
+  blockMulUntil: number;
+  /** Audit drone: contract claims that still pay the audit bonus. */
+  auditClaims: number;
+}
+
 export interface VipState {
   goldRacksBought: number;
   aiDiagnostics: boolean;
@@ -224,8 +237,11 @@ export interface VipState {
 
 export interface GameSettings {
   muted: boolean;
+  /** Sound effects volume (0-1). */
   volume: number;
   ambientHum: boolean;
+  /** Volume of the room ambience (fan hum), independent from the effects (0-1). */
+  ambientVolume: number;
   particles: boolean;
   offlineProgress: boolean;
 }
@@ -293,4 +309,6 @@ export interface GameData {
   /** Daily bonus streak (survives Halvings). */
   daily: DailyState;
   autopilot: AutopilotState;
+  /** Crew rally and special drone boosts (wiped by The Halving). */
+  buffs: FarmBuffs;
 }

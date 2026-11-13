@@ -8,6 +8,13 @@ Reply to the user in Spanish. Project conventions are in `CLAUDE.md`; do not rep
 - Shipped before this update: pixel-art tycoon, account/subscription server, Halving and talent tree, title screen, bilingual wiki, contracts, challenges, altcoins, Lab research, roadmap, supply drones, daily bonus, Silicon Forge, bulk buying, AI Farm Manager, dev test account.
 - Save format: see `SAVE_VERSION` in `src/config/gameBalance.ts` (must equal `MAX_SAVE_VERSION` in `server/config.ts`).
 
+## v9 systems (where things live)
+- Floating canvas labels: `FloatingTextLayer` in `src/engine/PixelCanvas.ts`; the simulation reports `SimOutput.rackFx` and store actions emit `fxBus` `rackText` events.
+- Thermal view: `thermalView` (UI state, key `T`), palette `thermalColor` in `SpriteManager.ts`.
+- Crew rally and special drones: `src/config/buffs.ts` + `GameData.buffs` (read by `gamePhysics.ts`).
+- Ambience: `ambienceFor` in `src/hooks/useAudioFx.ts` (pure mapping), separate `settings.ambientVolume`.
+- Hotkeys: `src/hooks/useHotkeys.ts` (ignored while typing or with a dialog open).
+
 ## i18n
 - `src/i18n/index.ts`: English text is the key. React uses `const t = useT()`, other code `tr(en, params)`. Placeholders are `{name}`.
 - Language lives in `useLangStore` / localStorage `hh-lang`, outside the save. Dictionaries: `src/i18n/es/*.ts`, merged in `es/index.ts` (`update9.ts` holds everything added by the v9 update).
@@ -28,3 +35,4 @@ Reply to the user in Spanish. Project conventions are in `CLAUDE.md`; do not rep
 
 ## Test counts
 - Phase 1 of the v9 update (audit and hardening): 280 unit, 38/38 server, 37/37 E2E.
+- Phase 2 (game feel: floating labels, thermal view, crew rally, special drones, ambience synth; save v9): 304 unit, 38/38 server, 38/38 E2E.

@@ -7,7 +7,7 @@ import type { GameData, RoomId } from '../../types/player';
 import { bnAdd, bnGte, bnSub, bnToNumber } from '../../utils/bignum';
 import { makeUid, sfxBus, fxBus } from '../../utils/eventBus';
 import { formatCash } from '../../utils/formatters';
-import { aiAutoTune, crashChance, ocHashBonus, STOCK_OC } from '../gamePhysics';
+import { aiAutoTune, crashChance, ocHashBonus, repasteCooling, STOCK_OC } from '../gamePhysics';
 import { recordGpuEdit } from '../editLedger';
 import { createGpu, createRack, rollQuality } from '../initialState';
 import { PHYSICS } from '../../config/gameBalance';
@@ -108,6 +108,14 @@ function detach(racks: Record<string, RackInstance>, kind: 'gpu' | 'cooler' | 'p
             : r;
   });
   return next;
+}
+
+/** Floating "-12C" over the rack of a GPU that was just re-pasted (nothing for a spare or a cold card). */
+function repasteFx(s: GameStore, gpu: GpuInstance, rack: RackInstance | undefined): void {
+  if (!rack?.roomId) return;
+  const air = s.live.rooms[rack.roomId]?.temp ?? s.roomTemps[rack.roomId] ?? gpu.temp;
+  const drop = Math.round(repasteCooling(gpu.temp, air, gpu.paste));
+  if (drop >= 1) fxBus.emit({ kind: 'rackText', rackUid: rack.uid, text: `-${drop}C`, color: '#7dd3fc' });
 }
 
 export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice {
@@ -466,6 +474,7 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
         }));
         s.pushLog(tr('BSOD! {name} overclock unstable. Rig rebooting (10s).', { name: tr(GPU_BY_ID[gpu.modelId].name) }), 'bad');
         sfxBus.emit('bsod');
+        if (rack) fxBus.emit({ kind: 'rackText', rackUid: rack.uid, text: 'BSOD', color: '#60a5fa', big: true });
         return 'crash';
       }
       const bonus = ocHashBonus(oc);
@@ -499,6 +508,7 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
     repasteGpu: (gpuUid) => {
       const gpu = get().gpus[gpuUid];
       if (!gpu || !spend(repasteCost(gpu), 'thermal paste')) return false;
+      repasteFx(get(), gpu, findMount(get(), 'gpu', gpuUid));
       set((s) => ({ gpus: { ...s.gpus, [gpuUid]: { ...s.gpus[gpuUid], paste: 1 } } }));
       recordGpuEdit(gpuUid, { paste: 1 });
       sfxBus.emit('install');

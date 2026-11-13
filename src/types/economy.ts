@@ -44,8 +44,12 @@ export type MarketState = Record<CoinId, CoinMarket>;
 
 export type PoolMode = 'public' | 'solo' | 'darknet';
 
+/** How a pool pays: every tick (PPS) or only when a block is found (PPLNS shares the pool's blocks, Solo keeps its own). */
+export type PoolScheme = 'pps' | 'pplns' | 'solo';
+
 export interface PoolDefinition {
   id: PoolMode;
+  scheme: PoolScheme;
   name: string;
   tagline: string;
   description: string;

@@ -95,6 +95,8 @@ export interface UiState {
   dailyOpen: boolean;
   /** What the AI Farm Manager is doing right now (shown in the VIP tab). */
   autopilotStatus: AutopilotStatus | null;
+  /** Infrared overlay of the room canvas (key T). Session only. */
+  thermalView: boolean;
 }
 
 export type OcResult = 'stable' | 'crash' | 'invalid';
@@ -199,6 +201,8 @@ export interface ProgressSlice {
   tickAirdrop: (now: number) => void;
   /** Catch the drone that is over the room. */
   claimAirdrop: () => boolean;
+  /** Rally the crew (click a technician): faster maintenance for a while, then a cooldown. */
+  rallyCrew: () => boolean;
 }
 
 export interface AutopilotSlice {
@@ -233,6 +237,7 @@ export interface CoreActions {
   /** Flush the save and go back to the title menu (the game loop stops). */
   returnToMenu: () => void;
   setWikiOpen: (open: boolean) => void;
+  toggleThermalView: () => void;
 }
 
 export type GameStore = GameData & UiState & HardwareSlice & RoomsSlice & MarketSlice & EconomySlice & ContractsSlice & ChallengesSlice
