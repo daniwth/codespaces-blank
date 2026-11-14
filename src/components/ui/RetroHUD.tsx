@@ -19,6 +19,7 @@ import { SpriteImg } from './SpriteImg';
 import { ChallengeBanner } from './ChallengeBanner';
 import { GoalBar } from './GoalBar';
 import { PixelButton } from './PixelButton';
+import { DiagnosisPopover } from './FarmDiagnosis';
 
 function Stat({ icon, label, value, sub, color, glow }: { icon: ReactNode; label: string; value: string; sub?: ReactNode; color: string; glow?: boolean }) {
   return (
@@ -133,6 +134,7 @@ export function RetroHUD() {
         </div>
 
         <div className="relative">
+          <DiagnosisPopover label={t('Cash: open the live profit and loss')} testId="hud-cash">
           <Stat
             icon={<Coins size={16} />}
             label={t('Cash')}
@@ -145,6 +147,7 @@ export function RetroHUD() {
               </span>
             }
           />
+          </DiagnosisPopover>
           {pops.map((p) => (
             <span key={p.id} className="rise-fade pointer-events-none absolute -top-1 left-10 font-pixel text-[10px] text-lime">
               {p.text}
@@ -178,7 +181,9 @@ export function RetroHUD() {
             sub={`${formatPrice(id === 'BYT' ? s.bytPrice : s.novaPrice)} ≈ ${formatCash(s.alts[id].amount * (id === 'BYT' ? s.bytPrice : s.novaPrice))}`}
           />
         ))}
-        <Stat icon={<Cpu size={16} />} label={t('Hashrate')} value={formatHashrate(s.totalHash)} color="#a3e635" glow sub={`${formatNumber(s.coinPerSec, 3)} ${s.minedCoin}/s · ${t(pool.name).split(' ')[0]}`} />
+        <DiagnosisPopover label={t('Hashrate: open the live profit and loss')} testId="hud-hash">
+          <Stat icon={<Cpu size={16} />} label={t('Hashrate')} value={formatHashrate(s.totalHash)} color="#a3e635" glow sub={`${formatNumber(s.coinPerSec, 3)} ${s.minedCoin}/s · ${t(pool.name).split(' ')[0]}`} />
+        </DiagnosisPopover>
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1 font-pixel text-[10px] text-magenta" title={t('Gems')}>
             <Gem size={14} /> {s.gems}

@@ -30,6 +30,7 @@ import { ContractToast } from './ui/ContractToast';
 import { TitleScreen } from './menu/TitleScreen';
 import { LotteryToast } from './ui/LotteryToast';
 import { RetroHUD } from './ui/RetroHUD';
+import { HotkeysModal } from './ui/HotkeysModal';
 
 const Wiki = lazy(() => import('./wiki/Wiki'));
 
@@ -46,6 +47,41 @@ const TABS: { id: SideTab; label: string; icon: ReactNode; color: string }[] = [
   { id: 'account', label: 'Account', icon: <Cloud size={14} />, color: '#38bdf8' },
   { id: 'system', label: 'System', icon: <Settings size={14} />, color: '#a5b4fc' },
 ];
+
+/** Side tabs reached with the number keys: 1-9, then 0 for the tenth. */
+export const TAB_KEYS: Record<string, SideTab> = Object.fromEntries(TABS.slice(0, 10).map((tab, i) => [String((i + 1) % 10), tab.id]));
+
+/** Quick maintenance of the room on screen (key R): re-paste what is dry, repair what is worn. */
+export function quickMaintenance(): number {
+  const s = useGameStore.getState();
+  return s.repasteAll(s.activeRoom) + useGameStore.getState().repairAll(s.activeRoom);
+}
+
+/** BIOS of the selected rack, or of the first rack of the room on screen (key B). */
+export function openRackBios(): boolean {
+  const s = useGameStore.getState();
+  const inRoom = Object.values(s.racks).filter((r) => r.roomId === s.activeRoom).sort((x, y) => (x.pad ?? 0) - (y.pad ?? 0));
+  const rack = (s.selectedRack ? s.racks[s.selectedRack] : undefined) ?? inRoom.find((r) => r.gpuSlots.some(Boolean));
+  const gpuUid = rack?.gpuSlots.find((u): u is string => !!u && !!s.gpus[u]);
+  if (!gpuUid) return false;
+  s.openBios(gpuUid);
+  return true;
+}
+
+function gameHotkeys(): Record<string, () => void> {
+  const st = () => useGameStore.getState();
+  const map: Record<string, () => void> = {
+    t: () => st().toggleThermalView(),
+    r: () => void quickMaintenance(),
+    b: () => void openRackBios(),
+    m: () => st().updateSettings({ muted: !st().settings.muted }),
+    '?': () => st().setHelpOpen(!st().helpOpen),
+  };
+  Object.entries(TAB_KEYS).forEach(([key, tab]) => {
+    map[key] = () => st().setSideTab(tab);
+  });
+  return map;
+}
 
 export function App() {
   const [loopMode, setLoopMode] = useState<LoopMode | null>(null);
@@ -100,10 +136,8 @@ function GameScreen({ loopMode }: { loopMode: LoopMode | null }) {
 
   const tab = TABS.find((x) => x.id === ui.sideTab) ?? TABS[0];
 
-  useHotkeys({
-    t: () => useGameStore.getState().toggleThermalView(),
-    m: () => useGameStore.getState().updateSettings({ muted: !useGameStore.getState().settings.muted }),
-  });
+  const helpOpen = useGameStore((s) => s.helpOpen);
+  useHotkeys(gameHotkeys(), ['?']);
 
   return (
     <div className="flex min-h-full flex-col">
@@ -161,6 +195,7 @@ function GameScreen({ loopMode }: { loopMode: LoopMode | null }) {
 
       {ui.selectedRack && <RackDetailModal rackUid={ui.selectedRack} />}
       {ui.biosGpu && <BiosOverclockModal gpuUid={ui.biosGpu} />}
+      {helpOpen && <HotkeysModal onClose={() => useGameStore.getState().setHelpOpen(false)} />}
       <DailyModal />
       <OfflineModal />
       <LotteryToast />

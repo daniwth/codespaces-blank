@@ -1,4 +1,4 @@
-import { HardHat, Lock, MapPin, Package, Radar, Thermometer } from 'lucide-react';
+import { HardHat, Keyboard, Lock, MapPin, Package, PaintBucket, Radar, Thermometer, Wand2, Wrench } from 'lucide-react';
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { COOLER_BY_ID, GPU_BY_ID, PSU_BY_ID, RACK_BY_ID } from '../../config/hardwareCatalog';
 import { POOLS } from '../../config/gameBalance';
@@ -377,7 +377,7 @@ export function WorldCanvas() {
     techUntil: s.buffs.techUntil,
     techCooldownUntil: s.buffs.techCooldownUntil,
   }));
-  const { setActiveRoom, selectRack, placeRack, setSideTab, claimAirdrop, rallyCrew, toggleThermalView } = useGameStore.getState();
+  const { setActiveRoom, selectRack, placeRack, setSideTab, claimAirdrop, rallyCrew, toggleThermalView, repasteAll, repairAll, autoEquipBest, setHelpOpen } = useGameStore.getState();
   // Re-render once a second while a rally or its cooldown is counting down.
   const [clock, setClock] = useState(() => Date.now());
   useEffect(() => {
@@ -1104,6 +1104,18 @@ export function WorldCanvas() {
             {ui.roomLive?.valley ? t('Valley tariff -{pct}%', { pct: Math.round((1 - ROOM_MECHANICS.warehouse.valleyMul) * 100) }) : t('Peak tariff')}
           </span>
         )}
+        <span className="ml-auto flex flex-wrap gap-0.5" role="group" aria-label={t('Room actions')}>
+          <PixelButton size="xs" variant="secondary" icon={<PaintBucket size={10} />} onClick={() => repasteAll(ui.activeRoom)} title={t('Re-paste every GPU of this room whose paste is below 50%')} data-testid="room-repaste" silent>
+            <span className="hidden md:inline">{t('Re-paste all (<50%)')}</span>
+          </PixelButton>
+          <PixelButton size="xs" variant="secondary" icon={<Wrench size={10} />} onClick={() => repairAll(ui.activeRoom)} title={t('Repair every worn GPU of this room')} data-testid="room-repair" silent>
+            <span className="hidden md:inline">{t('Repair all')}</span>
+          </PixelButton>
+          <PixelButton size="xs" variant="secondary" icon={<Wand2 size={10} />} onClick={() => autoEquipBest(ui.activeRoom)} title={t('Fill the free slots of this room and swap mounted parts for better spares from your inventory')} data-testid="room-equip" silent>
+            <span className="hidden md:inline">{t('Auto-equip best')}</span>
+          </PixelButton>
+          <PixelButton size="xs" variant="ghost" icon={<Keyboard size={10} />} onClick={() => setHelpOpen(true)} aria-label={t('Keyboard shortcuts')} title={t('Keyboard shortcuts (?)')} data-testid="hotkeys-open" silent />
+        </span>
         {ui.roomLive?.gpuCap != null && (
           <span className={cn('px-1.5 py-0.5', ui.roomLive.gpusOverCap > 0 ? 'blink bg-[#7f1d1d] text-hot' : 'bg-panel-2 text-dim')}>
             {ui.roomLive.gpusOverCap > 0 ? t('Hull limit {max} GPUs: {n} idle', { max: ui.roomLive.gpuCap, n: ui.roomLive.gpusOverCap }) : t('Hull limit {max} GPUs', { max: ui.roomLive.gpuCap })}

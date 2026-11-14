@@ -97,6 +97,8 @@ export interface UiState {
   autopilotStatus: AutopilotStatus | null;
   /** Infrared overlay of the room canvas (key T). Session only. */
   thermalView: boolean;
+  /** Keyboard shortcuts guide (key ?). */
+  helpOpen: boolean;
 }
 
 export type OcResult = 'stable' | 'crash' | 'invalid';
@@ -126,8 +128,12 @@ export interface HardwareSlice {
   buyUsedGpu: (modelId: string) => GpuInstance | null;
   /** Auto-fill every placed rack from storage. Returns the parts installed. */
   autoFillAll: () => number;
-  /** Re-paste every mounted GPU whose paste is below 60% (as many as the cash allows). Returns how many. */
-  repasteAll: () => number;
+  /** Re-paste every mounted GPU whose paste is below 50% (as many as the cash allows), in one room or everywhere. Returns how many. */
+  repasteAll: (roomId?: RoomId) => number;
+  /** Repair every worn mounted GPU (as many as the cash allows), in one room or everywhere. Returns how many. */
+  repairAll: (roomId?: RoomId) => number;
+  /** Fill free slots and swap mounted parts for strictly better spares, in one room or everywhere. Returns the changes made. */
+  autoEquipBest: (roomId?: RoomId) => number;
   /** Store the given clocks and voltage in one of the three BIOS profiles. */
   saveBiosProfile: (id: BiosProfileId, oc: OverclockSettings) => void;
   /**
@@ -256,6 +262,7 @@ export interface CoreActions {
   returnToMenu: () => void;
   setWikiOpen: (open: boolean) => void;
   toggleThermalView: () => void;
+  setHelpOpen: (open: boolean) => void;
 }
 
 export type GameStore = GameData & UiState & HardwareSlice & RoomsSlice & MarketSlice & EconomySlice & ContractsSlice & ChallengesSlice

@@ -9,7 +9,7 @@ export interface Mail {
 /** Delivers one email. `log` prints it (links included) to the console; `http` POSTs a Resend-style JSON payload. */
 export async function sendMail(mail: Mail): Promise<void> {
   if (mailMode === 'log') {
-    console.log(`[mail] to=${mail.to} subject="${mail.subject}"\n${mail.text}\n[mail] end`);
+    console.info(`[mail] to=${mail.to} subject="${mail.subject}"\n${mail.text}\n[mail] end`);
     return;
   }
   const res = await fetch(config.mail.apiUrl, {

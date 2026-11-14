@@ -25,7 +25,9 @@ export const usedGpuPrice = (price: number): number => Math.max(0.01, Math.round
 /** Silicon Forge: spare GPUs of one model and grade melted into one of the next grade. */
 export const FUSE_COUNT = 3;
 /** "Re-paste all" touches every mounted GPU whose paste is below this. */
-export const REPASTE_ALL_BELOW = 0.6;
+export const REPASTE_ALL_BELOW = 0.5;
+/** "Repair all" touches every mounted GPU with more wear than this. */
+export const REPAIR_ALL_ABOVE = 0.005;
 /** Largest batch the Shop sells in one click. */
 export const MAX_BULK = 50;
 
@@ -121,6 +123,82 @@ function repasteFx(s: GameStore, gpu: GpuInstance, rack: RackInstance | undefine
   const air = s.live.rooms[rack.roomId]?.temp ?? s.roomTemps[rack.roomId] ?? gpu.temp;
   const drop = Math.round(repasteCooling(gpu.temp, air, gpu.paste));
   if (drop >= 1) fxBus.emit({ kind: 'rackText', rackUid: rack.uid, text: `-${drop}C`, color: '#7dd3fc' });
+}
+
+/** Mounted GPU uid → its rack, for placed racks (of one room when `roomId` is given). */
+function mountedIn(racks: Record<string, RackInstance>, roomId?: RoomId): Map<string, RackInstance> {
+  const out = new Map<string, RackInstance>();
+  Object.values(racks).forEach((r) => {
+    if (roomId ? r.roomId !== roomId : false) return;
+    r.gpuSlots.forEach((u) => u && out.set(u, r));
+  });
+  return out;
+}
+
+const QUALITY_RANK: Record<SiliconQuality, number> = { bronze: 0, silver: 1, gold: 2, god: 3 };
+/** How good a GPU is for a slot: model hashrate first, then silicon grade, then the less worn one. */
+const gpuScore = (g: GpuInstance): number => GPU_BY_ID[g.modelId].hashrate * (1 - g.wear) * (1 + QUALITY_RANK[g.quality] * 0.01);
+
+/**
+ * "Auto-equip best": fills the free slots of the placed racks (of one room when `roomId` is given) and
+ * then swaps every mounted GPU, cooler and PSU for a strictly better spare, best parts first. Pure.
+ */
+export function equipBest(s: Parts, roomId?: RoomId): { racks: Record<string, RackInstance>; changes: number } {
+  const racks = { ...s.racks };
+  const target = Object.values(s.racks)
+    .filter((r) => r.roomId !== null && (!roomId || r.roomId === roomId))
+    .sort((a, b) => ROOM_ORDER.indexOf(a.roomId as RoomId) - ROOM_ORDER.indexOf(b.roomId as RoomId) || (a.pad ?? 0) - (b.pad ?? 0));
+  const taken = mountedUids(s.racks);
+  let changes = 0;
+  target.forEach((r) => {
+    const filled = fillRack(racks[r.uid], s, taken);
+    racks[r.uid] = filled.rack;
+    changes += filled.count;
+  });
+  const spareOf = <T extends { uid: string }>(rec: Record<string, T>, score: (x: T) => number): T[] =>
+    Object.values(rec).filter((x) => !taken.has(x.uid)).sort((a, b) => score(b) - score(a));
+  // GPUs: the weakest mounted card is replaced by the best spare while that is an upgrade.
+  const spareGpus = spareOf<GpuInstance>(s.gpus, gpuScore);
+  const mountedGpus = target.flatMap((r) => racks[r.uid].gpuSlots.map((uid, slot) => ({ rackUid: r.uid, slot, uid })))
+    .filter((m): m is { rackUid: string; slot: number; uid: string } => !!m.uid && !!s.gpus[m.uid])
+    .sort((a, b) => gpuScore(s.gpus[a.uid]) - gpuScore(s.gpus[b.uid]));
+  for (const m of mountedGpus) {
+    const best = spareGpus[0];
+    if (!best || gpuScore(best) <= gpuScore(s.gpus[m.uid]) * 1.0001) break;
+    spareGpus.shift();
+    const slots = racks[m.rackUid].gpuSlots.slice();
+    slots[m.slot] = best.uid;
+    racks[m.rackUid] = { ...racks[m.rackUid], gpuSlots: slots };
+    changes += 1;
+  }
+  const coolerScore = (c: CoolerInstance): number => COOLER_BY_ID[c.modelId].cooling;
+  const spareCoolers = spareOf<CoolerInstance>(s.coolers, coolerScore);
+  const mountedCoolers = target.flatMap((r) => racks[r.uid].fanSlots.map((uid, slot) => ({ rackUid: r.uid, slot, uid })))
+    .filter((m): m is { rackUid: string; slot: number; uid: string } => !!m.uid && !!s.coolers[m.uid])
+    .sort((a, b) => coolerScore(s.coolers[a.uid]) - coolerScore(s.coolers[b.uid]));
+  for (const m of mountedCoolers) {
+    const best = spareCoolers[0];
+    if (!best || coolerScore(best) <= coolerScore(s.coolers[m.uid])) break;
+    spareCoolers.shift();
+    const slots = racks[m.rackUid].fanSlots.slice();
+    slots[m.slot] = best.uid;
+    racks[m.rackUid] = { ...racks[m.rackUid], fanSlots: slots };
+    changes += 1;
+  }
+  // PSUs: more capacity, or the same capacity with a better efficiency.
+  const psuScore = (p: PsuInstance): number => PSU_BY_ID[p.modelId].capacity + PSU_BY_ID[p.modelId].efficiency;
+  const sparePsus = spareOf<PsuInstance>(s.psus, psuScore);
+  const mountedPsus = target.map((r) => ({ rackUid: r.uid, uid: racks[r.uid].psuUid }))
+    .filter((m): m is { rackUid: string; uid: string } => !!m.uid && !!s.psus[m.uid])
+    .sort((a, b) => psuScore(s.psus[a.uid]) - psuScore(s.psus[b.uid]));
+  for (const m of mountedPsus) {
+    const best = sparePsus[0];
+    if (!best || psuScore(best) <= psuScore(s.psus[m.uid])) break;
+    sparePsus.shift();
+    racks[m.rackUid] = { ...racks[m.rackUid], psuUid: best.uid };
+    changes += 1;
+  }
+  return { racks: changes > 0 ? racks : s.racks, changes };
 }
 
 export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice {
@@ -355,20 +433,27 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
       return count;
     },
 
-    repasteAll: () => {
+    repasteAll: (roomId) => {
       const s = get();
-      const mounted = mountedUids(s.racks);
+      const mounted = mountedIn(s.racks, roomId);
       // Driest first: if the cash runs out, the GPUs that need it most are done.
       const dry = Object.values(s.gpus).filter((g) => mounted.has(g.uid) && g.paste < REPASTE_ALL_BELOW).sort((a, b) => a.paste - b.paste);
       let budget = bnToNumber(s.cash);
       let spent = 0;
       const gpus = { ...s.gpus };
       let count = 0;
+      /** Biggest temperature drop per rack: one floating label each. */
+      const drops = new Map<string, number>();
       for (const g of dry) {
         const cost = repasteCost(g);
         if (cost > budget) continue;
         budget -= cost;
         spent += cost;
+        const rack = mounted.get(g.uid);
+        if (rack?.roomId) {
+          const air = s.live.rooms[rack.roomId]?.temp ?? s.roomTemps[rack.roomId] ?? g.temp;
+          drops.set(rack.uid, Math.max(drops.get(rack.uid) ?? 0, repasteCooling(g.temp, air, g.paste)));
+        }
         gpus[g.uid] = { ...g, paste: 1 };
         recordGpuEdit(g.uid, { paste: 1 });
         count += 1;
@@ -380,8 +465,63 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
       }
       set({ gpus, cash: bnSub(s.cash, spent) });
       s.logT('Re-pasted {n} GPUs for {price}.', { n: count, price: formatCash(spent) }, 'good');
+      drops.forEach((drop, rackUid) => {
+        if (Math.round(drop) >= 1) fxBus.emit({ kind: 'rackText', rackUid, text: `-${Math.round(drop)}C`, color: '#7dd3fc' });
+      });
       sfxBus.emit('install');
       return count;
+    },
+
+    repairAll: (roomId) => {
+      const s = get();
+      const mounted = mountedIn(s.racks, roomId);
+      // Most worn first: if the cash runs out, the worst chips are done.
+      const worn = Object.values(s.gpus).filter((g) => mounted.has(g.uid) && g.wear > REPAIR_ALL_ABOVE).sort((a, b) => b.wear - a.wear);
+      let budget = bnToNumber(s.cash);
+      let spent = 0;
+      const gpus = { ...s.gpus };
+      let count = 0;
+      for (const g of worn) {
+        const cost = repairCost(g);
+        if (cost > budget) continue;
+        budget -= cost;
+        spent += cost;
+        gpus[g.uid] = { ...g, wear: 0, overheatSeconds: 0 };
+        recordGpuEdit(g.uid, { wear: 0, overheatSeconds: 0 });
+        count += 1;
+      }
+      if (count === 0) {
+        s.logT(worn.length ? 'Not enough cash to repair any GPU.' : 'No mounted GPU needs a repair.', undefined, worn.length ? 'warn' : 'info');
+        sfxBus.emit('error');
+        return 0;
+      }
+      set({ gpus, cash: bnSub(s.cash, spent) });
+      s.logT('Repaired {n} GPUs for {price}.', { n: count, price: formatCash(spent) }, 'good');
+      sfxBus.emit('success');
+      return count;
+    },
+
+    autoEquipBest: (roomId) => {
+      const s = get();
+      const { racks, changes } = equipBest(s, roomId);
+      if (changes === 0) {
+        s.logT('Auto-equip: every rack already holds the best hardware you own.', undefined, 'info');
+        sfxBus.emit('error');
+        return 0;
+      }
+      // A card pulled out of a rack goes back to storage at room temperature.
+      const stillMounted = mountedUids(racks);
+      const gpus = { ...s.gpus };
+      mountedUids(s.racks).forEach((uid) => {
+        const g = gpus[uid];
+        if (!g || stillMounted.has(uid)) return;
+        gpus[uid] = { ...g, temp: Math.min(g.temp, 30), shutdown: false, condensed: false };
+        recordGpuEdit(uid, { temp: gpus[uid].temp, shutdown: false, condensed: false });
+      });
+      set({ racks, gpus });
+      s.logT('Auto-equip: {n} parts installed or swapped for better ones.', { n: changes }, 'good');
+      sfxBus.emit('install');
+      return changes;
     },
 
     buyMany: (kind, modelId, qty) => {

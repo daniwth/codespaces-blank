@@ -322,11 +322,11 @@ onBillingStartup();
 // Development servers only (see seed.ts): a ready-made login to test the gem features. Seeded before
 // the port opens, so the account is there for the very first request.
 const seeded = await seedTestAccount();
-if (seeded === 'removed') console.log(`[server] removed the development test account "${TEST_ACCOUNT.login}": it is not allowed on this server`);
-else if (seeded === 'created' || seeded === 'reset') console.log(`[server] dev test account ${seeded}: "${TEST_ACCOUNT.login}" / "${TEST_ACCOUNT.password}"`);
-else if (seeded === 'kept') console.log(`[server] dev test account "${TEST_ACCOUNT.login}" ready`);
+if (seeded === 'removed') console.info(`[server] removed the development test account "${TEST_ACCOUNT.login}": it is not allowed on this server`);
+else if (seeded === 'created' || seeded === 'reset') console.info(`[server] dev test account ${seeded}: "${TEST_ACCOUNT.login}" / "${TEST_ACCOUNT.password}"`);
+else if (seeded === 'kept') console.info(`[server] dev test account "${TEST_ACCOUNT.login}" ready`);
 
 server.listen(config.port, () => {
-  console.log(`[server] Hash Harvest accounts on http://localhost:${config.port}`);
-  console.log(`[server] billing mode: ${billingMode} · mail mode: ${mailMode}${config.trustProxyHops ? ` · trusting ${config.trustProxyHops} proxy hop(s)` : ''}`);
+  console.info(`[server] Hash Harvest accounts on http://localhost:${config.port}`);
+  console.info(`[server] billing mode: ${billingMode} · mail mode: ${mailMode}${config.trustProxyHops ? ` · trusting ${config.trustProxyHops} proxy hop(s)` : ''}`);
 });

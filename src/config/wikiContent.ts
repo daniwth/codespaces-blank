@@ -6,6 +6,10 @@
  * guide follows the game when the catalogs change. In-game proper names (items,
  * rooms, talents, The Halving, $CC, $SC…) go through the dictionary (`tr`).
  */
+import { COLLECTION } from './collection';
+import { REPUTATION } from './reputation';
+import { ROOM_BY_ID as V9_ROOMS, ROOM_MECHANICS } from './roomsCatalog';
+import { SYNERGY } from './synergy';
 import { COIN_MARKET, MINEABLE, hashDifficulty } from './altcoins';
 import { CONTRACTS, KEEP_COOL_STREAK_MIN } from './contracts';
 import {
@@ -775,7 +779,7 @@ export function sectionsEs(): WikiSection[] {
               'Se usan primero las unidades más desgastadas.',
               'La Forja está cerrada durante el reto Solo Bronce.',
               'La Tienda tiene un selector de cantidad (x1, x5, x10, MAX): las compras múltiples de GPUs sortean la Lotería de silicio para cada tarjeta y resumen el resultado.',
-              '**Autorrellenar todo** monta las mejores piezas libres en todos los racks colocados, y **Cambiar pasta a todas** renueva la pasta de todas las GPUs montadas por debajo del 60%.',
+              '**Autorrellenar todo** monta las mejores piezas libres en todos los racks colocados, y **Cambiar pasta a todas** renueva la pasta de todas las GPUs montadas por debajo del 50%.',
             ),
             tip('Comprar tarjetas baratas en cantidad y fusionar las Bronce es una forma fiable de conseguir silicio Oro para overclock.'),
           ],
@@ -869,6 +873,26 @@ export function sectionsEs(): WikiSection[] {
             p(`Calculado con el mismo modelo térmico del juego, para la sala a tope. Si una celda pasa de ${PHYSICS.throttleTemp - 5} °C, queda poco margen para una Summer Heatwave (+${EVENT_EFFECTS.heatwaveDelta} °C) o para la pasta seca.`),
             table(T.coolingGuideTable(L)),
             info('Cuadra con los tests de balance: un Warehouse lleno de Hydra S9 necesita Immersion Tank (con Liquid AIO 360 hace throttling), y un Arctic Datacenter lleno de Singularity Core necesita Cryo Phase-Change.'),
+          ],
+        },
+        {
+          id: 'v9-systems',
+          title: 'Sinergias, reglas de sala y ciclo de mercado',
+          keywords: ['cluster', 'spillover', 'derrame', 'undervolt', 'perfil', 'profile', 'bmc', 'pplns', 'pps', 'take-profit', 'stop-loss', 'reputation', 'reputacion', 'relic', 'reliquia', 'collection', 'coleccion', 'thermal view', 'vista termica', 'shortcut', 'atajo', 'night', 'noche'],
+          blocks: [
+            list(
+              `**Bonus de Cluster.** ${SYNERGY.clusterSize} GPUs del mismo modelo y grado de silicio en un rack dan +${pct(SYNERGY.clusterHash)} de hash y consumen -${pct(SYNERGY.clusterPower)} (su calor no cambia).`,
+              `**Derrame de Refrigeración Líquida.** Un rack con circuito líquido (AIO, inmersión, crio) cede el ${pct(SYNERGY.spillShare)} de esa refrigeración a cada rack por aire que tenga justo al lado. Colócalo entre dos racks por aire.`,
+              '**Undervolt.** Menos voltaje ahorra consumo y calor, pero cada chip tiene un suelo de voltaje según su grado de silicio. La BIOS guarda tres perfiles (Eco, Equilibrado, Hash máximo) y puede aplicar uno a todas las GPUs de un modelo, ajustado a cada chip y sin riesgo de cuelgue.',
+              `**Salas.** Dormitorio: más de ${ROOM_MECHANICS.bedroom.noiseLimit} de ruido de ventiladores por la noche reduce a la mitad tu bonus de overclock. Garaje: una ola de calor de +${ROOM_MECHANICS.garage.delta} °C cada ${Math.round(ROOM_MECHANICS.garage.everySec / 60)} minutos. Almacén: el Banco de baterías abarata la electricidad nocturna un ${pct(1 - ROOM_MECHANICS.warehouse.valleyMul)}. Ártico: una tarjeta que estuvo fría y apagada se precalienta antes de minar. Submarino: la mejor refrigeración, pero solo funcionan ${V9_ROOMS.submarine.maxGpus} GPUs.`,
+              '**Smart BMC** (Lab): repastea y repara por umbral por su cuenta, pagando el precio normal en efectivo, también mientras no estás.',
+              '**Ciclo de mercado.** Acumulación, Bull Run, Altseason y Mercado bajista se suceden y arrastran los precios; los titulares del ticker sacuden $CC y $MEME unos segundos. La Mesa de Órdenes (Lab) añade órdenes take-profit y stop-loss de un solo uso.',
+              `**Pools.** PPS paga en cada tick. PPLNS acumula tus shares y las paga cuando el pool encuentra un bloque (cada ${PHYSICS.pplnsBlockMeanSec} s aprox.) con la suerte de ese bloque. Solo no paga nada hasta tu propio jackpot.`,
+              `**Reputación.** Los contratos reclamados la suben; cada nivel añade +${pct(REPUTATION.cashPerLevel)} de efectivo a todos los contratos y el nivel ${REPUTATION.chainLevel} desbloquea Contratos Especiales de ${REPUTATION.chainStages} etapas.`,
+              `**Reliquias y Colección.** Cada reto superado da una reliquia permanente. La Colección de Silicio (pestaña Rigs) da +${pct(COLLECTION.familyHash)} de hashrate por cada marca completada en los cuatro grados.`,
+              '**En la sala.** Haz clic en un técnico para arengar al equipo, atrapa los drones raros de Nitrógeno, VIP y Auditoría, y pulsa T para la vista térmica.',
+              '**Teclado.** 1-9 y 0 cambian de pestaña, T vista térmica, R mantenimiento rápido, B BIOS, M silenciar, ? muestra la guía.',
+            ),
           ],
         },
         {

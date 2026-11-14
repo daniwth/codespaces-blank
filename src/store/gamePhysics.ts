@@ -22,7 +22,7 @@ import { challengeRules } from '../config/challenges';
 import { MAX_PADS, ROOM_BY_ID, ROOM_MECHANICS, garageWave, isNight, padsAdjacent } from '../config/roomsCatalog';
 import { SYNERGY } from '../config/synergy';
 import { runModifiers, type RunModifiers } from '../config/modifiers';
-import type { TalentModifiers } from '../config/prestigeTree';
+import { talentModifiers, type TalentModifiers } from '../config/prestigeTree';
 import {
   EVENT_EFFECTS,
   EVENT_INTERVAL,
@@ -1122,3 +1122,202 @@ export function simulateOffline(input: SimInput, seconds: number, now: number): 
 }
 
 export { emptyLive };
+
+// ───────────────────────── Diagnostics (HUD) ─────────────────────────
+
+/** Where the money goes, per second, at the current price and pool. */
+export interface FarmPnl {
+  /** Value of what the farm hashes before any fee. */
+  gross: number;
+  electricity: number;
+  /** Pool fee plus the market fee paid when the coins are sold. */
+  fees: number;
+  net: number;
+}
+
+export function farmPnl(live: Pick<LiveMetrics, 'coinPerSec' | 'electricityPerSec'>, pool: PoolMode, price: number): FarmPnl {
+  const fee = POOLS[pool].fee;
+  const paid = live.coinPerSec * price;
+  const gross = fee < 1 ? paid / (1 - fee) : paid;
+  const fees = gross - paid + paid * MARKET.fee;
+  return { gross, electricity: live.electricityPerSec, fees, net: gross - fees - live.electricityPerSec };
+}
+
+export type BottleneckId =
+  | 'blackout' | 'no_psu' | 'overload' | 'shutdown' | 'brownout' | 'throttle' | 'hull' | 'preheat' | 'noise'
+  | 'psu_near' | 'line_near' | 'empty_slots' | 'empty_pads' | 'no_gpus';
+
+export interface Bottleneck {
+  id: BottleneckId;
+  /** 3 = hashrate is being lost right now, 2 = about to be, 1 = room to grow. */
+  severity: 1 | 2 | 3;
+  /** English template (translated by the UI) and its values. */
+  key: string;
+  params: Record<string, string | number>;
+}
+
+/**
+ * What is holding the farm back right now, most severe first (empty when nothing is). Read from the
+ * live metrics of the last tick, so it always agrees with what the simulation is doing.
+ */
+export function diagnoseFarm(data: Pick<GameData, 'racks' | 'gpus' | 'ownedRooms' | 'talents' | 'challenge'>, live: LiveMetrics): Bottleneck[] {
+  const out: Bottleneck[] = [];
+  const rooms = usableRooms(data);
+  const placed = Object.values(data.racks).filter((r) => r.roomId && rooms.includes(r.roomId));
+  const count = (status: RackStatus): number => placed.filter((r) => live.racks[r.uid]?.status === status).length;
+  const add = (id: BottleneckId, severity: 1 | 2 | 3, key: string, params: Record<string, string | number> = {}): void => {
+    out.push({ id, severity, key, params });
+  };
+  const roomName = (id: RoomId): string => ROOM_BY_ID[id].name;
+
+  rooms.forEach((id) => {
+    const room = live.rooms[id];
+    if (!room) return;
+    if (room.blackout) add('blackout', 3, 'Blackout in {room}: its rigs are offline.', { room: roomName(id) });
+    if (room.brownout < 1) add('brownout', 3, 'Power line saturated in {room}: every rig there runs at {pct}%.', { room: roomName(id), pct: Math.round(room.brownout * 100) });
+    else if (room.capacity > 0 && room.wall / room.capacity > 0.9) add('line_near', 2, 'Power line of {room} at {pct}%: the next rig may cause a brownout.', { room: roomName(id), pct: Math.round((room.wall / room.capacity) * 100) });
+    if (room.gpusOverCap > 0) add('hull', 3, 'Hull limit in {room}: {n} GPUs are idle.', { room: roomName(id), n: room.gpusOverCap });
+    if (room.ocCapped) add('noise', 2, 'Night noise in {room}: overclocks deliver half their bonus.', { room: roomName(id) });
+  });
+  const overload = count('overload');
+  if (overload) add('overload', 3, 'PSU saturated: {n} racks tripped their power supply.', { n: overload });
+  const noPsu = count('no_psu');
+  if (noPsu) add('no_psu', 3, '{n} racks have GPUs but no PSU.', { n: noPsu });
+
+  let throttled = 0;
+  let shutdown = 0;
+  let preheating = 0;
+  Object.entries(live.gpus).forEach(([uid, g]) => {
+    if (g.throttled) throttled += 1;
+    if (g.preheating) preheating += 1;
+    if (data.gpus[uid]?.shutdown) shutdown += 1;
+  });
+  if (shutdown) add('shutdown', 3, 'Thermal shutdown: {n} GPUs are off until they cool down.', { n: shutdown });
+  if (throttled) add('throttle', 3, 'Thermal throttling: {n} GPUs hash at half speed above {temp}°C.', { n: throttled, temp: PHYSICS.throttleTemp });
+  if (preheating) add('preheat', 2, 'Condensation: {n} GPUs are pre-heating before they can hash.', { n: preheating });
+
+  const nearPsu = placed.filter((r) => {
+    const l = live.racks[r.uid];
+    return l && l.status === 'online' && Number.isFinite(l.capacity) && l.capacity > 0 && l.load / l.capacity > 0.9;
+  }).length;
+  if (nearPsu) add('psu_near', 2, '{n} PSUs are above 90% load: no room for an overclock.', { n: nearPsu });
+
+  const freeSlots = placed.reduce((a, r) => a + r.gpuSlots.filter((u) => !u).length, 0);
+  const mountedGpus = placed.reduce((a, r) => a + r.gpuSlots.filter(Boolean).length, 0);
+  if (mountedGpus === 0) add('no_gpus', 3, 'No GPU is mounted in a placed rack.');
+  else if (freeSlots) add('empty_slots', 1, '{n} empty GPU slots in your racks.', { n: freeSlots });
+  const extraPads = talentModifiers(data.talents).extraPads;
+  const freePads = rooms.reduce((a, id) => a + Math.max(0, Math.min(MAX_PADS, ROOM_BY_ID[id].pads + extraPads) - placed.filter((r) => r.roomId === id).length), 0);
+  if (freePads) add('empty_pads', 1, '{n} empty rack pads.', { n: freePads });
+
+  return out.sort((a, b) => b.severity - a.severity);
+}
+
+// ───────────────────────── Purchase preview (Shop) ─────────────────────────
+
+export interface PurchaseImpact {
+  /** False when the room has nowhere to put the part (the deltas are then all zero). */
+  placed: boolean;
+  /** Change of the farm's hashrate (H/s), wall draw (W) and net income ($/s) once it settles. */
+  dHash: number;
+  dWall: number;
+  dNet: number;
+  /** Change of the hottest die in the room (°C). */
+  dTemp: number;
+  /** Seconds for the net gain to pay `price` back (Infinity when it does not). */
+  roiSec: number;
+}
+
+const PREVIEW_UID = '$preview';
+const NO_IMPACT: PurchaseImpact = { placed: false, dHash: 0, dWall: 0, dNet: 0, dTemp: 0, roiSec: Number.POSITIVE_INFINITY };
+
+/** The world with one more part mounted in `roomId`, or null when nothing there can take it. */
+export function mountPreview(input: SimInput, kind: 'gpu' | 'cooler' | 'psu', modelId: string, roomId: RoomId): SimInput | null {
+  const racks = Object.values(input.racks).filter((r) => r.roomId === roomId).sort((a, b) => (a.pad ?? 0) - (b.pad ?? 0));
+  if (kind === 'gpu') {
+    if (!GPU_BY_ID[modelId]) return null;
+    const powered = (r: RackInstance): boolean => !!r.psuUid || !!RACK_BY_ID[r.modelId]?.selfPowered;
+    const rack = racks.find((r) => powered(r) && r.gpuSlots.includes(null)) ?? racks.find((r) => r.gpuSlots.includes(null));
+    if (!rack) return null;
+    const slot = rack.gpuSlots.indexOf(null);
+    const gpu: GpuInstance = {
+      uid: PREVIEW_UID, modelId, quality: 'bronze', silicon: { coreHeadroom: 0, memHeadroom: 0, vScale: 0, vFloor: 0 }, oc: { ...STOCK_OC }, ocBonus: 0,
+      temp: input.roomTemps[roomId] ?? ROOM_BY_ID[roomId].ambient, wear: 0, paste: 1, shutdown: false, overheatSeconds: 0, condensed: false,
+    };
+    const gpuSlots = rack.gpuSlots.slice();
+    gpuSlots[slot] = PREVIEW_UID;
+    return { ...input, gpus: { ...input.gpus, [PREVIEW_UID]: gpu }, racks: { ...input.racks, [rack.uid]: { ...rack, gpuSlots } } };
+  }
+  if (kind === 'cooler') {
+    if (!COOLER_BY_ID[modelId]) return null;
+    // A free bay first (in a rack that has GPUs); otherwise the weakest cooler that this one beats.
+    const free = racks.find((r) => r.fanSlots.includes(null) && r.gpuSlots.some(Boolean)) ?? racks.find((r) => r.fanSlots.includes(null));
+    let target: { rack: RackInstance; slot: number } | null = free ? { rack: free, slot: free.fanSlots.indexOf(null) } : null;
+    if (!target) {
+      let worst = COOLER_BY_ID[modelId].cooling;
+      racks.forEach((r) => r.fanSlots.forEach((uid, slot) => {
+        const k = uid && input.coolers[uid] ? COOLER_BY_ID[input.coolers[uid].modelId].cooling : Number.POSITIVE_INFINITY;
+        if (k < worst) {
+          worst = k;
+          target = { rack: r, slot };
+        }
+      }));
+    }
+    if (!target) return null;
+    const fanSlots = target.rack.fanSlots.slice();
+    fanSlots[target.slot] = PREVIEW_UID;
+    return { ...input, coolers: { ...input.coolers, [PREVIEW_UID]: { uid: PREVIEW_UID, modelId } }, racks: { ...input.racks, [target.rack.uid]: { ...target.rack, fanSlots } } };
+  }
+  const model = PSU_BY_ID[modelId];
+  if (!model) return null;
+  // A rack with GPUs and no PSU first; otherwise the smallest PSU that this one improves on.
+  const needs = racks.filter((r) => !RACK_BY_ID[r.modelId]?.selfPowered);
+  let rack = needs.find((r) => !r.psuUid && r.gpuSlots.some(Boolean)) ?? needs.find((r) => !r.psuUid);
+  if (!rack) {
+    const better = (r: RackInstance): boolean => {
+      const cur = r.psuUid ? PSU_BY_ID[input.psus[r.psuUid]?.modelId ?? ''] : undefined;
+      return !!cur && (model.capacity > cur.capacity || (model.capacity === cur.capacity && model.efficiency > cur.efficiency));
+    };
+    const capOf = (r: RackInstance): number => (r.psuUid ? PSU_BY_ID[input.psus[r.psuUid]?.modelId ?? '']?.capacity ?? 0 : 0);
+    rack = needs.filter(better).sort((a, b) => capOf(a) - capOf(b))[0];
+  }
+  if (!rack) return null;
+  return { ...input, psus: { ...input.psus, [PREVIEW_UID]: { uid: PREVIEW_UID, modelId } }, racks: { ...input.racks, [rack.uid]: { ...rack, psuUid: PREVIEW_UID } } };
+}
+
+/** Seconds of simulated time a preview lets the farm settle for (thermals reach their steady state). */
+const PREVIEW_SETTLE_SEC = 600;
+
+interface Settled { hash: number; wall: number; net: number; temp: number }
+
+function settle(world: SimInput, roomId: RoomId, now: number): Settled {
+  const out = simulate(world, PREVIEW_SETTLE_SEC, now, { offline: true, maxStep: 10 });
+  const wall = Object.values(out.live.rooms).reduce((a, r) => a + (r?.wall ?? 0), 0);
+  const temp = Object.values(world.racks).reduce((a, r) => (r.roomId === roomId ? Math.max(a, out.live.racks[r.uid]?.maxTemp ?? 0) : a), 0);
+  // Coins are valued at the price the player sees now, not at wherever the simulated walk ended.
+  return { hash: out.live.totalHash, wall, net: out.live.coinPerSec * world.market[world.minedCoin].price - out.live.electricityPerSec, temp };
+}
+
+/**
+ * What buying one part and mounting it in `roomId` would change once the farm settles: the game's own
+ * simulation runs the farm with and without it, so heat, throttling, PSU overloads, brownouts, tariffs,
+ * synergies and room rules are all in the answer. Pure (the market noise of the two runs cancels out of
+ * every number reported).
+ */
+export function previewPurchase(input: SimInput, kind: 'gpu' | 'cooler' | 'psu', modelId: string, roomId: RoomId, price: number, now: number): PurchaseImpact {
+  const next = mountPreview(input, kind, modelId, roomId);
+  if (!next) return NO_IMPACT;
+  // Both runs start from the same quiet state: no pending research, no orders or bots touching the wallets.
+  const quiet = (w: SimInput): SimInput => ({ ...w, bots: [], orders: [], research: { ...w.research, active: null }, lastTick: now - PREVIEW_SETTLE_SEC * 1000 });
+  const before = settle(quiet(input), roomId, now);
+  const after = settle(quiet(next), roomId, now);
+  const dNet = after.net - before.net;
+  return {
+    placed: true,
+    dHash: after.hash - before.hash,
+    dWall: after.wall - before.wall,
+    dNet,
+    dTemp: after.temp - before.temp,
+    roiSec: dNet > 0 ? price / dNet : Number.POSITIVE_INFINITY,
+  };
+}

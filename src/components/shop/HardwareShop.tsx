@@ -1,5 +1,5 @@
 import { Building2, Cpu, Fan, HardHat, Plug, Server } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { COOLER_CATALOG, GPU_CATALOG, MAX_TECHNICIANS, PSU_CATALOG, RACK_CATALOG } from '../../config/hardwareCatalog';
 import { ROOM_CATALOG, ROOM_MECHANICS, ROOM_ORDER } from '../../config/roomsCatalog';
 import type { RoomId } from '../../types/player';
@@ -7,7 +7,8 @@ import { talentModifiers } from '../../config/prestigeTree';
 import type { ComponentKind } from '../../store/slices/hardwareSlice';
 import { useT } from '../../i18n';
 import { sprites } from '../../engine/SpriteManager';
-import { gridTariff, poolYieldMul } from '../../store/gamePhysics';
+import { gridTariff, poolYieldMul, previewPurchase, type PurchaseImpact } from '../../store/gamePhysics';
+import { selectSimInput } from '../../store/useGameStore';
 import { gpuEconomics, hardwarePrice, hardwarePriceMul, roomPsuEfficiency } from '../../store/pricing';
 import { MAX_BULK, USED_GPU, usedGpuPrice } from '../../store/slices/hardwareSlice';
 import { runModifiers } from '../../config/modifiers';
@@ -43,12 +44,14 @@ const CATEGORIES: { id: Category; label: string; icon: ReactNode }[] = [
   { id: 'crew', label: 'Crew', icon: <HardHat size={12} /> },
 ];
 
-function Card({ icon, title, tier, children, price, listPrice, affordable, onBuy, owned, cta, disabled }: {
+function Card({ icon, title, tier, children, price, listPrice, affordable, onBuy, owned, cta, disabled, onPreview }: {
   icon: ReactNode; title: string; tier?: number; children: ReactNode; price: string; listPrice?: string; affordable: boolean; onBuy: () => void; owned?: number; cta?: string; disabled?: boolean;
+  /** Called when the card is hovered or focused: the shop then shows what buying it would change. */
+  onPreview?: () => void;
 }) {
   const t = useT();
   return (
-    <div className={cn('flex items-center gap-3 bg-panel-2 p-2', !affordable && 'opacity-75')}>
+    <div className={cn('flex items-center gap-3 bg-panel-2 p-2', !affordable && 'opacity-75')} onMouseEnter={onPreview} onFocus={onPreview}>
       <div className="grid w-[84px] shrink-0 place-items-center">{icon}</div>
       <div className="min-w-0 flex-1 text-[16px] leading-tight">
         <div className="flex items-center gap-1.5">
@@ -63,6 +66,29 @@ function Card({ icon, title, tier, children, price, listPrice, affordable, onBuy
         {listPrice && <span className="font-term text-[13px] normal-case line-through opacity-70">{listPrice}</span>}
         <span className="font-term text-[15px] normal-case">{price}</span>
       </PixelButton>
+    </div>
+  );
+}
+
+const signed = (value: number, text: string): string => `${value > 0 ? '+' : value < 0 ? '-' : '±'}${text}`;
+
+/** "If you buy this": simulated change of hashrate, wall power, hottest die and net income in the room on screen. */
+function ImpactRow({ impact }: { impact: PurchaseImpact }) {
+  const t = useT();
+  if (!impact.placed) {
+    return <div className="text-dim" data-testid="impact">{t('Impact: nowhere to mount it in this room (no free slot).')}</div>;
+  }
+  const hot = impact.dTemp > 0.05;
+  return (
+    <div className="flex flex-wrap gap-x-2" data-testid="impact" title={t('Simulated on your farm as it is: the part is mounted in the room on screen and the farm settles.')}>
+      <span className="text-dim">{t('If bought:')}</span>
+      <span className={impact.dHash > 0 ? 'text-lime' : impact.dHash < 0 ? 'text-hot' : 'text-dim'}>Δ {signed(impact.dHash, formatHashrate(Math.abs(impact.dHash)))}</span>
+      <span className={impact.dWall > 0 ? 'text-amber' : 'text-lime'}>Δ {signed(impact.dWall, formatPower(Math.abs(impact.dWall)))}</span>
+      <span className={hot ? 'text-hot' : 'text-neon'}>Δ {signed(Math.abs(impact.dTemp) < 0.05 ? 0 : impact.dTemp, `${Math.abs(impact.dTemp).toFixed(1)}°C`)}</span>
+      <span className={impact.dNet > 0 ? 'text-lime' : 'text-hot'}>{t('net {x}/s', { x: signed(impact.dNet, formatCash(Math.abs(impact.dNet), 3)) })}</span>
+      <span className={Number.isFinite(impact.roiSec) ? 'text-lime' : 'text-dim'}>
+        {Number.isFinite(impact.roiSec) ? t('ROI {time}', { time: formatDuration(impact.roiSec) }) : t('ROI: none')}
+      </span>
     </div>
   );
 }
@@ -94,6 +120,22 @@ export function HardwareShop() {
   }));
   const actions = useGameStore.getState();
   const [qty, setQty] = useState<Qty>(1);
+  const [preview, setPreview] = useState<{ kind: 'gpu' | 'cooler' | 'psu'; id: string } | null>(null);
+  const partCount = Object.keys(s.gpus).length + Object.keys(s.coolers).length + Object.keys(s.psus).length;
+  /**
+   * Impact of the hovered part, simulated on the farm as it is. Recomputed when the hovered part, the
+   * room or the hardware owned changes, not on every tick.
+   */
+  const impact = useMemo<PurchaseImpact | null>(() => {
+    if (!preview) return null;
+    const st = useGameStore.getState();
+    const list = preview.kind === 'gpu' ? GPU_CATALOG : preview.kind === 'cooler' ? COOLER_CATALOG : PSU_CATALOG;
+    const model = list.find((m) => m.id === preview.id);
+    return model ? previewPurchase(selectSimInput(st), preview.kind, preview.id, st.activeRoom, hardwarePrice(model.price, st), Date.now()) : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preview, s.activeRoom, partCount, s.racks]);
+  const previewModel = preview ? (preview.kind === 'gpu' ? GPU_CATALOG : preview.kind === 'cooler' ? COOLER_CATALOG : PSU_CATALOG).find((m) => m.id === preview.id) : undefined;
+  const previewShown = !!preview && !!impact && !!previewModel && ((cat === 'gpu' && preview.kind === 'gpu') || (cat === 'cooling' && preview.kind === 'cooler') || (cat === 'power' && preview.kind === 'psu'));
   const can = (price: number) => bnGte(s.cash, price);
   const priceMul = hardwarePriceMul(s);
   const cash = bnToNumber(s.cash);
@@ -154,6 +196,20 @@ export function HardwareShop() {
         </div>
       )}
 
+      {(cat === 'gpu' || cat === 'cooling' || cat === 'power') && (
+        // A bar of fixed height above the list: hovering a card never moves the cards (or their Buy buttons).
+        <div className="sticky top-0 z-10 flex min-h-[3.4rem] flex-col justify-center bg-[#0d0b1d] px-2 py-1 text-[15px] leading-tight shadow-[inset_0_0_0_2px_#3a3470]" aria-live="polite" data-testid="impact-bar">
+          {previewShown && impact && previewModel ? (
+            <>
+              <span className="font-silk text-[9px] uppercase text-neon">{t('Impact of {name}', { name: t(previewModel.name) })}</span>
+              <ImpactRow impact={impact} />
+            </>
+          ) : (
+            <span className="text-dim">{t('Hover or focus a part to see what buying it would change here: Δ hashrate, Δ watts, Δ °C and net ROI.')}</span>
+          )}
+        </div>
+      )}
+
       <div className="flex flex-col gap-1.5">
         {cat === 'gpu' &&
           GPU_CATALOG.map((g) => {
@@ -165,6 +221,7 @@ export function HardwareShop() {
               title={`${g.brand} ${t(g.name)}`}
               tier={g.tier}
               owned={count(s.gpus, g.id)}
+              onPreview={() => setPreview({ kind: 'gpu', id: g.id })}
               {...deal('gpu', g.id, g.price)}
             >
               <div className="text-lime">{formatHashrate(g.hashrate)}</div>
@@ -207,6 +264,7 @@ export function HardwareShop() {
               title={t(c.name)}
               tier={c.tier}
               owned={count(s.coolers, c.id)}
+              onPreview={() => setPreview({ kind: 'cooler', id: c.id })}
               {...deal('cooler', c.id, c.price)}
             >
               <div className="text-neon">{t('{n} W/°C heat transfer', { n: c.cooling })}</div>
@@ -224,6 +282,7 @@ export function HardwareShop() {
               title={t(p.name)}
               tier={p.tier}
               owned={count(s.psus, p.id)}
+              onPreview={() => setPreview({ kind: 'psu', id: p.id })}
               {...deal('psu', p.id, p.price)}
             >
               <div className="text-amber">{t('{cap} max load', { cap: formatPower(p.capacity) })}</div>

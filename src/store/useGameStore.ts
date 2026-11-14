@@ -142,6 +142,7 @@ const initialUi = (): UiState => ({
   dailyOpen: false,
   autopilotStatus: null,
   thermalView: false,
+  helpOpen: false,
 });
 
 /** Stats charts: one sample every few seconds, about half an hour of session history. */
@@ -336,11 +337,13 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
     },
 
     returnToMenu: () => {
-      set({ thermalView: false, screen: 'menu', selectedRack: null, biosGpu: null, lottery: null, contractToast: null, offlineReport: null, wikiOpen: false, airdrop: null, dailyOpen: false });
+      set({ thermalView: false, helpOpen: false, screen: 'menu', selectedRack: null, biosGpu: null, lottery: null, contractToast: null, offlineReport: null, wikiOpen: false, airdrop: null, dailyOpen: false });
       gameStorage.flush();
     },
 
     setWikiOpen: (open) => set({ wikiOpen: open }),
+
+    setHelpOpen: (open) => set({ helpOpen: open }),
 
     toggleThermalView: () => {
       set((s) => ({ thermalView: !s.thermalView }));

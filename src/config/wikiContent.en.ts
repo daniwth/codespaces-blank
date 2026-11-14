@@ -3,6 +3,10 @@
  * Spanish `sectionsEs` in `wikiContent.ts` (a unit test enforces it). Every
  * number comes from the balance config; tables come from `wikiTables.ts`.
  */
+import { COLLECTION } from './collection';
+import { REPUTATION } from './reputation';
+import { ROOM_BY_ID as V9_ROOMS, ROOM_MECHANICS } from './roomsCatalog';
+import { SYNERGY } from './synergy';
 import { COIN_MARKET, MINEABLE, hashDifficulty } from './altcoins';
 import { CONTRACTS, KEEP_COOL_STREAK_MIN } from './contracts';
 import {
@@ -769,7 +773,7 @@ export function sectionsEn(): WikiSection[] {
               'The most worn units are used first.',
               'The Forge is closed during the Bronze Only challenge.',
               'The Shop has a quantity selector (x1, x5, x10, MAX): bulk GPU purchases roll the Silicon Lottery for every card and summarise the result.',
-              '**Auto-fill all** mounts the best spare parts in every placed rack, and **Re-paste all** renews the paste of every mounted GPU below 60%.',
+              '**Auto-fill all** mounts the best spare parts in every placed rack, and **Re-paste all** renews the paste of every mounted GPU below 50%.',
             ),
             tip('Buying cheap cards in bulk and fusing the Bronze ones is a reliable way to get Gold silicon for overclocking.'),
           ],
@@ -863,6 +867,26 @@ export function sectionsEn(): WikiSection[] {
             p(`Calculated with the game's own thermal model, for a packed room. If a cell goes above ${PHYSICS.throttleTemp - 5} °C, there is little margin left for a Summer Heatwave (+${EVENT_EFFECTS.heatwaveDelta} °C) or for dry paste.`),
             table(T.coolingGuideTable(L)),
             info('It matches the balance tests: a Warehouse full of Hydra S9 needs Immersion Tank (with Liquid AIO 360 it throttles), and an Arctic Datacenter full of Singularity Core needs Cryo Phase-Change.'),
+          ],
+        },
+        {
+          id: 'v9-systems',
+          title: 'Synergies, room rules and the market cycle',
+          keywords: ['cluster', 'spillover', 'derrame', 'undervolt', 'perfil', 'profile', 'bmc', 'pplns', 'pps', 'take-profit', 'stop-loss', 'reputation', 'reputacion', 'relic', 'reliquia', 'collection', 'coleccion', 'thermal view', 'vista termica', 'shortcut', 'atajo', 'night', 'noche'],
+          blocks: [
+            list(
+              `**Cluster Bonus.** ${SYNERGY.clusterSize} GPUs of the same model and silicon grade in one rack hash +${pct(SYNERGY.clusterHash)} and draw -${pct(SYNERGY.clusterPower)} power (their heat does not change).`,
+              `**Liquid Cooling Spillover.** A rack with a liquid loop (AIO, immersion, cryo) gives ${pct(SYNERGY.spillShare)} of that cooling to each air-cooled rack right next to it. Put it between two air-cooled racks.`,
+              '**Undervolt.** Lower voltage saves power and heat, but every chip has a voltage floor set by its silicon grade. The BIOS keeps three profiles (Eco, Balanced, Max Hash) and can apply one to every GPU of a model, fitted to each chip with no crash risk.',
+              `**Rooms.** Bedroom: more than ${ROOM_MECHANICS.bedroom.noiseLimit} of fan noise at night halves your overclock bonus. Garage: a heat wave of +${ROOM_MECHANICS.garage.delta} °C every ${Math.round(ROOM_MECHANICS.garage.everySec / 60)} minutes. Warehouse: the Battery Bank makes night power ${pct(1 - ROOM_MECHANICS.warehouse.valleyMul)} cheaper. Arctic: a card that sat cold and off pre-heats before hashing. Submarine: best cooling, but only ${V9_ROOMS.submarine.maxGpus} GPUs run.`,
+              '**Smart BMC** (Lab): re-pastes and repairs by threshold on its own, paying the normal price in cash, also while you are away.',
+              '**Market cycle.** Accumulation, Bull Run, Altseason and Bear Market follow each other and pull prices; headlines on the ticker shake $CC and $MEME for a few seconds. The Order Desk (Lab) adds one-shot take-profit and stop-loss orders.',
+              `**Pools.** PPS pays every tick. PPLNS piles your shares up and pays them when the pool finds a block (about every ${PHYSICS.pplnsBlockMeanSec} s) with that block's luck. Solo pays nothing until your own jackpot.`,
+              `**Reputation.** Claimed contracts raise it; each level adds +${pct(REPUTATION.cashPerLevel)} cash to every contract and level ${REPUTATION.chainLevel} unlocks Special Contracts of ${REPUTATION.chainStages} stages.`,
+              `**Relics and Collection.** Each challenge cleared gives a permanent relic. The Silicon Collection (Rigs tab) pays +${pct(COLLECTION.familyHash)} hashrate per brand completed in all four grades.`,
+              '**In the room.** Click a technician to rally the crew, catch the rare Nitrogen, VIP and Audit drones, and press T for the thermal view.',
+              '**Keyboard.** 1-9 and 0 switch tabs, T thermal view, R quick maintenance, B BIOS, M mute, ? shows the guide.',
+            ),
           ],
         },
         {

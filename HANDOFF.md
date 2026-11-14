@@ -13,7 +13,10 @@ Reply to the user in Spanish. Project conventions are in `CLAUDE.md`; do not rep
 - Thermal view: `thermalView` (UI state, key `T`), palette `thermalColor` in `SpriteManager.ts`.
 - Crew rally and special drones: `src/config/buffs.ts` + `GameData.buffs` (read by `gamePhysics.ts`).
 - Ambience: `ambienceFor` in `src/hooks/useAudioFx.ts` (pure mapping), separate `settings.ambientVolume`.
-- Hotkeys: `src/hooks/useHotkeys.ts` (ignored while typing or with a dialog open).
+- Hotkeys: `src/hooks/useHotkeys.ts` (ignored while typing or with a dialog open; keys listed in `allowInDialog` such as `?` still fire). Bindings live in `gameHotkeys` in `src/components/App.tsx`: `1`-`9`/`0` tabs, `T` thermal view, `R` repaste, `B` BIOS of the hottest rack, `M` market, `?` help (`src/components/ui/HotkeysModal.tsx`).
+- HUD P&L and bottleneck diagnosis: pure `farmPnl` / `diagnoseFarm` in `gamePhysics.ts`, rendered by `src/components/ui/FarmDiagnosis.tsx`.
+- Shop impact preview: pure `mountPreview` / `previewPurchase` in `gamePhysics.ts`; the shop shows it in a fixed `impact-bar` (not inside the card, so hovering never moves the Buy button).
+- Mass room actions (repaste all, repair all, auto-equip best): `repasteAll(roomId?)`, `repairAll`, `autoEquipBest` in `hardwareSlice.ts`, buttons in `WorldCanvas.tsx`.
 - Rack synergies, BIOS profiles and Smart BMC defaults: `src/config/synergy.ts`; room rules (day/night clock, garage waves, battery, condensation, hull limit): `ROOM_MECHANICS` in `src/config/roomsCatalog.ts`. All of it is applied in `gamePhysics.step`.
 - Balance note: the Cluster Bonus trims the electrical draw only (die heat is unchanged) and Liquid Spillover only helps racks without a liquid loop, so the cooling ladder and the wiki's packed-room model still hold.
 - Market cycle, news and orders: `src/config/marketCycle.ts` (`stepCycle` / `cycleEffect` in the simulation). Pools declare a `scheme` (PPS / PPLNS / solo); PPLNS shares wait in `poolPending`.
@@ -44,3 +47,4 @@ Reply to the user in Spanish. Project conventions are in `CLAUDE.md`; do not rep
 - Phase 2 (game feel: floating labels, thermal view, crew rally, special drones, ambience synth; save v9): 304 unit, 38/38 server, 38/38 E2E.
 - Phase 3 (rack synergies, undervolt floor and BIOS profiles, room identity, Smart BMC): 328 unit, 38/38 server, 39/39 E2E.
 - Phase 4 (market cycle, news, TP/SL orders, PPLNS, reputation chains, new talents, relics, collection): 357 unit, 38/38 server, 40/40 E2E.
+- Phase 5 (HUD P&L and diagnosis, shop impact preview, mass room actions, hotkeys and help modal, wiki entry for the v9 systems): 373 unit, 38/38 server, 41/41 E2E.

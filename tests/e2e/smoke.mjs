@@ -37,7 +37,7 @@ const check = async (name, fn) => {
     console.log(`  ✓ ${name}`);
   } catch (err) {
     results.push({ name, ok: false, err: err.message });
-    console.log(`  ✗ ${name}\n      ${err.message.split('\n')[0]}`);
+    console.log(`  ✗ ${name}\n      ${err.message.split("\n").slice(0, 6).join("\n      ")}`);
   }
 };
 const assert = (cond, msg) => {
@@ -1254,6 +1254,74 @@ try {
       } finally {
         await context.close();
       }
+    }
+  });
+
+  await check('v9: HUD P&L and bottleneck, shop impact preview, room mass actions and keyboard shortcuts', async () => {
+    const { context, p } = await fresh({ viewport: { width: 1600, height: 1000 } });
+    const pageErrors = [];
+    p.on('pageerror', (e) => pageErrors.push(e.message));
+    try {
+      await p.addInitScript(() => localStorage.getItem('hh-lang') ?? localStorage.setItem('hh-lang', 'en'));
+      // Dry paste and a worn chip on the starter card, plus a better spare card in storage.
+      await bootPatched(p, `
+        const g = Object.values(state.gpus)[0];
+        g.paste = 0.2;
+        g.wear = 0.2;
+        state.gpus.spare = { ...g, uid: 'spare', modelId: 'px580', paste: 1, wear: 0 };
+        state.cash = '5000';
+        state.nextAirdropAt = Date.now() + 3600000;
+      `);
+      const panel = (tab) => p.locator(`nav[aria-label="Panels"] button[title="${tab}"]`);
+      const tabOn = (tab) => panel(tab).getAttribute('aria-current');
+      // HUD: hovering the hashrate opens the live P&L with a net figure and the bottleneck list.
+      await p.getByTestId('hud-hash').hover();
+      const diag = p.getByTestId('hud-diagnosis');
+      await diag.waitFor({ timeout: 3000 });
+      await p.waitForFunction(() => /\$\d/.test(document.querySelector('[data-testid="hud-net"]')?.textContent ?? ''), null, { timeout: 5000 });
+      assert(/empty GPU slots/.test((await p.getByTestId('hud-bottleneck').textContent()) ?? ''), `bottleneck: ${await p.getByTestId('hud-bottleneck').textContent()}`);
+      await p.screenshot({ path: join(ART, 'v9-hud-diagnosis.png') });
+      await p.mouse.move(5, 500);
+      // Shop: hovering a GPU shows what buying it would change.
+      await panel('Shop').click();
+      await p.getByTestId('roi-px460').hover();
+      const impact = p.getByTestId('impact');
+      await impact.waitFor({ timeout: 5000 });
+      const text = (await impact.textContent()) ?? '';
+      assert(/Δ \+[\d.]+ MH\/s/.test(text) && /Δ \+\d+ W/.test(text) && /°C/.test(text) && /ROI/.test(text), `impact row: ${text}`);
+      await p.screenshot({ path: join(ART, 'v9-shop-impact.png') });
+      // Room actions: re-paste, repair and auto-equip the better spare.
+      await p.getByTestId('room-repaste').click();
+      await p.getByText(/Re-pasted 1 GPUs/).first().waitFor({ timeout: 3000 });
+      await p.getByTestId('room-repair').click();
+      await p.getByText(/Repaired 1 GPUs/).first().waitFor({ timeout: 3000 });
+      await p.getByTestId('room-equip').click();
+      await p.getByText(/Auto-equip: \d+ parts/).first().waitFor({ timeout: 3000 });
+      // Keyboard: digits switch tabs, ? opens the guide, Escape closes it, M mutes, B opens the BIOS.
+      await p.locator('h1').first().click();
+      await p.keyboard.press('4');
+      assert((await tabOn('Market')) === 'page', '4 did not open the Market tab');
+      await p.keyboard.press('0');
+      assert((await tabOn('Account')) === 'page', '0 did not open the Account tab');
+      await p.keyboard.press('1');
+      assert((await tabOn('Shop')) === 'page', '1 did not open the Shop tab');
+      await p.keyboard.press('?');
+      await p.getByTestId('hotkeys').waitFor({ timeout: 3000 });
+      await p.keyboard.press('2');
+      assert((await tabOn('Shop')) === 'page', 'a digit switched tabs behind the open guide');
+      await p.keyboard.press('Escape');
+      await p.getByTestId('hotkeys').waitFor({ state: 'detached', timeout: 3000 });
+      await p.keyboard.press('m');
+      await p.waitForFunction(() => document.querySelector('button[aria-label="Unmute"]') !== null, null, { timeout: 3000 });
+      await p.keyboard.press('m');
+      await p.keyboard.press('b');
+      await p.getByText('PhoenixBits CMOS Setup Utility').waitFor({ timeout: 3000 });
+      await p.keyboard.press('Escape');
+      await p.keyboard.press('r');
+      await p.getByText(/Every mounted GPU still has good thermal paste|Re-pasted/).first().waitFor({ timeout: 3000 });
+      assert(pageErrors.length === 0, pageErrors.join(' | '));
+    } finally {
+      await context.close();
     }
   });
 } catch (err) {
