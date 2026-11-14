@@ -8,7 +8,7 @@ import type { ResearchId, ResearchLevels } from '../types/player';
  * after the previous one: a +4% hashrate level pays back in a few minutes once the farm's
  * income is ~1/100 of its price per second, like a GPU of the matching tier.
  */
-export type ResearchIcon = 'chip' | 'fan' | 'bolt' | 'drop' | 'pylon' | 'truck' | 'robot';
+export type ResearchIcon = 'chip' | 'fan' | 'bolt' | 'drop' | 'pylon' | 'truck' | 'robot' | 'orders';
 
 /** Translatable effect line: an English template with `{placeholders}` plus its values. */
 export interface ResearchEffect {
@@ -80,6 +80,12 @@ export const RESEARCH: ResearchDef[] = [
     maxLevel: 1, costBase: 6_000, costGrowth: 1, timeBase: 150, timeGrowth: 1, effect: 1,
     effectOf: () => ({ key: 'automatic re-paste and repair', params: {} }),
   },
+  {
+    id: 'orders', name: 'Order Desk', icon: 'orders', color: '#4ade80',
+    description: 'A line to the exchange: place take-profit and stop-loss orders in the Market. They fire once, even while you are away.',
+    maxLevel: 1, costBase: 2_500, costGrowth: 1, timeBase: 120, timeGrowth: 1, effect: 1,
+    effectOf: () => ({ key: 'take-profit and stop-loss orders', params: {} }),
+  },
 ];
 
 export const RESEARCH_BY_ID = Object.fromEntries(RESEARCH.map((r) => [r.id, r])) as Record<ResearchId, ResearchDef>;
@@ -114,6 +120,8 @@ export interface ResearchModifiers {
   hardwarePriceMul: number;
   /** Smart BMC researched: automatic maintenance is available. */
   smartBmc: boolean;
+  /** Order Desk researched: take-profit / stop-loss orders work. */
+  orderDesk: boolean;
 }
 
 export function researchModifiers(levels: ResearchLevels): ResearchModifiers {
@@ -126,6 +134,7 @@ export function researchModifiers(levels: ResearchLevels): ResearchModifiers {
     lineMul: 1 + l('grid') * RESEARCH_BY_ID.grid.effect,
     hardwarePriceMul: 1 - l('logistics') * RESEARCH_BY_ID.logistics.effect,
     smartBmc: l('bmc') > 0,
+    orderDesk: l('orders') > 0,
   };
 }
 

@@ -1,4 +1,4 @@
-import { Atom, Building2, Coins, Cpu, Crown, FlaskConical, Leaf, Moon, Radar, Snowflake, TrendingUp, Wrench, Zap, type LucideIcon } from 'lucide-react';
+import { Atom, Building2, Coins, Cpu, Crown, FlaskConical, Leaf, Moon, Radar, Snowflake, TrendingUp, Wrench, Zap, type LucideIcon, Dices, Hammer, Recycle } from 'lucide-react';
 import { useState } from 'react';
 import { CHALLENGES } from '../../config/challenges';
 import { HALVING_MIN_EARNINGS, PRESTIGE_TREE, earningsForSc, nextScMilestone, talentCost, talentLevel } from '../../config/prestigeTree';
@@ -15,12 +15,12 @@ import { SLOT, slotted } from '../panels/richText';
 
 const ICONS: Record<TalentIcon, LucideIcon> = {
   zap: Zap, leaf: Leaf, snowflake: Snowflake, coins: Coins, moon: Moon, cpu: Cpu,
-  trending: TrendingUp, wrench: Wrench, crown: Crown, atom: Atom, building: Building2, radar: Radar, flask: FlaskConical,
+  trending: TrendingUp, wrench: Wrench, crown: Crown, atom: Atom, building: Building2, radar: Radar, flask: FlaskConical, recycle: Recycle, hammer: Hammer, dice: Dices,
 };
 
-// Percentage-based layout: 5 columns × 4 rows.
+// Percentage-based layout: 5 columns × 5 rows.
 const CELL_W = 20;
-const CELL_H = 25;
+const CELL_H = 20;
 
 export function HalvingTalentTree() {
   const t = useT();
@@ -164,7 +164,7 @@ export function HalvingTalentTree() {
         <span className="font-pixel text-[10px] text-gold">{s.sc} $SC</span>
       </div>
 
-      <div className="relative w-full" style={{ aspectRatio: '5 / 4.4' }}>
+      <div className="relative w-full" style={{ aspectRatio: '5 / 5.5' }}>
         <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
           {PRESTIGE_TREE.flatMap((node) =>
             node.requires.map((req) => {

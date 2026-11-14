@@ -1,4 +1,6 @@
-import { Bot, Plus, Power, Trash2, TrendingUp } from 'lucide-react';
+import { Bot, Crosshair, Newspaper, Plus, Power, Trash2, TrendingUp } from 'lucide-react';
+import { MARKET_PHASES, MARKET_PHASE_IDS, NEWS, ORDERS } from '../../config/marketCycle';
+import { researchModifiers } from '../../config/research';
 import { useState } from 'react';
 import { COIN_IDS, COIN_INFO } from '../../config/altcoins';
 import { BOT_UNLOCK_LEVEL, MARKET, levelFromEarnings } from '../../config/gameBalance';
@@ -8,7 +10,7 @@ import { sprites } from '../../engine/SpriteManager';
 import { sellPrice } from '../../store/gamePhysics';
 import { costBasisOf, holdingOf } from '../../store/wallets';
 import { useGameShallow, useGameStore } from '../../store/useGameStore';
-import type { CoinId, TradingBot } from '../../types/economy';
+import type { CoinId, OrderKind, TradingBot } from '../../types/economy';
 import { bnToNumber } from '../../utils/bignum';
 import { cn } from '../../utils/cn';
 import { formatCash, formatNumber, formatPrice } from '../../utils/formatters';
@@ -34,8 +36,16 @@ export function MarketTerminal() {
     bots: st.bots,
     lifetime: st.lifetimeEarnings,
     vip: st.vip,
+    cycle: st.cycle,
+    orders: st.orders,
+    orderDesk: researchModifiers(st.research.levels).orderDesk,
   }));
-  const { sellCoin, buyCoin, addBot, updateBot, removeBot, setAutoSellEnabled } = useGameStore.getState();
+  const { sellCoin, buyCoin, addBot, updateBot, removeBot, setAutoSellEnabled, addOrder, removeOrder, setSideTab } = useGameStore.getState();
+  const [orderKind, setOrderKind] = useState<OrderKind>('tp');
+  const [orderMul, setOrderMul] = useState(1.2);
+  const [orderPct, setOrderPct] = useState(100);
+  const phase = MARKET_PHASES[s.cycle.phase];
+  const news = s.cycle.news ? NEWS[s.cycle.news.id] : null;
   const holding = holdingOf(s, coin);
   const mods = talentModifiers(s.talents);
   const unit = sellPrice(s.market, coin, mods);
@@ -51,6 +61,37 @@ export function MarketTerminal() {
 
   return (
     <div className="flex flex-col gap-3">
+      {/* Market cycle and news ticker */}
+      <div className="flex flex-col gap-1 bg-panel-2 p-2" data-testid="market-cycle">
+        <div className="flex flex-wrap items-center gap-1" role="list" aria-label={t('Market cycle')}>
+          {MARKET_PHASE_IDS.map((id) => {
+            const def = MARKET_PHASES[id];
+            const on = id === s.cycle.phase;
+            return (
+              <span
+                key={id}
+                role="listitem"
+                aria-current={on ? 'step' : undefined}
+                className="px-1.5 py-0.5 font-pixel text-[8px] uppercase"
+                style={on ? { background: def.color, color: '#07060f', boxShadow: `0 0 8px ${def.color}88` } : { color: def.color, background: '#141128', opacity: 0.6 }}
+                data-testid={on ? 'market-phase' : undefined}
+              >
+                {t(def.name)}
+              </span>
+            );
+          })}
+        </div>
+        <div className="text-[16px] leading-tight" style={{ color: phase.color }}>{t(phase.description)}</div>
+        <div className="flex items-center gap-2 overflow-hidden bg-black/50 px-2 py-0.5 text-[16px] leading-5" aria-live="polite" data-testid="news-ticker">
+          <Newspaper size={13} className={news ? 'blink shrink-0' : 'shrink-0 text-dim'} style={{ color: news ? (news.positive ? '#a3e635' : '#f43f5e') : undefined }} />
+          <div className="relative h-5 min-w-0 flex-1 overflow-hidden">
+            <span className={news ? 'marquee absolute whitespace-nowrap' : 'absolute whitespace-nowrap text-dim'} style={{ color: news ? (news.positive ? '#a3e635' : '#f43f5e') : undefined }}>
+              {news ? t('BREAKING · {headline} · EXPECT VOLATILITY ·', { headline: t(news.headline) }) : t('No headlines. Markets are trading on the cycle.')}
+            </span>
+          </div>
+        </div>
+      </div>
+
       <div className="flex flex-wrap items-center gap-1">
         {COIN_IDS.map((c) => (
           <PixelButton key={c} size="sm" variant={coin === c ? 'primary' : 'secondary'} onClick={() => setCoin(c)} silent aria-label={`$${c}`} data-testid={`coin-tab-${c}`}>
@@ -128,6 +169,52 @@ export function MarketTerminal() {
           <TrendingUp size={14} /> {t('VIP Peak Auto-Seller: dump all $CC above {x}x', { x: MARKET.vipPeakThreshold })}
         </label>
       )}
+
+      {/* Take-profit / stop-loss orders */}
+      <div className="border-t-2 border-[#1b1838] pt-2" data-testid="orders">
+        <div className="mb-2 flex items-center gap-2">
+          <Crosshair size={14} className="text-lime" />
+          <span className="font-pixel text-[9px] text-lime">{t('ORDERS')}</span>
+          <span className="text-[15px] text-dim">{s.orders.length}/{ORDERS.max}</span>
+        </div>
+        {!s.orderDesk ? (
+          <p className="text-[16px] leading-tight text-dim">
+            {t('Take-profit and stop-loss orders sell for you at a price, once, even while you are away.')}{' '}
+            <button type="button" className="text-neon underline" onClick={() => setSideTab('lab')}>{t('Research the Order Desk in the Lab.')}</button>
+          </p>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-1 text-[16px]">
+              <select className="retro-input" value={orderKind} onChange={(e) => { const k = e.target.value as OrderKind; setOrderKind(k); setOrderMul(k === 'tp' ? 1.2 : 0.85); }} aria-label={t('Order type')} data-testid="order-kind">
+                <option value="tp">{t('Take-profit')}</option>
+                <option value="sl">{t('Stop-loss')}</option>
+              </select>
+              <span className="text-dim">${coin} {orderKind === 'tp' ? '≥' : '≤'}</span>
+              <NumberField className="w-16" step={0.05} min={0.05} max={20} value={orderMul} onCommit={setOrderMul} aria-label={t('Trigger as a multiple of the current price')} />
+              <span className="text-dim">x = {formatPrice(m.price * orderMul)}</span>
+              <NumberField className="w-14" min={ORDERS.minPct} max={ORDERS.maxPct} value={orderPct} onCommit={setOrderPct} aria-label={t('Amount percent')} />
+              <span className="text-dim">%</span>
+              <PixelButton size="xs" variant="success" disabled={s.orders.length >= ORDERS.max} onClick={() => addOrder(coin, orderKind, m.price * orderMul, orderPct)} data-testid="order-add">
+                {t('Place order')}
+              </PixelButton>
+            </div>
+            <div className="mt-1 flex flex-col gap-1">
+              {s.orders.map((o) => (
+                <div key={o.id} className="flex items-center gap-2 bg-panel-2 px-1.5 py-1 text-[16px]" data-testid="order-row">
+                  <span className="font-pixel text-[8px]" style={{ color: o.kind === 'tp' ? '#a3e635' : '#f43f5e' }}>{o.kind === 'tp' ? t('TAKE-PROFIT') : t('STOP-LOSS')}</span>
+                  <span>
+                    {t('sell {pct}% ${coin} at {op} {price}', { pct: o.amountPct, coin: o.coin, op: o.kind === 'tp' ? '≥' : '≤', price: formatPrice(o.price) })}
+                  </span>
+                  <span className="text-dim">({t('now {price}', { price: formatPrice(s.market[o.coin].price) })})</span>
+                  <button type="button" onClick={() => removeOrder(o.id)} className="ml-auto text-dim hover:text-hot" aria-label={t('Cancel order')}>
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
 
       <div className="border-t-2 border-[#1b1838] pt-2">
         <div className="mb-2 flex items-center gap-2">

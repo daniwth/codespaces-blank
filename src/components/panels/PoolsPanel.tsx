@@ -1,18 +1,26 @@
-import { Radio, ShieldAlert, Sparkles, Waves } from 'lucide-react';
+import { Radio, ShieldAlert, Sparkles, Waves, Layers } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { COIN_INFO, COIN_MARKET, MINEABLE, MINEABLE_COIN_IDS } from '../../config/altcoins';
 import { NETWORK_EVENTS, POOL_ORDER, POOLS, levelFromEarnings } from '../../config/gameBalance';
 import { sprites } from '../../engine/SpriteManager';
 import { useT } from '../../i18n';
 import { useGameShallow, useGameStore } from '../../store/useGameStore';
-import type { PoolMode } from '../../types/economy';
+import type { PoolMode, PoolScheme } from '../../types/economy';
 import { bnToNumber } from '../../utils/bignum';
 import { cn } from '../../utils/cn';
 import { formatCash, formatDuration, formatHashrate, formatNumber, formatPrice } from '../../utils/formatters';
 import { SpriteImg } from '../ui/SpriteImg';
 
+const SCHEME_LABEL: Record<PoolScheme, string> = { pps: 'PPS', pplns: 'PPLNS', solo: 'SOLO' };
+const SCHEME_HELP: Record<PoolScheme, string> = {
+  pps: 'Pay Per Share: a steady payout every tick.',
+  pplns: 'Pay Per Last N Shares: paid when the pool finds a block, with the luck of that block.',
+  solo: 'Solo: nothing until you find a block yourself, then a jackpot.',
+};
+
 const POOL_ICON: Record<PoolMode, ReactNode> = {
   public: <Waves size={16} />,
+  pplns: <Layers size={16} />,
   solo: <Sparkles size={16} />,
   darknet: <ShieldAlert size={16} />,
 };
@@ -28,6 +36,7 @@ export function PoolsPanel() {
     stats: st.stats,
     minedCoin: st.minedCoin,
     market: st.market,
+    poolPending: st.poolPending,
   }));
   const setPool = useGameStore((st) => st.setPool);
   const setMinedCoin = useGameStore((st) => st.setMinedCoin);
@@ -60,10 +69,15 @@ export function PoolsPanel() {
               <span className="font-pixel text-[9px]" style={{ color: p.color }}>
                 {t(p.name)} {active && `● ${t('ACTIVE')}`}
               </span>
+              <span className="ml-2 px-1 font-pixel text-[7px] text-void" style={{ background: p.color }} title={t(SCHEME_HELP[p.scheme])}>
+                {SCHEME_LABEL[p.scheme]}
+              </span>
+              <span className="ml-1 font-silk text-[9px] uppercase text-dim">{t(p.scheme === 'pps' ? 'low variance' : p.scheme === 'pplns' ? 'medium variance' : 'high variance')}</span>
               <span className="block text-ink/90">{t(p.tagline)} — {t(p.description)}</span>
               <span className="block text-dim">
                 {[
                   t('Yield x{mul}', { mul: p.payoutMul }),
+                  ...(active && p.scheme === 'pplns' ? [t('pending {amount} ${coin}', { amount: formatNumber(s.poolPending, 3), coin: s.minedCoin })] : []),
                   ...(p.fee ? [t('fee {pct}%', { pct: (p.fee * 100).toFixed(0) })] : []),
                   ...(locked ? [t('unlocks at LV {lv}', { lv: p.unlockLevel })] : []),
                 ].join(' · ')}

@@ -10,6 +10,7 @@ import { useGameShallow, useGameStore } from '../../store/useGameStore';
 import { formatCash, formatHashrate, formatPower, formatTemp, tempColor } from '../../utils/formatters';
 import { QualityBadge } from '../game/RackDetailModal';
 import { PixelButton } from '../ui/PixelButton';
+import { CollectionAlbum } from './CollectionAlbum';
 import { SpriteImg } from '../ui/SpriteImg';
 
 /** Overview of every rack and the spare parts sitting in storage. */
@@ -159,6 +160,7 @@ export function InventoryPanel() {
           })}
         </div>
       </section>
+      <CollectionAlbum />
     </div>
   );
 }

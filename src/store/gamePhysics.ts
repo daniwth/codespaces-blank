@@ -32,7 +32,8 @@ import {
   PHYSICS,
   POOLS,
 } from '../config/gameBalance';
-import type { ActiveNetworkEvent, AltCoinId, CoinId, MarketState, MineableCoin, NetworkEventId, PoolMode } from '../types/economy';
+import type { ActiveNetworkEvent, AltCoinId, CoinId, MarketCycle, MarketState, MineableCoin, NetworkEventId, PoolMode } from '../types/economy';
+import { MARKET_PHASES, NEWS, NEWS_IDS, NEWS_INTERVAL, cycleEffect } from '../config/marketCycle';
 import type {
   GpuInstance,
   GpuLive,
@@ -53,11 +54,11 @@ export type SimInput = Pick<
   | 'gpus' | 'psus' | 'coolers' | 'racks' | 'ownedRooms' | 'roomTemps' | 'technicians'
   | 'pool' | 'market' | 'bots' | 'event' | 'nextEventAt' | 'talents' | 'vip'
   | 'cash' | 'cc' | 'ccCostBasis' | 'meme' | 'memeCostBasis' | 'alts' | 'minedCoin' | 'lastTick' | 'challenge'
-  | 'research' | 'boost' | 'buffs' | 'upgrades' | 'bmc'
+  | 'research' | 'boost' | 'buffs' | 'upgrades' | 'bmc' | 'cycle' | 'orders' | 'poolPending' | 'challengeRecords' | 'collection'
 >;
 
 export type MessageTone = 'info' | 'good' | 'warn' | 'bad';
-export type SoundCue = 'block' | 'alarm' | 'raid' | 'event' | 'shutdown' | 'sell' | 'restart';
+export type SoundCue = 'block' | 'alarm' | 'raid' | 'event' | 'shutdown' | 'sell' | 'restart' | 'news';
 
 export interface GameMessage {
   /** English text, already filled in. */
@@ -179,6 +180,12 @@ export interface SimOutput {
   sounds: SoundCue[];
   /** Per-rack events for the canvas (floating labels). Empty offline. */
   rackFx: RackFx[];
+  /** Market phase and news after the tick. */
+  cycle: MarketCycle;
+  /** Take-profit / stop-loss orders that fired (they are one-shot: the store drops them). */
+  filledOrders: string[];
+  /** Change of the PPLNS shares waiting for the next pool block. */
+  poolPendingDelta: number;
   /** What the Smart BMC did during the tick: GPUs re-pasted and repaired, and the cash it spent. */
   bmc: { pasted: number; repaired: number; spent: number };
 }
@@ -302,7 +309,7 @@ export const pasteFactor = (paste: number): number =>
   PHYSICS.pasteMinFactor + (1 - PHYSICS.pasteMinFactor) * clamp(paste, 0, 1);
 
 /** Expected payout multiplier of a pool on the base yield (fee for the public pool, bonus for the others). */
-export const poolYieldMul = (pool: PoolMode): number => (pool === 'public' ? 1 - POOLS[pool].fee : POOLS[pool].payoutMul);
+export const poolYieldMul = (pool: PoolMode): number => POOLS[pool].payoutMul * (1 - POOLS[pool].fee);
 
 /**
  * Degrees a fresh coat of paste takes off a die at steady state. The die sits `temp - air` above the
@@ -319,12 +326,14 @@ export const sellPrice = (market: MarketState, coin: CoinId, mods: Pick<TalentMo
 
 export const buyPrice = (market: MarketState, coin: CoinId): number => market[coin].price * (1 + MARKET.fee);
 
-function stepMarket(market: MarketState, dt: number, now: number, event: ActiveNetworkEvent | null, messages: GameMessage[], offline: boolean): void {
+function stepMarket(market: MarketState, dt: number, now: number, event: ActiveNetworkEvent | null, messages: GameMessage[], offline: boolean, cycle: MarketCycle): void {
   COIN_IDS.forEach((id) => {
     const coin = market[id];
     const cfg = COIN_MARKET[id];
-    const mean = coin.basePrice * (event?.id === 'bull_run' ? bullMeanMul(id) : 1);
-    const sigma = cfg.sigma * (id === 'MEME' && event?.id === 'meme_mania' ? EVENT_EFFECTS.memeVolMul : 1);
+    // The market phase and the headline of the moment pull the mean and scale the volatility.
+    const fx = cycleEffect(cycle, id, now);
+    const mean = coin.basePrice * (event?.id === 'bull_run' ? bullMeanMul(id) : 1) * fx.meanMul;
+    const sigma = cfg.sigma * (id === 'MEME' && event?.id === 'meme_mania' ? EVENT_EFFECTS.memeVolMul : 1) * fx.sigmaMul;
     let logP = Math.log(coin.price);
     logP += cfg.theta * (Math.log(mean) - logP) * dt + sigma * Math.sqrt(dt) * gaussian();
     // $MEME pump & dump jumps
@@ -342,6 +351,32 @@ function stepMarket(market: MarketState, dt: number, now: number, event: ActiveN
       coin.current = { ...coin.current, h: Math.max(coin.current.h, price), l: Math.min(coin.current.l, price), c: price };
     }
   });
+}
+
+/**
+ * Advance the market cycle to `now`: phases follow each other in a loop (also while offline, which may
+ * skip several), headlines come and go on the terminal's ticker (online only).
+ */
+export function stepCycle(cycle: MarketCycle, now: number, offline: boolean, messages: GameMessage[], sounds: SoundCue[]): void {
+  for (let guard = 0; guard < 64 && now >= cycle.endsAt; guard += 1) {
+    const next = MARKET_PHASES[MARKET_PHASES[cycle.phase].next];
+    cycle.phase = next.id;
+    cycle.startedAt = cycle.endsAt;
+    cycle.endsAt += randRange(next.duration[0], next.duration[1]) * 1000;
+    if (!offline) messages.push(gameMsg(next.id === 'bear' ? 'warn' : 'info', 'MARKET CYCLE: {name}. {description}', { name: next.name, description: next.description }));
+  }
+  // A cycle left far in the past (long absence beyond the guard) restarts from now.
+  if (now >= cycle.endsAt) cycle.endsAt = now + randRange(MARKET_PHASES[cycle.phase].duration[0], MARKET_PHASES[cycle.phase].duration[1]) * 1000;
+  if (cycle.news && now >= cycle.news.endsAt) {
+    cycle.news = null;
+    cycle.nextNewsAt = now + randRange(NEWS_INTERVAL[0], NEWS_INTERVAL[1]) * 1000;
+  }
+  if (!offline && !cycle.news && now >= cycle.nextNewsAt) {
+    const def = NEWS[pick(NEWS_IDS)];
+    cycle.news = { id: def.id, startedAt: now, endsAt: now + randRange(def.duration[0], def.duration[1]) * 1000 };
+    messages.push(gameMsg(def.positive ? 'good' : 'warn', 'NEWS: {headline}.', { headline: def.headline }));
+    sounds.push('news');
+  }
 }
 
 // ───────────────────────── Rack helpers ─────────────────────────
@@ -413,6 +448,9 @@ interface World {
   event: ActiveNetworkEvent | null;
   nextEventAt: number;
   botFires: Record<string, number>;
+  cycle: MarketCycle;
+  filledOrders: string[];
+  poolPending: number;
   cash: number;
   cc: number;
   meme: number;
@@ -444,6 +482,9 @@ function cloneWorld(input: SimInput): World {
     event: input.event ? { ...input.event } : null,
     nextEventAt: input.nextEventAt,
     botFires,
+    cycle: { ...input.cycle, news: input.cycle.news ? { ...input.cycle.news } : null },
+    filledOrders: [],
+    poolPending: input.poolPending,
     cash: bnToNumber(input.cash),
     cc: bnToNumber(input.cc),
     meme: input.meme,
@@ -569,6 +610,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
   const pasteLife = PHYSICS.pasteLifetimeSec * mods.pasteLifeMul;
   const gpuOc = (g: GpuInstance): OverclockSettings => (rules.lockOverclock ? STOCK_OC : g.oc);
   if (!opts.offline) stepEvents(w, rooms, now, acc);
+  stepCycle(w.cycle, now, opts.offline, acc.messages, acc.sounds);
   const ev = opts.offline ? null : w.event;
   const ambientDelta = (ev?.id === 'heatwave' ? EVENT_EFFECTS.heatwaveDelta : ev?.id === 'cold_snap' ? EVENT_EFFECTS.coldSnapDelta : 0)
     // Liquid nitrogen drone: a short, deep ambient drop.
@@ -854,10 +896,25 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
   let gain = 0;
   if (input.pool === 'public') {
     gain = baseRate * (1 - pool.fee) * dt;
+  } else if (pool.scheme === 'pplns') {
+    // PPLNS: shares pile up and are paid, with the luck of the block, when the pool finds one.
+    const share = baseRate * poolMul * dt;
+    if (opts.offline) gain = share;
+    else {
+      w.poolPending += share;
+      const blockEvery = PHYSICS.pplnsBlockMeanSec * (spiking ? EVENT_EFFECTS.difficultyMul : 1);
+      if (w.poolPending > 0 && Math.random() < dt / blockEvery) {
+        const luck = randRange(PHYSICS.pplnsLuck[0], PHYSICS.pplnsLuck[1]) * (ev && NETWORK_EVENTS[ev.id].positive ? PHYSICS.pplnsEventLuck : 1);
+        gain = w.poolPending * luck * blockMulOf(input.buffs, now);
+        w.poolPending = 0;
+        if (topRack.uid) pushRackFx(acc, opts, { kind: 'block', rackUid: topRack.uid, value: gain, coin: coinId });
+        acc.messages.push(gameMsg(luck >= 1 ? 'good' : 'info', 'POOL BLOCK: your shares paid {amount} ${coin} (luck x{luck}).', { amount: gain.toFixed(2), coin: coinId, luck: luck.toFixed(2) }));
+      }
+    }
   } else if (input.pool === 'solo') {
-    if (opts.offline) gain = baseRate * pool.payoutMul * dt;
+    if (opts.offline) gain = baseRate * pool.payoutMul * mods.soloMul * dt;
     else if (baseRate > 0 && Math.random() < dt / PHYSICS.soloBlockMeanSec) {
-      gain = baseRate * PHYSICS.soloBlockMeanSec * pool.payoutMul * blockMulOf(input.buffs, now);
+      gain = baseRate * PHYSICS.soloBlockMeanSec * pool.payoutMul * mods.soloMul * blockMulOf(input.buffs, now);
       acc.blocks += 1;
       if (topRack.uid) pushRackFx(acc, opts, { kind: 'block', rackUid: topRack.uid, value: gain, coin: coinId });
       const gem = Math.random() < 0.3;
@@ -907,7 +964,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
   });
 
   // ── Market, bots & VIP auto-sell ──
-  stepMarket(w.market, dt, now, ev, acc.messages, opts.offline);
+  stepMarket(w.market, dt, now, ev, acc.messages, opts.offline, w.cycle);
   input.bots.forEach((bot) => {
     if (!bot.enabled) return;
     const last = w.botFires[bot.id] ?? 0;
@@ -933,6 +990,23 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
       acc.sounds.push('sell');
     }
   });
+  // Take-profit / stop-loss: one-shot sells at a price, once the Order Desk is researched.
+  if (mods.orderDesk) {
+    input.orders.forEach((order) => {
+      if (w.filledOrders.includes(order.id)) return;
+      const price = w.market[order.coin].price;
+      if (order.kind === 'tp' ? price < order.price : price > order.price) return;
+      const holding = holdingOf(w, order.coin);
+      w.filledOrders.push(order.id);
+      if (holding <= 1e-9) return;
+      const amount = holding * (clamp(order.amountPct, 1, 100) / 100);
+      const earnedBefore = acc.earnedCash;
+      const proceeds = sellCoin(w, order.coin, amount, mods, acc);
+      acc.botEarned += acc.earnedCash - earnedBefore;
+      acc.messages.push(gameMsg(order.kind === 'tp' ? 'good' : 'warn', order.kind === 'tp' ? 'TAKE-PROFIT filled: sold {amount} ${coin} @ {price} for ${cash}.' : 'STOP-LOSS filled: sold {amount} ${coin} @ {price} for ${cash}.', { amount: amount.toFixed(2), coin: order.coin, price: price.toFixed(4), cash: proceeds.toFixed(2) }));
+      acc.sounds.push('sell');
+    });
+  }
   if (input.vip.autoSellPeaks && input.vip.autoSellEnabled && w.cc > 0 && w.market.CC.price >= w.market.CC.basePrice * MARKET.vipPeakThreshold) {
     sellCoin(w, 'CC', w.cc, mods, acc);
   }
@@ -957,10 +1031,10 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
 export function simulate(input: SimInput, dtSec: number, now: number, opts: SimOptions): SimOutput {
   const w = cloneWorld(input);
   // A research project that finishes inside this window (offline catch-up) counts from its end time on.
-  const mods = runModifiers(input.talents, input.research.levels);
+  const mods = runModifiers(input.talents, input.research.levels, input);
   const pending = input.research.active;
   const modsAfter = pending
-    ? runModifiers(input.talents, { ...input.research.levels, [pending.id]: (input.research.levels[pending.id] ?? 0) + 1 })
+    ? runModifiers(input.talents, { ...input.research.levels, [pending.id]: (input.research.levels[pending.id] ?? 0) + 1 }, input)
     : mods;
   const acc: StepAccumulator = { ccMined: 0, coinMined: 0, electricity: 0, earnedCash: 0, gems: 0, blocks: 0, raids: 0, overheats: 0, bestTrade: 0, peakTemp: 0, botEarned: 0, messages: [], sounds: [], rackFx: [], bmcPasted: 0, bmcRepaired: 0, bmcSpent: 0 };
   const live = emptyLive();
@@ -1030,6 +1104,9 @@ export function simulate(input: SimInput, dtSec: number, now: number, opts: SimO
     messages: acc.messages.slice(-12),
     sounds: Array.from(new Set(acc.sounds)),
     rackFx: acc.rackFx,
+    cycle: w.cycle,
+    filledOrders: w.filledOrders,
+    poolPendingDelta: w.poolPending - input.poolPending,
     bmc: { pasted: acc.bmcPasted, repaired: acc.bmcRepaired, spent: acc.bmcSpent },
   };
 }

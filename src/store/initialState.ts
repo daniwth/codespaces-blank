@@ -1,5 +1,8 @@
 import { AIRDROP } from '../config/airdrops';
 import { emptyBuffs } from '../config/buffs';
+import { collect } from '../config/collection';
+import { newCycle } from '../config/marketCycle';
+import { emptyReputation } from '../config/reputation';
 import { DEFAULT_BMC, DEFAULT_UPGRADES, defaultBiosProfiles } from '../config/synergy';
 import { COIN_MARKET, emptyAlts } from '../config/altcoins';
 import { GPU_BY_ID, QUALITY_DEFS } from '../config/hardwareCatalog';
@@ -164,6 +167,13 @@ export function createInitialData(carry?: Partial<GameData>, challenge?: Challen
     upgrades: carry?.upgrades ?? { ...DEFAULT_UPGRADES },
     bmc: carry?.bmc ?? { ...DEFAULT_BMC },
     biosProfiles: carry?.biosProfiles ?? defaultBiosProfiles(),
+    cycle: carry?.cycle ?? newCycle(now),
+    // Orders and unpaid pool shares belong to the run's wallets.
+    orders: [],
+    poolPending: 0,
+    reputation: carry?.reputation ?? emptyReputation(),
+    // The starter card is the first entry of the album.
+    collection: collect(carry?.collection ?? {}, 'px460', 'bronze'),
   };
   // A fresh board scaled to this run (The Halving starts a new one: the old targets were sized for the old farm).
   return { ...data, contracts: carry?.contracts ?? createBoard(contractContext(data), now) };

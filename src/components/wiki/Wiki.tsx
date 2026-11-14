@@ -29,8 +29,7 @@ import {
   Wrench,
   X,
   Zap,
-  type LucideIcon,
-} from 'lucide-react';
+  type LucideIcon, Dices, Hammer, Recycle } from 'lucide-react';
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { getWikiSections } from '../../config/wikiContent';
 import type { WikiBlock, WikiEntry, WikiIcon, WikiSection, WikiSectionIcon, WikiTable, WikiTone } from '../../config/wikiTypes';
@@ -50,7 +49,7 @@ const SECTION_ICONS: Record<WikiSectionIcon, LucideIcon> = {
 
 const TALENT_ICONS: Record<TalentIcon, LucideIcon> = {
   zap: Zap, leaf: Leaf, snowflake: Snowflake, coins: Coins, moon: Moon, cpu: Cpu,
-  trending: TrendingUp, wrench: Wrench, crown: Crown, atom: Atom, building: Building2, radar: Radar, flask: FlaskConical,
+  trending: TrendingUp, wrench: Wrench, crown: Crown, atom: Atom, building: Building2, radar: Radar, flask: FlaskConical, recycle: Recycle, hammer: Hammer, dice: Dices,
 };
 
 const TONES: Record<WikiTone, { icon: LucideIcon; color: string; bg: string; label: string }> = {

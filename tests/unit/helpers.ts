@@ -9,5 +9,7 @@ export function starterWorld(patch: Partial<GameData> = {}): { data: GameData; i
   const gpuUid = Object.keys(data.gpus)[0];
   // Freeze the network: no random events during unit tests.
   data.nextEventAt = Number.MAX_SAFE_INTEGER;
+  // Freeze the market too: no phase change and no headline (both draw from the RNG).
+  data.cycle = { ...data.cycle, endsAt: Number.MAX_SAFE_INTEGER, nextNewsAt: Number.MAX_SAFE_INTEGER, news: null };
   return { data, input: data, gpuUid, rackUid };
 }

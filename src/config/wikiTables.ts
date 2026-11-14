@@ -482,6 +482,10 @@ export function technicianTable(lang: Lang = curLang()): WikiTable {
 
 const POOL_RISK: Record<PoolMode, readonly [string, string]> = {
   public: ['Ninguno: cobras cada share de forma continua.', 'None: you are paid for every share continuously.'],
+  pplns: [
+    `Pago por bloque del pool: un bloque cada ~${PHYSICS.pplnsBlockMeanSec} s de media paga tus shares acumuladas con la suerte de ese bloque (x${PHYSICS.pplnsLuck[0]}-x${PHYSICS.pplnsLuck[1]}; x${PHYSICS.pplnsEventLuck} más con un evento de red favorable).`,
+    `Paid per pool block: a block every ~${PHYSICS.pplnsBlockMeanSec} s on average pays your pending shares with the luck of that block (x${PHYSICS.pplnsLuck[0]}-x${PHYSICS.pplnsLuck[1]}; x${PHYSICS.pplnsEventLuck} more during a good network event).`,
+  ],
   solo: [
     `Nada entre bloques. Un bloque cada ${formatDuration(PHYSICS.soloBlockMeanSec)} de media paga ${formatDuration(PHYSICS.soloBlockMeanSec)} de minado x${PHYSICS.soloEvMul} y puede dar 1 gema.`,
     `Nothing between blocks. One block every ${formatDuration(PHYSICS.soloBlockMeanSec)} on average pays ${formatDuration(PHYSICS.soloBlockMeanSec)} of mining x${PHYSICS.soloEvMul} and may drop 1 gem.`,
@@ -793,6 +797,9 @@ const TALENT_TEXT: Record<TalentId, readonly [string, string]> = {
   room_keeper: ['Conservas las salas compradas en cada Halving.', 'You keep your purchased rooms through every Halving.'],
   drone_uplink: ['Los drones de suministros traen cajas más grandes (dinero, monedas y Overdrive más largo).', 'Supply drones carry bigger crates (cash, coins and a longer Overdrive).'],
   lab_grant: ['Los proyectos del Lab terminan antes.', 'Lab projects finish sooner.'],
+  used_market: ['Desbloquea GPUs usadas en la Tienda: 45% más baratas, con desgaste aleatorio y pasta gastada.', 'Unlocks used GPUs in the Shop: 45% off, with random wear and tired paste.'],
+  forge_mastery: ['La Forja de Silicio puede necesitar solo 2 tarjetas en vez de 3.', 'The Silicon Forge may need only 2 cards instead of 3.'],
+  solo_luck: ['Jackpots más grandes por cada bloque encontrado en Solo Mining.', 'Bigger jackpots for every block found Solo Mining.'],
 };
 
 export const talentTotalCost = (id: TalentId): number => {

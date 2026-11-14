@@ -42,7 +42,7 @@ export interface CoinMarket {
 
 export type MarketState = Record<CoinId, CoinMarket>;
 
-export type PoolMode = 'public' | 'solo' | 'darknet';
+export type PoolMode = 'public' | 'pplns' | 'solo' | 'darknet';
 
 /** How a pool pays: every tick (PPS) or only when a block is found (PPLNS shares the pool's blocks, Solo keeps its own). */
 export type PoolScheme = 'pps' | 'pplns' | 'solo';
@@ -58,6 +58,33 @@ export interface PoolDefinition {
   fee: number;
   unlockLevel: number;
   color: string;
+}
+
+export type MarketPhaseId = 'accumulation' | 'bull' | 'altseason' | 'bear';
+export type NewsId = 'etf_rumor' | 'exchange_hack' | 'influencer_shill' | 'rug_pull' | 'regulation' | 'whale_wallet';
+
+/** Where the market is in its cycle, and the headline moving it right now (if any). */
+export interface MarketCycle {
+  phase: MarketPhaseId;
+  startedAt: number;
+  endsAt: number;
+  news: { id: NewsId; startedAt: number; endsAt: number } | null;
+  /** Epoch ms when the next headline may hit. */
+  nextNewsAt: number;
+}
+
+export type OrderKind = 'tp' | 'sl';
+
+/** One-shot sell order: take-profit fires at or above `price`, stop-loss at or below it. */
+export interface TradeOrder {
+  id: string;
+  coin: CoinId;
+  kind: OrderKind;
+  /** Trigger price in dollars. */
+  price: number;
+  /** Share of the holding sold when it fires (1-100). */
+  amountPct: number;
+  createdAt: number;
 }
 
 export type BotSide = 'buy' | 'sell';

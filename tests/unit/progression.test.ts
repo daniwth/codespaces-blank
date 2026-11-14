@@ -39,7 +39,7 @@ describe('research catalog', () => {
         expect(researchTime(r, l)).toBeGreaterThan(researchTime(r, l - 1));
       }
     });
-    expect(researchModifiers({})).toEqual({ hashMul: 1, coolingMul: 1, electricityMul: 1, pasteLifeMul: 1, lineMul: 1, hardwarePriceMul: 1, smartBmc: false });
+    expect(researchModifiers({})).toEqual({ hashMul: 1, coolingMul: 1, electricityMul: 1, pasteLifeMul: 1, lineMul: 1, hardwarePriceMul: 1, smartBmc: false, orderDesk: false });
   });
 
   it('caps levels at the maximum and never makes anything free', () => {

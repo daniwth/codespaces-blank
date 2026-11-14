@@ -82,6 +82,9 @@ export function createEconomySlice(set: SetState, get: GetState): EconomySlice {
         autopilot: s.autopilot,
         // Player preferences, not run progress.
         bmc: s.bmc,
+        cycle: s.cycle,
+        reputation: { ...s.reputation, chain: null },
+        collection: s.collection,
         biosProfiles: s.biosProfiles,
         // The battery bank is bolted to the Warehouse: it stays only if the rooms do.
         upgrades: keepRooms ? s.upgrades : undefined,

@@ -1,6 +1,7 @@
-import { Bot, CheckCircle2, ClipboardList, CloudLightning, Coins, Cpu, Gauge, Gem, Hourglass, Pickaxe, RefreshCw, Snowflake, Sparkles, Timer } from 'lucide-react';
+import { Award, Bot, CheckCircle2, ClipboardList, CloudLightning, Coins, Cpu, Gauge, Gem, Hourglass, Pickaxe, RefreshCw, Snowflake, Sparkles, Timer } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { CONTRACT_DEFS, CONTRACT_DIFFICULTY, CONTRACTS } from '../../config/contracts';
+import { REPUTATION, reputationLevel, reputationProgress } from '../../config/reputation';
 import { GPU_BY_ID } from '../../config/hardwareCatalog';
 import { useT } from '../../i18n';
 import { sprites } from '../../engine/SpriteManager';
@@ -27,6 +28,8 @@ export const CONTRACT_ICON: Record<ContractKind, (size: number) => ReactNode> = 
 
 interface CardProps {
   c: Contract;
+  /** Stage of a Special Contract (1-3): no reroll, and the card says which stage it is. */
+  stage?: number;
   now: number;
   hottest: number;
   rerollCost: number;
@@ -34,7 +37,7 @@ interface CardProps {
   canPayReroll: boolean;
 }
 
-function ContractCard({ c, now, hottest, rerollCost, rerollReady, canPayReroll }: CardProps) {
+function ContractCard({ c, stage, now, hottest, rerollCost, rerollReady, canPayReroll }: CardProps) {
   const t = useT();
   const { claimContract, rerollContract } = useGameStore.getState();
   const def = CONTRACT_DEFS[c.kind];
@@ -60,6 +63,7 @@ function ContractCard({ c, now, hottest, rerollCost, rerollReady, canPayReroll }
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
             <span className="font-pixel text-[9px]" style={{ color: def.color }}>{title.toUpperCase()}</span>
             <span className="font-pixel text-[7px]" style={{ color: diff.color }}>{t(diff.label).toUpperCase()}</span>
+            {stage !== undefined && <span className="bg-gold px-1 font-pixel text-[7px] text-void">{t('STAGE {n}/{max}', { n: stage, max: REPUTATION.chainStages })}</span>}
             {done ? (
               <span className="blink ml-auto flex items-center gap-1 font-pixel text-[8px] text-lime">
                 <CheckCircle2 size={11} /> {t('COMPLETE')}
@@ -105,7 +109,7 @@ function ContractCard({ c, now, hottest, rerollCost, rerollReady, canPayReroll }
             <PixelButton size="sm" variant="success" onClick={() => claimContract(c.id)} aria-label={t('Claim {title}', { title })} silent>
               {t('Claim')}
             </PixelButton>
-          ) : (
+          ) : stage !== undefined ? null : (
             <PixelButton
               size="xs"
               variant="ghost"
@@ -134,7 +138,9 @@ export function ContractsPanel() {
     claimed: st.stats.contractsCompleted,
     // Re-render when the income estimate (reroll price) moves.
     hash: st.live.totalHash,
+    rep: st.reputation,
   }));
+  const acceptChain = useGameStore((st) => st.acceptChain);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -144,6 +150,8 @@ export function ContractsPanel() {
   const rerollLeft = Math.max(0, (s.board.rerollReadyAt - now) / 1000);
   const empty = Math.max(0, CONTRACTS.slots - s.board.slots.length);
   const ready = s.board.slots.filter((c) => c.completedAt !== null).length;
+  const repLevel = reputationLevel(s.rep.points);
+  const chainLeft = Math.max(0, (s.rep.chainReadyAt - now) / 1000);
 
   return (
     <div className="flex flex-col gap-3">
@@ -164,6 +172,37 @@ export function ContractsPanel() {
       <p className="text-[16px] leading-tight text-dim">
         {t('Buyers post timed orders sized to your farm. Finish one before the timer runs out, then claim it. You can reroll one unfinished contract every {min} minutes.', { min: CONTRACTS.rerollCooldownSec / 60 })}
       </p>
+
+      {/* Reputation and Special Contracts */}
+      <div className="flex flex-col gap-1.5 bg-[#2a1a05] p-2 shadow-[inset_0_0_0_2px_#b45309]" data-testid="reputation">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="flex items-center gap-1 font-pixel text-[9px] text-gold"><Award size={13} /> {t('REPUTATION LV {n}', { n: repLevel })}</span>
+          <Meter value={reputationProgress(s.rep.points)} max={1} color="#fbbf24" segments={16} warnAt={2} dangerAt={2} className="min-w-24 flex-1" />
+          <span className="text-[15px] text-dim">
+            {repLevel >= REPUTATION.maxLevel ? t('{n} pts (max)', { n: s.rep.points }) : t('{n}/{next} pts', { n: s.rep.points, next: REPUTATION.levelPoints(repLevel + 1) })}
+          </span>
+        </div>
+        <p className="text-[15px] leading-tight text-[#fde68a]/80">
+          {t('Claim contracts to earn reputation (+1/+2/+3 by difficulty); an expired one costs a point. Each level adds +{pct}% cash to every contract. Now: +{now}%.', { pct: Math.round(REPUTATION.cashPerLevel * 100), now: Math.round(repLevel * REPUTATION.cashPerLevel * 100) })}
+        </p>
+        {s.rep.chain ? (
+          <ContractCard c={s.rep.chain.current} stage={s.rep.chain.stage + 1} now={now} hottest={s.hottest} rerollCost={rerollCost} rerollReady={false} canPayReroll={false} />
+        ) : (
+          <div className="flex flex-wrap items-center gap-2 text-[15px] leading-tight">
+            <PixelButton size="xs" variant="gold" disabled={repLevel < REPUTATION.chainLevel || chainLeft > 0} onClick={() => acceptChain()} data-testid="chain-accept" silent>
+              {t('Accept Special Contract')}
+            </PixelButton>
+            <span className="min-w-0 flex-1 text-dim">
+              {repLevel < REPUTATION.chainLevel
+                ? t('Unlocks at reputation level {n}.', { n: REPUTATION.chainLevel })
+                : chainLeft > 0
+                  ? t('Next Special Contract in {time}.', { time: formatDuration(chainLeft) })
+                  : t('{n} stages in a row paying x{a}, x{b} and x{c} of a hard contract, plus {gems} gems for the full chain. Miss a stage and the chain is lost.', { n: REPUTATION.chainStages, a: REPUTATION.stageMul[0], b: REPUTATION.stageMul[1], c: REPUTATION.stageMul[2], gems: REPUTATION.chainGems })}
+            </span>
+            {s.rep.chainsDone > 0 && <span className="text-gold">{t('{n} chains completed', { n: s.rep.chainsDone })}</span>}
+          </div>
+        )}
+      </div>
 
       <h3 className="flex items-center gap-2 font-pixel text-[9px] text-amber">
         <ClipboardList size={14} /> {t('CONTRACTS BOARD')}

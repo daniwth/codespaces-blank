@@ -44,7 +44,8 @@ export type SfxCue =
   | 'drone'
   | 'fuse'
   | 'rally'
-  | 'frost';
+  | 'frost'
+  | 'news';
 
 export type VisualFx =
   | { kind: 'confetti'; intensity: number }

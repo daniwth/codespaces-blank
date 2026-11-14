@@ -941,7 +941,7 @@ try {
 
         // Supply drone: due at once, catch it with the button.
         await p.getByTestId('airdrop-catch').click({ timeout: 8000 });
-        await p.getByText(/DRONE CRATE/).first().waitFor({ timeout: 3000 });
+        await p.getByText(/DRONE CRATE|DRONE: /).first().waitFor({ timeout: 3000 });
         assert((await p.getByTestId('airdrop-catch').count()) === 0, 'drone still there after catching it');
 
         // Daily bonus: claim once, then it reports as claimed.
@@ -1188,6 +1188,66 @@ try {
           const st = JSON.parse(localStorage.getItem('hash-harvest-tycoon')).state;
           return st.biosProfiles.max.core === 50 && Object.values(st.gpus).every((g) => g.oc.voltage === 1000 && g.oc.core <= 50);
         }, null, { timeout: 6000 });
+        const overflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        assert(overflow <= 1, `page scrolls horizontally by ${overflow}px`);
+        assert(pageErrors.length === 0, pageErrors.join(' | '));
+      } finally {
+        await context.close();
+      }
+    }
+  });
+
+  await check('v9: market cycle and news ticker, take-profit order, PPLNS pool, reputation chain, used GPUs and collection (desktop + 390 px)', async () => {
+    for (const viewport of [{ width: 1600, height: 1000 }, { width: 390, height: 844 }]) {
+      const { context, p } = await fresh({ viewport });
+      const pageErrors = [];
+      p.on('pageerror', (e) => pageErrors.push(e.message));
+      try {
+        await p.addInitScript(() => localStorage.getItem('hh-lang') ?? localStorage.setItem('hh-lang', 'en'));
+        await bootPatched(p, `
+          state.research = { levels: { orders: 1 }, active: null };
+          state.cc = '500';
+          state.cash = '100000';
+          state.lifetimeEarnings = '100000';
+          state.talents = { ...state.talents, used_market: 1 };
+          state.reputation = { points: 12, chain: null, chainReadyAt: 0, chainsDone: 0 };
+          state.cycle = { phase: 'bull', startedAt: Date.now(), endsAt: Date.now() + 3600000, news: { id: 'etf_rumor', startedAt: Date.now(), endsAt: Date.now() + 600000 }, nextNewsAt: Date.now() + 3600000 };
+          state.nextAirdropAt = Date.now() + 3600000;
+        `);
+        const panel = (tab) => p.locator(`nav[aria-label="Panels"] button[title="${tab}"]`);
+        const tag = viewport.width;
+        // Market: the phase is highlighted, the ticker shows the headline, a take-profit below the price fills at once.
+        await panel('Market').click();
+        assert(((await p.getByTestId('market-phase').textContent()) ?? '').includes('Bull Run'), 'the Bull Run phase is not highlighted');
+        assert(/ETF rumor/.test((await p.getByTestId('news-ticker').textContent()) ?? ''), 'the headline is not on the ticker');
+        await p.screenshot({ path: join(ART, `v9-market-${tag}.png`) });
+        const orders = p.getByTestId('orders');
+        await orders.locator('input[aria-label="Trigger as a multiple of the current price"]').fill('0.5');
+        await orders.locator('input[aria-label="Trigger as a multiple of the current price"]').blur();
+        await p.getByTestId('order-add').click();
+        await p.getByText(/TAKE-PROFIT filled: sold 500/).first().waitFor({ timeout: 6000 });
+        assert((await p.getByTestId('order-row').count()) === 0, 'the filled order is still listed');
+        // Pools: the PPLNS pool is there with its scheme, and can be chosen.
+        await panel('Pools').click();
+        await p.getByText('PPLNS Pool').first().click();
+        await p.getByText(/Switched to PPLNS Pool/).first().waitFor({ timeout: 3000 });
+        await p.getByText(/pending [\d.]+ \$CC/).first().waitFor({ timeout: 5000 });
+        // Contracts: reputation level 2 unlocks the Special Contract, which shows as stage 1/3.
+        await panel('Contracts').click();
+        assert(/REPUTATION LV 2/.test((await p.getByTestId('reputation').textContent()) ?? ''), 'reputation level missing');
+        await p.getByTestId('chain-accept').click();
+        await p.getByTestId('reputation').getByText('STAGE 1/3').waitFor({ timeout: 3000 });
+        await p.screenshot({ path: join(ART, `v9-contracts-${tag}.png`) });
+        // Shop: Grey Market sells a used card; the album in Rigs counts it.
+        await panel('Shop').click();
+        await p.getByTestId('used-px580').click();
+        await p.getByText(/Bought a used PX-580/).first().waitFor({ timeout: 3000 });
+        await panel('Rigs').click();
+        assert(/^2\/40 entries/.test(((await p.getByTestId('collection-count').textContent()) ?? '').trim()), `album count: ${await p.getByTestId('collection-count').textContent()}`);
+        // Halving: the three new talents are on the tree.
+        await panel('Halving').click();
+        await p.getByText('Grey Market').first().waitFor({ timeout: 3000 });
+        await p.getByText('Lone Wolf').first().waitFor({ timeout: 3000 });
         const overflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
         assert(overflow <= 1, `page scrolls horizontally by ${overflow}px`);
         assert(pageErrors.length === 0, pageErrors.join(' | '));

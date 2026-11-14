@@ -32,6 +32,7 @@ const DATA_KEYS: (keyof GameData)[] = [
   'roomTemps', 'technicians', 'pool', 'market', 'bots', 'event', 'nextEventAt', 'talents', 'vip',
   'achievements', 'stats', 'settings', 'contracts', 'challenge', 'challengeRecords', 'alts', 'minedCoin',
   'research', 'boost', 'nextAirdropAt', 'roadmap', 'daily', 'autopilot', 'buffs', 'upgrades', 'bmc', 'biosProfiles',
+  'cycle', 'orders', 'poolPending', 'reputation', 'collection',
 ];
 
 export const extractData = (s: GameStore): GameData => {
@@ -49,6 +50,7 @@ export const selectSimInput = (s: GameStore): SimInput => ({
   event: s.event, nextEventAt: s.nextEventAt, talents: s.talents, vip: s.vip, cash: s.cash, cc: s.cc,
   meme: s.meme, memeCostBasis: s.memeCostBasis, ccCostBasis: s.ccCostBasis, alts: s.alts, minedCoin: s.minedCoin, lastTick: s.lastTick, challenge: s.challenge,
   research: s.research, boost: s.boost, buffs: s.buffs, upgrades: s.upgrades, bmc: s.bmc,
+  cycle: s.cycle, orders: s.orders, poolPending: s.poolPending, challengeRecords: s.challengeRecords, collection: s.collection,
 });
 
 /**
@@ -102,7 +104,7 @@ function createThrottledStorage(delay = 2000): StateStorage & { flush: () => voi
 export const gameStorage = createThrottledStorage();
 
 const SOUND_MAP: Record<SoundCue, SfxCue> = {
-  block: 'block', alarm: 'alarm', raid: 'raid', event: 'event', shutdown: 'shutdown', sell: 'sell', restart: 'restart',
+  block: 'block', alarm: 'alarm', raid: 'raid', event: 'event', shutdown: 'shutdown', sell: 'sell', restart: 'restart', news: 'news',
 };
 
 let logId = 0;
@@ -206,6 +208,9 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
         runEarnings: bnAdd(s.runEarnings, out.earnedCash),
         lifetimeEarnings: bnAdd(s.lifetimeEarnings, out.earnedCash),
         market: out.market,
+        cycle: out.cycle,
+        orders: out.filledOrders.length ? s.orders.filter((o) => !out.filledOrders.includes(o.id)) : s.orders,
+        poolPending: Math.max(0, s.poolPending + out.poolPendingDelta),
         bots: s.bots.map((b) => (fires[b.id] !== undefined ? { ...b, lastFiredAt: fires[b.id] } : b)),
         event: out.event,
         nextEventAt: out.nextEventAt,

@@ -240,7 +240,7 @@ export function candidates(world: SimInput, baseNet: number, live: LiveMetrics):
   const cash = bnToNumber(world.cash);
   const budget = cash + Math.max(0, baseNet) * AUTOPILOT.reachSeconds;
   const price = (list: number): number => hardwarePrice(list, world);
-  const mods = runModifiers(world.talents, world.research.levels);
+  const mods = runModifiers(world.talents, world.research.levels, world);
   const ctx: KitContext = { world, price, heatMul: mods.heatMul, coolingMul: mods.coolingMul };
   const rules = challengeRules(world.challenge?.id);
   const rooms = usableRooms(world);

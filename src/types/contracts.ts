@@ -53,6 +53,22 @@ export interface Contract {
   reward: ContractReward;
 }
 
+/** A Special Contract: three stages in a row, each paying more than the last. */
+export interface ContractChain {
+  /** Stage being worked on (0-2). */
+  stage: number;
+  current: Contract;
+}
+
+/** Standing with the clients: earned by claiming contracts, lost by letting them expire. */
+export interface ReputationState {
+  points: number;
+  chain: ContractChain | null;
+  /** Epoch ms when the next Special Contract can be accepted. */
+  chainReadyAt: number;
+  chainsDone: number;
+}
+
 export interface ContractBoard {
   /** Up to CONTRACTS.slots contracts. */
   slots: Contract[];

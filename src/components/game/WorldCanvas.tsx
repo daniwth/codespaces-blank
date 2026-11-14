@@ -622,7 +622,8 @@ export function WorldCanvas() {
         // Status & labels
         const anyShutdown = rack.gpuSlots.some((u) => u && s.gpus[u]?.shutdown);
         const preheating = (live?.preheating ?? 0) > 0;
-        const lbl = STATUS_LABEL[status] ?? (anyShutdown ? HOT_LABEL : preheating ? PREHEAT_LABEL : undefined);
+        // Before the first tick lands there is no live state yet: say nothing rather than "empty".
+        const lbl = !live ? undefined : STATUS_LABEL[status] ?? (anyShutdown ? HOT_LABEL : preheating ? PREHEAT_LABEL : undefined);
         const icon = STATUS_ICON[status] ?? (anyShutdown && status === 'online' ? 'overheat' : preheating ? 'condensation' : undefined);
         if (lbl) {
           // Icon stays on (so the state reads at a glance); the label blinks next to it.

@@ -323,6 +323,11 @@ class AudioEngine {
         this.tone({ freq: 180, to: 60, type: 'square', dur: 0.12, gain: 0.2, delay: 0.3 });
         this.arp([659, 988, 1319, 1976], 0.06, 'triangle', 0.16);
         break;
+      case 'news':
+        // Teletype: three dry ticks and a short bell.
+        [0, 0.05, 0.1].forEach((d) => this.noise({ dur: 0.015, gain: 0.2, freq: 3000, delay: d }));
+        this.tone({ freq: 1245, type: 'triangle', dur: 0.18, gain: 0.1, delay: 0.16 });
+        break;
       case 'rally':
         // Whistle + three quick rising taps: "move, move, move".
         this.tone({ freq: 1800, to: 2600, type: 'sine', dur: 0.16, gain: 0.12 });

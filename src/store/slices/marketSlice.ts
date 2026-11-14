@@ -2,10 +2,12 @@ import { tr } from '../../i18n';
 import { BOT_UNLOCK_LEVEL, MARKET, POOLS, levelFromEarnings } from '../../config/gameBalance';
 import { COIN_INFO } from '../../config/altcoins';
 import { talentModifiers } from '../../config/prestigeTree';
-import type { TradingBot } from '../../types/economy';
+import type { TradeOrder, TradingBot } from '../../types/economy';
+import { ORDERS } from '../../config/marketCycle';
+import { researchModifiers } from '../../config/research';
 import { bnAdd, bnGte, bnSub, bnToNumber } from '../../utils/bignum';
 import { fxBus, makeUid, sfxBus } from '../../utils/eventBus';
-import { formatCash, formatNumber } from '../../utils/formatters';
+import { formatCash, formatNumber, formatPrice } from '../../utils/formatters';
 import { buyPrice, realizedEarnings, sellPrice } from '../gamePhysics';
 import { costBasisOf, holdingOf, walletPatch } from '../wallets';
 import type { GetState, MarketSlice, SetState } from '../storeTypes';
@@ -80,16 +82,40 @@ export function createMarketSlice(set: SetState, get: GetState): MarketSlice {
         s.pushLog(tr('{name} unlocks at level {level}.', { name: tr(def.name), level: def.unlockLevel }), 'warn');
         return false;
       }
-      set({ pool });
+      // Shares waiting for a PPLNS block are settled at par before leaving the pool.
+      set({ pool, poolPending: 0, ...(s.poolPending > 0 ? walletPatch(s, s.minedCoin, s.poolPending, 0) : {}) });
       s.pushLog(tr('Switched to {name}.', { name: tr(def.name) }), 'info');
       sfxBus.emit('switch');
       return true;
     },
 
+    addOrder: (coin, kind, price, amountPct) => {
+      const s = get();
+      if (!researchModifiers(s.research.levels).orderDesk) {
+        s.logT('Research the Order Desk in the Lab to place orders.', undefined, 'warn');
+        sfxBus.emit('error');
+        return false;
+      }
+      if (s.orders.length >= ORDERS.max || !(price > 0) || !Number.isFinite(price)) {
+        sfxBus.emit('error');
+        return false;
+      }
+      const order: TradeOrder = { id: makeUid('ord'), coin, kind, price, amountPct: Math.min(ORDERS.maxPct, Math.max(ORDERS.minPct, Math.round(amountPct))), createdAt: Date.now() };
+      set({ orders: [...s.orders, order] });
+      s.logT(kind === 'tp' ? 'Take-profit placed: sell {pct}% of ${coin} at {price} or more.' : 'Stop-loss placed: sell {pct}% of ${coin} at {price} or less.', { pct: order.amountPct, coin, price: formatPrice(price) }, 'info');
+      sfxBus.emit('install');
+      return true;
+    },
+
+    removeOrder: (id) => {
+      set((s) => ({ orders: s.orders.filter((o) => o.id !== id) }));
+      sfxBus.emit('switch');
+    },
+
     setMinedCoin: (coin) => {
       const s = get();
       if (s.minedCoin === coin) return true;
-      set({ minedCoin: coin });
+      set({ minedCoin: coin, poolPending: 0, ...(s.poolPending > 0 ? walletPatch(s, s.minedCoin, s.poolPending, 0) : {}) });
       s.pushLog(tr('Now mining {name} (${coin}).', { name: tr(COIN_INFO[coin].name), coin }), 'info');
       sfxBus.emit('switch');
       return true;

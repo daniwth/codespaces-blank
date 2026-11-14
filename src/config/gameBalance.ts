@@ -32,6 +32,10 @@ export const PHYSICS = {
   rebootMs: 10_000,
   inspectionRebootMs: 30_000,
   soloBlockMeanSec: 300,
+  /** PPLNS: mean seconds between pool blocks, the luck range of a block and the bonus of a positive network event. */
+  pplnsBlockMeanSec: 45,
+  pplnsLuck: [0.55, 1.45] as [number, number],
+  pplnsEventLuck: 1.15,
   soloEvMul: 1.15,
   darknetRaidMeanSec: 420,
 } as const;
@@ -52,8 +56,13 @@ export const GRID = {
 export const POOLS: Record<PoolMode, PoolDefinition> = {
   public: {
     id: 'public', name: 'Public Stable Pool', tagline: 'Steady shares',
-    description: 'Constant payouts for every valid share. The pool keeps a 2% fee.',
+    description: 'PPS: a constant payout for every valid share, every tick. The pool keeps a 2% fee.',
     scheme: 'pps', payoutMul: 1, fee: 0.02, unlockLevel: 1, color: '#22c55e',
+  },
+  pplns: {
+    id: 'pplns', name: 'PPLNS Pool', tagline: 'Paid per pool block',
+    description: 'PPLNS: your shares pile up and are paid when the pool finds a block, about every 45 s, with the luck of that block (0.55x-1.45x). +5% on average, more during good network events.',
+    scheme: 'pplns', payoutMul: 1.06, fee: 0.01, unlockLevel: 2, color: '#38bdf8',
   },
   solo: {
     id: 'solo', name: 'Solo Mining', tagline: 'Jackpot or nothing',
@@ -67,7 +76,7 @@ export const POOLS: Record<PoolMode, PoolDefinition> = {
   },
 };
 
-export const POOL_ORDER: PoolMode[] = ['public', 'solo', 'darknet'];
+export const POOL_ORDER: PoolMode[] = ['public', 'pplns', 'solo', 'darknet'];
 
 export const NETWORK_EVENTS: Record<NetworkEventId, NetworkEventDef> = {
   difficulty_spike: {

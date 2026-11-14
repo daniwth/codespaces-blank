@@ -86,6 +86,24 @@ export const PRESTIGE_TREE: TalentNode[] = [
     maxLevel: 3, costBase: 3, costGrowth: 1.6, requires: ['tech_union'], effect: 0.15,
     format: (l) => `-${pct(l * 0.15)} research time`,
   },
+  {
+    id: 'used_market', name: 'Grey Market', icon: 'recycle', col: 1, row: 4,
+    description: 'Unlocks used GPUs in the Shop: 45% off, with random wear and tired paste.',
+    maxLevel: 1, costBase: 6, costGrowth: 1, requires: ['vip_slots'], effect: 1,
+    format: (l) => (l > 0 ? 'Used GPUs on sale' : 'No used market'),
+  },
+  {
+    id: 'forge_mastery', name: 'Forge Mastery', icon: 'hammer', col: 2, row: 4,
+    description: 'The Silicon Forge may need only 2 cards instead of 3.',
+    maxLevel: 3, costBase: 4, costGrowth: 1.6, requires: ['quantum_entanglement'], effect: 0.2,
+    format: (l) => `${pct(l * 0.2)} chance of a 2-card fusion`,
+  },
+  {
+    id: 'solo_luck', name: 'Lone Wolf', icon: 'dice', col: 3, row: 4,
+    description: 'Bigger jackpots for every block found Solo Mining.',
+    maxLevel: 3, costBase: 4, costGrowth: 1.6, requires: ['room_keeper'], effect: 0.15,
+    format: (l) => `+${pct(l * 0.15)} solo block payout`,
+  },
 ];
 
 export const TALENT_BY_ID = Object.fromEntries(PRESTIGE_TREE.map((t) => [t.id, t])) as Record<TalentId, TalentNode>;
@@ -149,6 +167,12 @@ export interface TalentModifiers {
   airdropMul: number;
   /** Multiplier on Lab research time. */
   researchTimeMul: number;
+  /** Used GPUs can be bought in the Shop. */
+  usedMarket: boolean;
+  /** Chance (0-1) that a fusion consumes 2 cards instead of 3. */
+  forgeSave: number;
+  /** Multiplier on Solo Mining block payouts. */
+  soloMul: number;
 }
 
 export const BASE_OFFLINE_HOURS = 8;
@@ -169,5 +193,8 @@ export function talentModifiers(talents: TalentLevels): TalentModifiers {
     keepRooms: l('room_keeper') > 0,
     airdropMul: 1 + l('drone_uplink') * 0.5,
     researchTimeMul: 1 - l('lab_grant') * 0.15,
+    usedMarket: l('used_market') > 0,
+    forgeSave: l('forge_mastery') * 0.2,
+    soloMul: 1 + l('solo_luck') * 0.15,
   };
 }

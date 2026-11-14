@@ -1,6 +1,6 @@
 import type { AirdropKind } from '../config/airdrops';
 import type { AutopilotPlanId } from '../config/autopilot';
-import type { CoinId, MineableCoin, PoolMode, TradeResult, TradingBot } from '../types/economy';
+import type { CoinId, MineableCoin, OrderKind, PoolMode, TradeResult, TradingBot } from '../types/economy';
 import type { ComponentKind, GpuInstance, OverclockSettings, SiliconQuality } from '../types/hardware';
 import type { BiosProfileId, BmcConfig, ChallengeId, GameData, GameSettings, ResearchId, RoomId, RoomUpgrades, TalentId } from '../types/player';
 import type { LiveMetrics, MessageTone, SimOutput } from './gamePhysics';
@@ -122,6 +122,8 @@ export interface HardwareSlice {
   buyMany: (kind: ComponentKind, modelId: string, qty: number) => number;
   /** Silicon Forge: melt 3 spare GPUs of one model and grade into 1 of the next grade. */
   fuseGpus: (modelId: string, quality: SiliconQuality) => GpuInstance | null;
+  /** Grey Market talent: buy a used GPU (cheaper, with random wear and tired paste). */
+  buyUsedGpu: (modelId: string) => GpuInstance | null;
   /** Auto-fill every placed rack from storage. Returns the parts installed. */
   autoFillAll: () => number;
   /** Re-paste every mounted GPU whose paste is below 60% (as many as the cash allows). Returns how many. */
@@ -154,6 +156,9 @@ export interface MarketSlice {
   setPool: (pool: PoolMode) => boolean;
   /** Choose which coin the farm mines (the pool pays this one). */
   setMinedCoin: (coin: MineableCoin) => boolean;
+  /** Place a one-shot take-profit / stop-loss sell order (needs the Order Desk research). */
+  addOrder: (coin: CoinId, kind: OrderKind, price: number, amountPct: number) => boolean;
+  removeOrder: (id: string) => void;
 }
 
 export interface EconomySlice {
@@ -177,6 +182,8 @@ export interface ContractsSlice {
   /** Credit realized profit from a manual market sale. */
   creditContractProfit: (amount: number) => void;
   dismissContractToast: () => void;
+  /** Accept a Special Contract: three stages in a row (needs reputation). */
+  acceptChain: () => boolean;
 }
 
 export interface ChallengesSlice {

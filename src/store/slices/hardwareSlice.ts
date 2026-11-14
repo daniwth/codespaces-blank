@@ -9,7 +9,8 @@ import { makeUid, sfxBus, fxBus } from '../../utils/eventBus';
 import { formatCash } from '../../utils/formatters';
 import { aiAutoTune, crashChance, fitOverclock, ocHashBonus, repairCost, repasteCooling, repasteCost, STOCK_OC } from '../gamePhysics';
 import { BIOS_PROFILE_NAMES } from '../../config/synergy';
-import { clamp } from '../../utils/random';
+import { clamp, randRange } from '../../utils/random';
+import { collect } from '../../config/collection';
 import { recordGpuEdit } from '../editLedger';
 import { createGpu, createRack, rollQuality } from '../initialState';
 import { PHYSICS } from '../../config/gameBalance';
@@ -18,6 +19,9 @@ import type { GameStore, GetState, HardwareSlice, SetState } from '../storeTypes
 import { challengeBlocks } from './challengesSlice';
 
 export const SELL_REFUND = 0.5;
+/** Grey Market (talent): used GPUs cost this share of the price and arrive worn. */
+export const USED_GPU = { priceMul: 0.55, wear: [0.05, 0.3] as [number, number], paste: [0.3, 0.8] as [number, number] } as const;
+export const usedGpuPrice = (price: number): number => Math.max(0.01, Math.round(price * USED_GPU.priceMul * 100) / 100);
 /** Silicon Forge: spare GPUs of one model and grade melted into one of the next grade. */
 export const FUSE_COUNT = 3;
 /** "Re-paste all" touches every mounted GPU whose paste is below this. */
@@ -142,11 +146,32 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
         gpus: { ...s.gpus, [gpu.uid]: gpu },
         stats: { ...s.stats, gpusBought: s.stats.gpusBought + 1 },
         lottery: { modelId, quality, t: Date.now() },
+        collection: collect(s.collection, modelId, quality),
       }));
       get().pushLog(tr('Bought {brand} {name} — Silicon Lottery: {quality}!', { brand: model.brand, name: tr(model.name), quality: tr(QUALITY_DEFS[quality].label).toUpperCase() }), quality === 'god' || quality === 'gold' ? 'good' : 'info');
       sfxBus.emit(quality === 'god' ? 'unlock' : 'buy');
       fxBus.emit({ kind: 'lottery', quality });
       if (quality === 'god') fxBus.emit({ kind: 'confetti', intensity: 0.6 });
+      return gpu;
+    },
+
+    buyUsedGpu: (modelId) => {
+      const s = get();
+      const model = GPU_BY_ID[modelId];
+      if (!model || !talentModifiers(s.talents).usedMarket) return null;
+      if (!spend(usedGpuPrice(hardwarePrice(model.price, s)), model.name)) return null;
+      const quality = challengeBlocks(get(), 'bronzeOnly') ? 'bronze' : rollQuality(talentModifiers(s.talents).qualityLuck);
+      // Second hand: some silicon wear and paste that has seen better days.
+      const gpu: GpuInstance = { ...createGpu(modelId, quality), wear: randRange(USED_GPU.wear[0], USED_GPU.wear[1]), paste: randRange(USED_GPU.paste[0], USED_GPU.paste[1]) };
+      set((st) => ({
+        gpus: { ...st.gpus, [gpu.uid]: gpu },
+        stats: { ...st.stats, gpusBought: st.stats.gpusBought + 1 },
+        lottery: { modelId, quality, t: Date.now() },
+        collection: collect(st.collection, modelId, quality),
+      }));
+      get().logT('Bought a used {name}: {quality} silicon, {wear}% worn.', { name: model.name, quality: QUALITY_DEFS[quality].label, wear: Math.round(gpu.wear * 100) }, quality === 'god' || quality === 'gold' ? 'good' : 'info');
+      sfxBus.emit('buy');
+      fxBus.emit({ kind: 'lottery', quality });
       return gpu;
     },
 
@@ -381,14 +406,16 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
         const bronzeOnly = challengeBlocks(s, 'bronzeOnly');
         const gpus = { ...s.gpus };
         const rolled: Record<SiliconQuality, number> = { bronze: 0, silver: 0, gold: 0, god: 0 };
+        let collection = s.collection;
         for (let i = 0; i < count; i += 1) {
           const quality = bronzeOnly ? 'bronze' : rollQuality(luck);
           const gpu = createGpu(modelId, quality);
           gpus[gpu.uid] = gpu;
           rolled[quality] += 1;
+          collection = collect(collection, modelId, quality);
         }
         const best = [...QUALITY_ORDER].reverse().find((q) => rolled[q] > 0) ?? 'bronze';
-        set({ cash, gpus, stats: { ...s.stats, gpusBought: s.stats.gpusBought + count }, lottery: { modelId, quality: best, t: Date.now() } });
+        set({ cash, gpus, collection, stats: { ...s.stats, gpusBought: s.stats.gpusBought + count }, lottery: { modelId, quality: best, t: Date.now() } });
         s.logT('Bought {n}x {name} for {price}. Silicon Lottery: {bronze} Bronze, {silver} Silver, {gold} Gold, {god} Silicon God.',
           { n: count, name: model.name, price: total, bronze: rolled.bronze, silver: rolled.silver, gold: rolled.gold, god: rolled.god },
           rolled.god + rolled.gold > 0 ? 'good' : 'info');
@@ -445,10 +472,13 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
       const next = QUALITY_ORDER[idx + 1];
       const fused = createGpu(modelId, next);
       const gpus = { ...s.gpus };
-      spare.slice(0, FUSE_COUNT).forEach((g) => delete gpus[g.uid]);
+      // Forge Mastery: sometimes two cards are enough and the third one is spared.
+      const used = Math.random() < talentModifiers(s.talents).forgeSave ? FUSE_COUNT - 1 : FUSE_COUNT;
+      spare.slice(0, used).forEach((g) => delete gpus[g.uid]);
       gpus[fused.uid] = fused;
-      set({ gpus, stats: { ...s.stats, fusions: s.stats.fusions + 1 }, lottery: { modelId, quality: next, t: Date.now() } });
-      s.logT('SILICON FORGE: {n}x {from} {name} fused into 1 {to}.', { n: FUSE_COUNT, from: QUALITY_DEFS[quality].label, name: model.name, to: QUALITY_DEFS[next].label }, next === 'god' || next === 'gold' ? 'good' : 'info');
+      set({ gpus, stats: { ...s.stats, fusions: s.stats.fusions + 1 }, lottery: { modelId, quality: next, t: Date.now() }, collection: collect(s.collection, modelId, next) });
+      if (used < FUSE_COUNT) s.logT('Forge Mastery: only {n} cards were needed. One was spared.', { n: used }, 'good');
+      s.logT('SILICON FORGE: {n}x {from} {name} fused into 1 {to}.', { n: used, from: QUALITY_DEFS[quality].label, name: model.name, to: QUALITY_DEFS[next].label }, next === 'god' || next === 'gold' ? 'good' : 'info');
       sfxBus.emit('fuse');
       fxBus.emit({ kind: 'lottery', quality: next });
       if (next === 'god') fxBus.emit({ kind: 'confetti', intensity: 0.6 });

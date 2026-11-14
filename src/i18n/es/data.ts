@@ -181,6 +181,9 @@ const TALENT_FORMAT_ES: Record<string, ReadonlyArray<readonly [RegExp, string]>>
   drone_uplink: [[/ drone loot$/, ' botín de drones']],
   lab_grant: [[/ research time$/, ' tiempo de investigación']],
   room_keeper: [[/^Rooms kept$/, 'Salas conservadas'], [/^Rooms reset$/, 'Salas reiniciadas']],
+  used_market: [[/^Used GPUs on sale$/, 'GPUs usadas a la venta'], [/^No used market$/, 'Sin mercado de usados']],
+  forge_mastery: [[/ chance of a 2-card fusion$/, ' de prob. de fusión con 2 tarjetas']],
+  solo_luck: [[/ solo block payout$/, ' pago por bloque en solitario']],
 };
 
 function talentFormats(): Dict {

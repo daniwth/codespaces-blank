@@ -16,6 +16,10 @@ Reply to the user in Spanish. Project conventions are in `CLAUDE.md`; do not rep
 - Hotkeys: `src/hooks/useHotkeys.ts` (ignored while typing or with a dialog open).
 - Rack synergies, BIOS profiles and Smart BMC defaults: `src/config/synergy.ts`; room rules (day/night clock, garage waves, battery, condensation, hull limit): `ROOM_MECHANICS` in `src/config/roomsCatalog.ts`. All of it is applied in `gamePhysics.step`.
 - Balance note: the Cluster Bonus trims the electrical draw only (die heat is unchanged) and Liquid Spillover only helps racks without a liquid loop, so the cooling ladder and the wiki's packed-room model still hold.
+- Market cycle, news and orders: `src/config/marketCycle.ts` (`stepCycle` / `cycleEffect` in the simulation). Pools declare a `scheme` (PPS / PPLNS / solo); PPLNS shares wait in `poolPending`.
+- Reputation and Special Contracts: `src/config/reputation.ts` + `GameData.reputation` (the chain stage advances through a one-slot board).
+- Relics and the Silicon Collection: `src/config/collection.ts`; they reach the simulation through `runModifiers(talents, research, perks)`.
+- Unit tests freeze the market cycle in `tests/unit/helpers.ts` (like network events), because phase changes and headlines draw from the RNG.
 
 ## i18n
 - `src/i18n/index.ts`: English text is the key. React uses `const t = useT()`, other code `tr(en, params)`. Placeholders are `{name}`.
@@ -39,3 +43,4 @@ Reply to the user in Spanish. Project conventions are in `CLAUDE.md`; do not rep
 - Phase 1 of the v9 update (audit and hardening): 280 unit, 38/38 server, 37/37 E2E.
 - Phase 2 (game feel: floating labels, thermal view, crew rally, special drones, ambience synth; save v9): 304 unit, 38/38 server, 38/38 E2E.
 - Phase 3 (rack synergies, undervolt floor and BIOS profiles, room identity, Smart BMC): 328 unit, 38/38 server, 39/39 E2E.
+- Phase 4 (market cycle, news, TP/SL orders, PPLNS, reputation chains, new talents, relics, collection): 357 unit, 38/38 server, 40/40 E2E.

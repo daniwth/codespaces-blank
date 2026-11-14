@@ -9,7 +9,7 @@ import { useT } from '../../i18n';
 import { sprites } from '../../engine/SpriteManager';
 import { gridTariff, poolYieldMul } from '../../store/gamePhysics';
 import { gpuEconomics, hardwarePrice, hardwarePriceMul, roomPsuEfficiency } from '../../store/pricing';
-import { MAX_BULK } from '../../store/slices/hardwareSlice';
+import { MAX_BULK, USED_GPU, usedGpuPrice } from '../../store/slices/hardwareSlice';
 import { runModifiers } from '../../config/modifiers';
 import { challengeBlocks } from '../../store/slices/challengesSlice';
 import { technicianCost } from '../../store/slices/roomsSlice';
@@ -88,6 +88,9 @@ export function HardwareShop() {
     difficulty: st.live.minedCoin === st.minedCoin ? st.live.difficulty : 1,
     pool: st.pool,
     battery: st.upgrades.battery,
+    challengeRecords: st.challengeRecords,
+    collection: st.collection,
+    usedMarket: talentModifiers(st.talents).usedMarket,
   }));
   const actions = useGameStore.getState();
   const [qty, setQty] = useState<Qty>(1);
@@ -106,7 +109,7 @@ export function HardwareShop() {
       onBuy: () => void actions.buyMany(kind, modelId, n),
     };
   };
-  const run = runModifiers(s.talents, s.research.levels);
+  const run = runModifiers(s.talents, s.research.levels, s);
   /** Net economics of one stock card in the room on screen: mined value minus its real power bill. */
   const economics = (g: (typeof GPU_CATALOG)[number]) =>
     gpuEconomics(g, hardwarePrice(g.price, s), {
@@ -180,6 +183,18 @@ export function HardwareShop() {
               <div className="text-dim" title={t('Grid demand: dense, high-hash hardware is billed at a higher rate per watt.')}>
                 {slotted(t('grid tariff {x} per watt', { x: SLOT }), <span className="text-amber">{formatMultiplier(gridTariff(g.id))}</span>)}
               </div>
+              {s.usedMarket && (
+                <button
+                  type="button"
+                  className="mt-0.5 bg-[#3b2a0a] px-1.5 text-left text-amber hover:bg-[#5a3f0e] disabled:opacity-50"
+                  disabled={!can(usedGpuPrice(hardwarePrice(g.price, s)))}
+                  onClick={() => actions.buyUsedGpu(g.id)}
+                  title={t('Grey Market: {pct}% off, {lo}-{hi}% worn and with tired paste. The silicon lottery still rolls.', { pct: Math.round((1 - USED_GPU.priceMul) * 100), lo: Math.round(USED_GPU.wear[0] * 100), hi: Math.round(USED_GPU.wear[1] * 100) })}
+                  data-testid={`used-${g.id}`}
+                >
+                  {t('Buy used: {price}', { price: formatCash(usedGpuPrice(hardwarePrice(g.price, s))) })}
+                </button>
+              )}
             </Card>
             );
           })}

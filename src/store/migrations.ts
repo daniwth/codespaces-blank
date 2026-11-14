@@ -4,17 +4,22 @@ import { BIOS_PROFILE_IDS, BMC_LIMITS, DEFAULT_BIOS_PROFILES, DEFAULT_BMC, defau
 import { AIRDROP } from '../config/airdrops';
 import { ALT_COIN_IDS, COIN_IDS, emptyAlts, isCoinId, isMineableCoin } from '../config/altcoins';
 import { CHALLENGE_IDS, isChallengeId } from '../config/challenges';
+import { POOLS } from '../config/gameBalance';
 import { AUTOPILOT } from '../config/autopilot';
+import { collect } from '../config/collection';
+import { MAX_NEWS_SEC, MAX_PHASE_SEC, NEWS_INTERVAL, ORDERS, isMarketPhase, isNewsId, newCycle } from '../config/marketCycle';
+import { REPUTATION, emptyReputation } from '../config/reputation';
 import { BUFFS, emptyBuffs } from '../config/buffs';
 import { localDay } from '../config/daily';
 import { RESEARCH_BY_ID, RESEARCH_IDS, isResearchId } from '../config/research';
 import { ROADMAP } from '../config/roadmap';
 import { ROOM_BY_ID } from '../config/roomsCatalog';
 import { TALENT_BY_ID } from '../config/prestigeTree';
-import type { AltWallets, Candle, CoinMarket, MarketState, MineableCoin, TradingBot } from '../types/economy';
+import type { AltWallets, Candle, CoinMarket, MarketCycle, MarketState, MineableCoin, TradeOrder, TradingBot } from '../types/economy';
+import type { ReputationState } from '../types/contracts';
 import type { CoolerInstance, GpuInstance, OverclockSettings, PsuInstance, RackInstance, SiliconQuality } from '../types/hardware';
 import type {
-  ActiveChallenge, AutopilotState, BiosProfileId, BmcConfig, ChallengeRecords, RoomUpgrades, DailyState, FarmBuffs, GameData, GameSettings, HashBoost, ResearchLevels, ResearchState, RoadmapState, RoomId, TalentId, TalentLevels,
+  ActiveChallenge, AutopilotState, BiosProfileId, BmcConfig, ChallengeRecords, RoomUpgrades, SiliconCollection, DailyState, FarmBuffs, GameData, GameSettings, HashBoost, ResearchLevels, ResearchState, RoadmapState, RoomId, TalentId, TalentLevels,
 } from '../types/player';
 import { clamp, unitHash } from '../utils/random';
 import { contractContext, sanitizeBoard } from './contracts';
@@ -266,6 +271,74 @@ function sanitizeAutopilot(raw: unknown): AutopilotState {
   };
 }
 
+/** A phase or a headline never has longer to run than its own maximum: a tampered date cannot freeze the market. */
+function sanitizeCycle(raw: unknown, now: number): MarketCycle {
+  if (!isObject(raw) || !isMarketPhase(raw.phase)) return newCycle(now);
+  const endsAt = clamp(finite(raw.endsAt, now), 0, now + MAX_PHASE_SEC * 1000);
+  const n = raw.news;
+  const newsEnds = isObject(n) ? clamp(finite(n.endsAt, 0), 0, now + MAX_NEWS_SEC * 1000) : 0;
+  return {
+    phase: raw.phase,
+    startedAt: Math.min(finite(raw.startedAt, now), endsAt),
+    endsAt,
+    news: isObject(n) && isNewsId(n.id) && newsEnds > now ? { id: n.id, startedAt: Math.min(finite(n.startedAt, now), newsEnds), endsAt: newsEnds } : null,
+    nextNewsAt: clamp(finite(raw.nextNewsAt, now), 0, now + NEWS_INTERVAL[1] * 1000),
+  };
+}
+
+function sanitizeOrders(raw: unknown): TradeOrder[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(isObject)
+    .filter((o) => str(o.id) && typeof o.price === 'number' && Number.isFinite(o.price) && o.price > 0)
+    .slice(0, ORDERS.max)
+    .map((o) => ({
+      id: String(o.id),
+      coin: isCoinId(o.coin) ? o.coin : 'CC',
+      kind: o.kind === 'sl' ? 'sl' : 'tp',
+      price: Math.min(o.price as number, 1e12),
+      amountPct: clamp(Math.round(finite(o.amountPct, 100)), ORDERS.minPct, ORDERS.maxPct),
+      createdAt: finite(o.createdAt, 0),
+    }));
+}
+
+/** Points and counters are bounded; a chain in progress is rebuilt from a valid one-slot board or dropped. */
+function sanitizeReputation(raw: unknown, ctx: Parameters<typeof sanitizeBoard>[1], now: number): ReputationState {
+  if (!isObject(raw)) return emptyReputation();
+  const out: ReputationState = {
+    points: clamp(Math.floor(finite(raw.points, 0)), 0, 1_000_000),
+    chain: null,
+    chainReadyAt: clamp(finite(raw.chainReadyAt, 0), 0, now + REPUTATION.chainCooldownSec * 1000),
+    chainsDone: clamp(Math.floor(finite(raw.chainsDone, 0)), 0, 1_000_000),
+  };
+  const chain = raw.chain;
+  if (isObject(chain) && isObject(chain.current)) {
+    // Reuse the board sanitizer on a one-slot board: a garbled stage simply does not survive.
+    const rawId = str(chain.current.id);
+    const board = sanitizeBoard({ slots: [chain.current], nextRefillAt: now, rerollReadyAt: 0 }, ctx, now);
+    const current = board.slots.find((c) => c.id === rawId);
+    if (current) out.chain = { stage: clamp(Math.floor(finite(chain.stage, 0)), 0, REPUTATION.chainStages - 1), current };
+  }
+  return out;
+}
+
+/** Only known models and grades; owned GPUs are always in the album (older saves start from what they hold). */
+function sanitizeCollection(raw: unknown, gpus: Record<string, GpuInstance>): SiliconCollection {
+  let out: SiliconCollection = {};
+  if (isObject(raw)) {
+    Object.entries(raw).forEach(([modelId, grades]) => {
+      if (!GPU_BY_ID[modelId] || !Array.isArray(grades)) return;
+      QUALITY_ORDER.forEach((q) => {
+        if (grades.includes(q)) out = collect(out, modelId, q);
+      });
+    });
+  }
+  Object.values(gpus).forEach((g) => {
+    out = collect(out, g.modelId, g.quality);
+  });
+  return out;
+}
+
 /** No boost outlives its own duration from now: a tampered deadline cannot make one permanent. */
 function sanitizeBuffs(raw: unknown, now: number): FarmBuffs {
   if (!isObject(raw)) return emptyBuffs();
@@ -366,6 +439,12 @@ function sanitize(data: GameData, source: Json): GameData {
     upgrades: sanitizeUpgrades(source.upgrades, ownedRooms),
     bmc: sanitizeBmc(source.bmc),
     biosProfiles: sanitizeBiosProfiles(source.biosProfiles),
+    cycle: sanitizeCycle(source.cycle, now),
+    orders: sanitizeOrders(source.orders),
+    poolPending: clamp(finite(source.poolPending, 0), 0, 1e300),
+    reputation: emptyReputation(),
+    collection: sanitizeCollection(source.collection, gpus),
+    pool: typeof source.pool === 'string' && source.pool in POOLS ? (source.pool as GameData['pool']) : 'public',
     settings: sanitizeSettings(source.settings),
     achievements: (Array.isArray(data.achievements) ? data.achievements : []).filter((a): a is string => typeof a === 'string'),
     technicians: clamp(Math.floor(finite(data.technicians, 0)), 0, 6),
@@ -379,7 +458,8 @@ function sanitize(data: GameData, source: Json): GameData {
     activeRoom: ownedRooms.includes(data.activeRoom) ? data.activeRoom : 'bedroom',
   };
   // Contracts are rebuilt last: a missing/garbled board is regenerated, scaled to the sanitized farm.
-  return { ...clean, contracts: sanitizeBoard(source.contracts, contractContext(clean), Date.now()) };
+  const ctx = contractContext(clean);
+  return { ...clean, reputation: sanitizeReputation(source.reputation, ctx, now), contracts: sanitizeBoard(source.contracts, ctx, Date.now()) };
 }
 
 /**
@@ -395,7 +475,8 @@ function sanitize(data: GameData, source: Json): GameData {
  * v7 → v8: added the AI Farm Manager.
  * v8 → v9: added the crew rally and special drone boosts (`buffs`), a separate ambience volume, the
  *            undervolt floor of every chip (`silicon.vFloor`), room upgrades, the Smart BMC thresholds
- *            and the saved BIOS profiles.
+ *            and the saved BIOS profiles; the market cycle and news, take-profit / stop-loss orders, PPLNS
+ *            pending shares, contract reputation and the Silicon Collection (seeded from the GPUs owned).
  */
 export function migrateSave(raw: unknown, fromVersion: number): GameData {
   const defaults = createInitialData();
@@ -432,6 +513,11 @@ export function migrateSave(raw: unknown, fromVersion: number): GameData {
     delete source.upgrades;
     delete source.bmc;
     delete source.biosProfiles;
+    delete source.cycle;
+    delete source.orders;
+    delete source.poolPending;
+    delete source.reputation;
+    delete source.collection;
   }
   const merged = mergeTyped(defaults, source);
   merged.saveVersion = SAVE_VERSION;

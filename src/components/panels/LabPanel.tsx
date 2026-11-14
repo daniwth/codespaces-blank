@@ -1,4 +1,4 @@
-import { Bot, Cpu, Droplets, Fan, FlaskConical, Gem, PlugZap, Truck, UtilityPole, type LucideIcon } from 'lucide-react';
+import { Bot, Target, Cpu, Droplets, Fan, FlaskConical, Gem, PlugZap, Truck, UtilityPole, type LucideIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { RESEARCH, RESEARCH_BY_ID, researchCost, researchLevel, rushCost, type ResearchIcon } from '../../config/research';
 import { BMC_LIMITS } from '../../config/synergy';
@@ -11,7 +11,7 @@ import { cn } from '../../utils/cn';
 import { formatCash, formatDuration } from '../../utils/formatters';
 import { PixelButton } from '../ui/PixelButton';
 
-const ICONS: Record<ResearchIcon, LucideIcon> = { chip: Cpu, fan: Fan, bolt: PlugZap, drop: Droplets, pylon: UtilityPole, truck: Truck, robot: Bot };
+const ICONS: Record<ResearchIcon, LucideIcon> = { chip: Cpu, fan: Fan, bolt: PlugZap, drop: Droplets, pylon: UtilityPole, truck: Truck, robot: Bot, orders: Target };
 
 /** Wall clock that re-renders its caller twice a second (research countdowns). */
 export function useNow(intervalMs = 500): number {

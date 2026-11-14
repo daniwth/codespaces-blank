@@ -2,13 +2,15 @@ import type {
   ActiveNetworkEvent,
   AltWallets,
   BigNum,
+  MarketCycle,
   MarketState,
   MineableCoin,
   PoolMode,
+  TradeOrder,
   TradingBot,
 } from './economy';
-import type { ContractBoard } from './contracts';
-import type { CoolerInstance, GpuInstance, OverclockSettings, PsuInstance, RackInstance } from './hardware';
+import type { ContractBoard, ReputationState } from './contracts';
+import type { CoolerInstance, GpuInstance, OverclockSettings, PsuInstance, RackInstance, SiliconQuality } from './hardware';
 
 export type RoomId = 'bedroom' | 'garage' | 'warehouse' | 'arctic' | 'submarine';
 
@@ -31,7 +33,10 @@ export interface ChallengeRecord {
 export type ChallengeRecords = Partial<Record<ChallengeId, ChallengeRecord>>;
 
 /** Run-scoped research projects bought with cash in the Lab (wiped by The Halving). */
-export type ResearchId = 'firmware' | 'airflow' | 'pfc' | 'paste' | 'grid' | 'logistics' | 'bmc';
+export type ResearchId = 'firmware' | 'airflow' | 'pfc' | 'paste' | 'grid' | 'logistics' | 'bmc' | 'orders';
+
+/** Silicon Collection album: the grades ever obtained of each GPU model. */
+export type SiliconCollection = Record<string, SiliconQuality[]>;
 
 export type ResearchLevels = Partial<Record<ResearchId, number>>;
 
@@ -111,7 +116,10 @@ export type TalentId =
   | 'quantum_entanglement'
   | 'room_keeper'
   | 'drone_uplink'
-  | 'lab_grant';
+  | 'lab_grant'
+  | 'used_market'
+  | 'forge_mastery'
+  | 'solo_luck';
 
 export type TalentIcon =
   | 'zap'
@@ -126,7 +134,10 @@ export type TalentIcon =
   | 'atom'
   | 'building'
   | 'radar'
-  | 'flask';
+  | 'flask'
+  | 'recycle'
+  | 'hammer'
+  | 'dice';
 
 export interface TalentNode {
   id: TalentId;
@@ -338,4 +349,14 @@ export interface GameData {
   bmc: BmcConfig;
   /** The three saved BIOS profiles (survive Halvings). */
   biosProfiles: Record<BiosProfileId, OverclockSettings>;
+  /** Market phase and news ticker. */
+  cycle: MarketCycle;
+  /** Take-profit / stop-loss orders (Order Desk research). */
+  orders: TradeOrder[];
+  /** PPLNS pool: coins earned in shares and not paid out yet (paid when the pool finds a block). */
+  poolPending: number;
+  /** Contract reputation and the Special Contract in progress (survive Halvings). */
+  reputation: ReputationState;
+  /** Silicon Collection album (survives Halvings). */
+  collection: SiliconCollection;
 }
