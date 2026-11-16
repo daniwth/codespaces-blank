@@ -1115,6 +1115,21 @@ export function WorldCanvas() {
           <PixelButton size="xs" variant="secondary" icon={<Wand2 size={10} />} onClick={() => autoEquipBest(ui.activeRoom)} title={t('Fill the free slots of this room and swap mounted parts for better spares from your inventory')} data-testid="room-equip" silent>
             <span className="hidden md:inline">{t('Auto-equip best')}</span>
           </PixelButton>
+          {storedRacks.length > 0 && (
+            <PixelButton
+              size="xs"
+              variant="gold"
+              icon={<Package size={10} />}
+              onClick={() => {
+                if (useGameStore.getState().placeStoredRacks(ui.activeRoom) === 0) useGameStore.getState().logT('{room} has no free floor pad. Store or sell a rack there, or unlock a bigger room.', { room: ROOM_BY_ID[ui.activeRoom].name }, 'warn');
+              }}
+              title={t('Put the racks waiting in storage on the free pads of this room')}
+              data-testid="room-place-stored"
+              silent
+            >
+              {t('Place stored racks ({n})', { n: storedRacks.length })}
+            </PixelButton>
+          )}
           <PixelButton size="xs" variant="ghost" icon={<Keyboard size={10} />} onClick={() => setHelpOpen(true)} aria-label={t('Keyboard shortcuts')} title={t('Keyboard shortcuts (?)')} data-testid="hotkeys-open" silent />
         </span>
         {ui.roomLive?.gpuCap != null && (

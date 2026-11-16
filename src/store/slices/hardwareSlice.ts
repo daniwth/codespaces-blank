@@ -2,7 +2,7 @@ import { foundryModifiers } from '../../config/foundry';
 import { tr } from '../../i18n';
 import { COOLER_BY_ID, GPU_BY_ID, OC_LIMITS, PSU_BY_ID, QUALITY_DEFS, QUALITY_ORDER, RACK_BY_ID } from '../../config/hardwareCatalog';
 import { talentModifiers } from '../../config/prestigeTree';
-import { ROOM_ORDER } from '../../config/roomsCatalog';
+import { ROOM_BY_ID, ROOM_ORDER } from '../../config/roomsCatalog';
 import type { ComponentKind, CoolerInstance, GpuInstance, OverclockSettings, PsuInstance, RackInstance, SiliconQuality } from '../../types/hardware';
 import type { GameData, RoomId } from '../../types/player';
 import { bnAdd, bnGte, bnSub, bnToNumber } from '../../utils/bignum';
@@ -26,6 +26,17 @@ export const usedGpuPrice = (price: number): number => Math.max(0.01, Math.round
 /** Silicon Forge: spare GPUs of one model and grade melted into one of the next grade. */
 export const FUSE_COUNT = 3;
 /** "Re-paste all" touches every mounted GPU whose paste is below this. */
+/**
+ * A rack that was just bought goes straight onto a free pad of the room on screen. When the room is
+ * full it waits in storage, and the log says so and what to do about it.
+ */
+function reportRackDelivery(s: GameStore, name: string, bought: number): void {
+  const room = ROOM_BY_ID[s.activeRoom].name;
+  const placed = s.placeStoredRacks(s.activeRoom, bought);
+  if (placed >= bought) s.logT('{name} placed in {room}. Click it to mount GPUs, a PSU and cooling.', { name, room }, 'good');
+  else s.logT('{room} has no free floor pad: {n} racks wait in storage. Store or sell a rack there, or unlock a bigger room, then press Place stored racks.', { room, n: bought - placed }, 'warn');
+}
+
 /** Odds multiplier of Gold and God silicon on a purchase: the Silicon Luck talent and the Chip Foundry. */
 export const lotteryLuck = (s: Pick<GameData, 'talents' | 'foundry'>): number =>
   talentModifiers(s.talents).qualityLuck * foundryModifiers(s.foundry).luckMul;
@@ -283,8 +294,8 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
       if (!model || model.vip || !spend(hardwarePrice(model.price, get()), model.name)) return false;
       const rack = createRack(modelId, model.slots, model.fanSlots);
       set((s) => ({ racks: { ...s.racks, [rack.uid]: rack } }));
-      get().pushLog(tr('Bought {name}. Click an empty floor pad to place it.', { name: tr(model.name) }));
       sfxBus.emit('buy');
+      reportRackDelivery(get(), model.name, 1);
       return true;
     },
 
@@ -593,6 +604,7 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
         set({ cash, racks });
       }
       s.logT('Bought {n}x {name} for {price}.', { n: count, name: model.name, price: total }, 'info');
+      if (kind === 'rack') reportRackDelivery(get(), model.name, count);
       sfxBus.emit('buy');
       return count;
     },

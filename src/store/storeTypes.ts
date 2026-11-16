@@ -153,6 +153,8 @@ export interface RoomsSlice {
   buyRoom: (roomId: RoomId) => boolean;
   setActiveRoom: (roomId: RoomId) => void;
   placeRack: (rackUid: string, roomId: RoomId, pad: number) => boolean;
+  /** Put racks waiting in storage on the free pads of a room (the one on screen by default). Returns how many were placed. */
+  placeStoredRacks: (roomId?: RoomId, limit?: number) => number;
   storeRack: (rackUid: string) => void;
   hireTechnician: () => boolean;
   /** Buy a one-off room upgrade (the Warehouse battery bank). */

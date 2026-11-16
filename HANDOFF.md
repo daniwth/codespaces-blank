@@ -84,3 +84,4 @@ Reply to the user in Spanish. Project conventions are in `CLAUDE.md`; do not rep
 - v11 (ranks with gem rewards and high-rank bonuses, Flash Mining, Pool Partner, Hard Fork event; save v11): 477 unit, 38/38 server, 44/44 E2E.
 - v12 (Chip Foundry tree, Sandbox mode; save v12): 490 unit, 38/38 server, 45/45 E2E.
 - Security hardening after the audit: 504 unit, 45/45 server, 45/45 E2E.
+- Rack delivery fix (a bought rack is placed on a free pad of the room on screen; `placeStoredRacks`, `freePads` in `roomsSlice.ts`, button `room-place-stored`): 508 unit, 45/45 server, 46/46 E2E.

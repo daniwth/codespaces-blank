@@ -1578,6 +1578,39 @@ try {
       }
     }
   });
+
+  await check('a bought rack is placed on a free pad; in a full room it waits in storage with a clear way out', async () => {
+    const { context, p } = await fresh({ viewport: { width: 1600, height: 1000 } });
+    const pageErrors = [];
+    p.on('pageerror', (e) => pageErrors.push(e.message));
+    try {
+      await p.addInitScript(() => localStorage.getItem('hh-lang') ?? localStorage.setItem('hh-lang', 'en'));
+      await bootPatched(p, `
+        state.cash = '100000';
+        state.nextAirdropAt = Date.now() + 3600000;
+        state.hints = ['overload', 'throttle', 'brownout', 'paste', 'cluster', 'rooms', 'bull', 'bear', 'bmc', 'orders', 'energy', 'predictive', 'pnl', 'hotkeys'];
+      `);
+      const racks = () => p.evaluate(() => Object.values(JSON.parse(localStorage.getItem('hash-harvest-tycoon')).state.racks).map((r) => r.roomId));
+      await p.locator('nav[aria-label="Panels"] button[title="Shop"]').click();
+      await p.getByRole('button', { name: 'Racks', exact: true }).click();
+      const buy = p.locator('div.bg-panel-2').filter({ hasText: 'Open-Air Bench' }).first().getByRole('button').first();
+      await buy.click();
+      await p.getByText(/Open-Air Bench placed in Bedroom/).first().waitFor({ timeout: 3000 });
+      assert((await p.getByTestId('room-place-stored').count()) === 0, 'storage button shown with nothing stored');
+      // The Bedroom is now full: the next rack waits in storage and the game says so.
+      await buy.click();
+      await p.getByText(/Bedroom has no free floor pad: 1 racks wait in storage/).first().waitFor({ timeout: 3000 });
+      const place = p.getByTestId('room-place-stored');
+      await place.waitFor({ timeout: 3000 });
+      assert(/\(1\)/.test((await place.textContent()) ?? ''), `storage button: ${await place.textContent()}`);
+      await p.screenshot({ path: join(ART, 'rack-storage.png') });
+      await p.waitForTimeout(2300);
+      assert((await racks()).filter((r) => r === 'bedroom').length === 2 && (await racks()).filter((r) => r === null).length === 1, `racks: ${JSON.stringify(await racks())}`);
+      assert(pageErrors.length === 0, pageErrors.join(' | '));
+    } finally {
+      await context.close();
+    }
+  });
 } catch (err) {
   results.push({ name: 'harness', ok: false, err: err.message });
   console.error(err);

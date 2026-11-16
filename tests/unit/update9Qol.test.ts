@@ -252,3 +252,58 @@ describe('keyboard shortcuts', () => {
     expect(store().helpOpen).toBe(true);
   });
 });
+
+describe('a rack that was just bought', () => {
+  beforeEach(() => {
+    useGameStore.setState({ ...starterWorld().data, cash: '100000', screen: 'game' });
+  });
+  const placed = () => Object.values(store().racks).filter((r) => r.roomId !== null);
+  const stored = () => Object.values(store().racks).filter((r) => r.roomId === null);
+
+  it('goes straight onto a free pad of the room on screen', () => {
+    expect(store().buyRack('bench')).toBe(true);
+    expect(stored()).toHaveLength(0);
+    expect(placed().map((r) => r.pad).sort()).toEqual([0, 1]);
+    expect(placed().every((r) => r.roomId === 'bedroom')).toBe(true);
+    expect(store().log.some((l) => l.key?.includes('placed in {room}'))).toBe(true);
+  });
+
+  it('waits in storage when the room is full, and the log says why', () => {
+    store().buyRack('bench');
+    expect(store().buyRack('bench')).toBe(true);
+    expect(stored()).toHaveLength(1);
+    expect(store().log.some((l) => l.key?.includes('has no free floor pad') && l.tone === 'warn')).toBe(true);
+    // Nothing to place while the room stays full.
+    expect(store().placeStoredRacks()).toBe(0);
+    // Freeing a pad lets the stored rack go down with one press.
+    store().storeRack(placed()[1].uid);
+    expect(store().placeStoredRacks()).toBe(1);
+    expect(stored()).toHaveLength(1);
+    expect(new Set(placed().map((r) => r.pad)).size).toBe(2);
+  });
+
+  it('bulk purchases fill the free pads and store the rest', () => {
+    expect(store().buyMany('rack', 'bench', 5)).toBe(5);
+    expect(placed()).toHaveLength(2);
+    expect(stored()).toHaveLength(4);
+    // Another owned room takes them when it is the one on screen.
+    useGameStore.setState({ ownedRooms: ['bedroom', 'garage'], activeRoom: 'garage' });
+    const moved = store().placeStoredRacks();
+    expect(moved).toBeGreaterThan(0);
+    expect(Object.values(store().racks).filter((r) => r.roomId === 'garage')).toHaveLength(moved);
+    expect(store().placeStoredRacks('submarine')).toBe(0);
+  });
+
+  it('a rack that carries hardware is placed before an empty one', () => {
+    store().buyMany('rack', 'bench', 3);
+    const [a, b] = stored();
+    const g = createGpu('px460', 'bronze');
+    useGameStore.setState({ gpus: { ...store().gpus, [g.uid]: g }, racks: { ...store().racks, [b.uid]: { ...b, gpuSlots: [g.uid, null] } } });
+    // Free a pad by storing the empty rack that stands in the room (the starter rig keeps its place).
+    const empty = placed().find((r) => r.gpuSlots.every((u) => !u));
+    store().storeRack(empty?.uid ?? '');
+    store().placeStoredRacks(undefined, 1);
+    expect(store().racks[b.uid].roomId).toBe('bedroom');
+    expect(store().racks[a.uid].roomId).toBeNull();
+  });
+});

@@ -452,4 +452,11 @@ export const esUpdate9: Dict = {
   'This save could not be read.': 'No se pudo leer este guardado.',
   'You are already signed in. Log out first to confirm another account.': 'Ya has iniciado sesión. Cierra sesión primero para confirmar otra cuenta.',
   'Email confirmed. For your safety we emailed you a link to choose your password.': 'Correo confirmado. Por tu seguridad te hemos enviado un enlace para elegir tu contraseña.',
+
+  // rack delivery
+  '{name} placed in {room}. Click it to mount GPUs, a PSU and cooling.': '{name} colocado en {room}. Haz clic en él para montar GPUs, fuente y refrigeración.',
+  '{room} has no free floor pad: {n} racks wait in storage. Store or sell a rack there, or unlock a bigger room, then press Place stored racks.': '{room} no tiene plataformas libres: {n} racks esperan en el almacén. Guarda o vende un rack de esa sala, o desbloquea una sala mayor, y pulsa Colocar racks del almacén.',
+  '{room} has no free floor pad. Store or sell a rack there, or unlock a bigger room.': '{room} no tiene plataformas libres. Guarda o vende un rack de esa sala, o desbloquea una sala mayor.',
+  'Put the racks waiting in storage on the free pads of this room': 'Coloca los racks que esperan en el almacén en las plataformas libres de esta sala',
+  'Place stored racks ({n})': 'Colocar racks del almacén ({n})',
 };

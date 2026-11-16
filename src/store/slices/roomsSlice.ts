@@ -2,7 +2,7 @@ import { tr } from '../../i18n';
 import { MAX_TECHNICIANS, TECHNICIAN_BASE_COST, TECHNICIAN_COST_GROWTH } from '../../config/hardwareCatalog';
 import { MAX_PADS, ROOM_BY_ID, ROOM_MECHANICS, ROOM_ORDER, surgeProtectorPrice } from '../../config/roomsCatalog';
 import { talentModifiers } from '../../config/prestigeTree';
-import type { RoomId, TalentLevels } from '../../types/player';
+import type { GameData, RoomId, TalentLevels } from '../../types/player';
 import { bnGte, bnSub } from '../../utils/bignum';
 import { fxBus, sfxBus } from '../../utils/eventBus';
 import { formatCash } from '../../utils/formatters';
@@ -11,6 +11,12 @@ import { challengeBlocks } from './challengesSlice';
 
 export const padCount = (roomId: RoomId, talents: TalentLevels): number =>
   Math.min(MAX_PADS, ROOM_BY_ID[roomId].pads + talentModifiers(talents).extraPads);
+
+/** Floor pads of a room with no rack on them, in order. */
+export function freePads(s: Pick<GameData, 'racks' | 'talents'>, roomId: RoomId): number[] {
+  const taken = new Set(Object.values(s.racks).filter((r) => r.roomId === roomId).map((r) => r.pad));
+  return Array.from({ length: padCount(roomId, s.talents) }, (_, i) => i).filter((i) => !taken.has(i));
+}
 
 export const technicianCost = (hired: number, startFree: number): number =>
   Math.round(TECHNICIAN_BASE_COST * TECHNICIAN_COST_GROWTH ** Math.max(0, hired - startFree));
@@ -62,6 +68,27 @@ export function createRoomsSlice(set: SetState, get: GetState): RoomsSlice {
       set({ racks: { ...s.racks, [rackUid]: { ...rack, roomId, pad } } });
       sfxBus.emit('install');
       return true;
+    },
+
+    placeStoredRacks: (roomId, limit = Number.POSITIVE_INFINITY) => {
+      const s = get();
+      const room = roomId ?? s.activeRoom;
+      if (!s.ownedRooms.includes(room) || (room !== 'bedroom' && challengeBlocks(s, 'singleRoom'))) return 0;
+      const free = freePads(s, room);
+      const stored = Object.values(s.racks).filter((r) => r.roomId === null);
+      const count = Math.min(free.length, stored.length, limit);
+      if (count <= 0) return 0;
+      const racks = { ...s.racks };
+      // Racks that already carry hardware go down first.
+      stored
+        .sort((a, b) => b.gpuSlots.filter(Boolean).length - a.gpuSlots.filter(Boolean).length)
+        .slice(0, count)
+        .forEach((rack, i) => {
+          racks[rack.uid] = { ...rack, roomId: room, pad: free[i] };
+        });
+      set({ racks });
+      sfxBus.emit('install');
+      return count;
     },
 
     storeRack: (rackUid) => {
