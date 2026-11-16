@@ -10,7 +10,7 @@ import { researchModifiers, type ResearchModifiers } from './research';
 /** Permanent perks outside the talent tree: challenge relics and the Silicon Collection. */
 export type PerkSource = Partial<Pick<GameData, 'challengeRecords' | 'collection'>>;
 
-export type RunModifiers = TalentModifiers & Pick<ResearchModifiers, 'coolingMul' | 'pasteLifeMul' | 'lineMul' | 'hardwarePriceMul' | 'smartBmc' | 'orderDesk'>;
+export type RunModifiers = TalentModifiers & Pick<ResearchModifiers, 'coolingMul' | 'pasteLifeMul' | 'lineMul' | 'hardwarePriceMul' | 'smartBmc' | 'orderDesk' | 'energyDesk' | 'predictive'>;
 
 export function runModifiers(talents: TalentLevels, research: ResearchLevels = {}, perks: PerkSource = {}): RunModifiers {
   const t = talentModifiers(talents);
@@ -28,5 +28,7 @@ export function runModifiers(talents: TalentLevels, research: ResearchLevels = {
     hardwarePriceMul: r.hardwarePriceMul,
     smartBmc: r.smartBmc,
     orderDesk: r.orderDesk,
+    energyDesk: r.energyDesk,
+    predictive: r.predictive,
   };
 }

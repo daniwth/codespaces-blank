@@ -24,6 +24,16 @@ Reply to the user in Spanish. Project conventions are in `CLAUDE.md`; do not rep
 - Relics and the Silicon Collection: `src/config/collection.ts`; they reach the simulation through `runModifiers(talents, research, perks)`.
 - Unit tests freeze the market cycle in `tests/unit/helpers.ts` (like network events), because phase changes and headlines draw from the RNG.
 
+## v10 systems (where things live)
+- Offline report: pure `offlineDigest(before, after, out)` in `gamePhysics.ts` (events plus a "do first" list from `diagnoseFarm`), rendered by `OfflineModal.tsx`.
+- Daily books: `GameData.ledger` (14 days, survives Halvings), folded every tick by `foldLedger`; chart in `src/components/panels/DailyLedger.tsx` (Trophies tab).
+- Contextual hints: `src/config/hints.ts` (`HINTS`, `nextHint`), seen ids in `GameData.hints`, shown by `HintToast.tsx`; `settings.hints` turns them off. E2E seeds `state.hints` with the ids it does not want on screen.
+- Thermal palette: `settings.thermalPalette` (`infrared` | `safe`), ramps in `SpriteManager.ts` (`thermalColor(celsius, ramp)`).
+- Power market: `src/config/energy.ts` (`gridSpot`, `ppaQuote`, plans). Gated by the `energy` research: without it the bill is the flat tariff, so older balance tests are untouched. The contract is `GameData.ppa` (run-scoped); UI in `src/components/market/EnergyDesk.tsx`. Offline bills the index mean.
+- Power surges: `SURGE` in `src/config/synergy.ts`, applied in `gamePhysics.step` after a thermal shutdown (online only); protectors live in `upgrades.surge` (room ids), bought with `buyRoomUpgrade('surge', roomId)`.
+- Predictive Maintenance (`predictive` research): pure `maintenanceForecast` in `gamePhysics.ts`, shares `crewRates` with the simulation; shown by the HUD diagnosis and `RackDetailModal`.
+- Randomized invariants: `tests/unit/update10Existing.test.ts` simulates 40 seeded farms. Mocking `Math.random` to exactly 0 hangs the market's gaussian draw: use a small non-zero value.
+
 ## i18n
 - `src/i18n/index.ts`: English text is the key. React uses `const t = useT()`, other code `tr(en, params)`. Placeholders are `{name}`.
 - Language lives in `useLangStore` / localStorage `hh-lang`, outside the save. Dictionaries: `src/i18n/es/*.ts`, merged in `es/index.ts` (`update9.ts` holds everything added by the v9 update).
@@ -48,3 +58,5 @@ Reply to the user in Spanish. Project conventions are in `CLAUDE.md`; do not rep
 - Phase 3 (rack synergies, undervolt floor and BIOS profiles, room identity, Smart BMC): 328 unit, 38/38 server, 39/39 E2E.
 - Phase 4 (market cycle, news, TP/SL orders, PPLNS, reputation chains, new talents, relics, collection): 357 unit, 38/38 server, 40/40 E2E.
 - Phase 5 (HUD P&L and diagnosis, shop impact preview, mass room actions, hotkeys and help modal, wiki entry for the v9 systems): 373 unit, 38/38 server, 41/41 E2E.
+- v10, part 1 (offline digest, daily books, hints, colour-blind palette, randomized invariants; save v10): 434 unit, 38/38 server, 42/42 E2E.
+- v10, part 2 (power market and contracts, power surges and protectors, Predictive Maintenance): 455 unit, 38/38 server, 43/43 E2E.

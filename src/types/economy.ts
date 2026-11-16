@@ -73,6 +73,19 @@ export interface MarketCycle {
   nextNewsAt: number;
 }
 
+export type PpaPlanId = 'short' | 'long';
+
+/** Power purchase agreement: the bill uses `rate` instead of the spot index until `endsAt`. */
+export interface PowerContract {
+  plan: PpaPlanId;
+  /** Multiplier on the retail price per watt. */
+  rate: number;
+  signedAt: number;
+  endsAt: number;
+  /** Dollars saved (or lost, when negative) against the spot index so far. */
+  saved: number;
+}
+
 export type OrderKind = 'tp' | 'sl';
 
 /** One-shot sell order: take-profit fires at or above `price`, stop-loss at or below it. */

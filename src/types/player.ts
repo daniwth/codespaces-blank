@@ -6,6 +6,7 @@ import type {
   MarketState,
   MineableCoin,
   PoolMode,
+  PowerContract,
   TradeOrder,
   TradingBot,
 } from './economy';
@@ -33,7 +34,7 @@ export interface ChallengeRecord {
 export type ChallengeRecords = Partial<Record<ChallengeId, ChallengeRecord>>;
 
 /** Run-scoped research projects bought with cash in the Lab (wiped by The Halving). */
-export type ResearchId = 'firmware' | 'airflow' | 'pfc' | 'paste' | 'grid' | 'logistics' | 'bmc' | 'orders';
+export type ResearchId = 'firmware' | 'airflow' | 'pfc' | 'paste' | 'grid' | 'logistics' | 'bmc' | 'orders' | 'energy' | 'predictive';
 
 /** Silicon Collection album: the grades ever obtained of each GPU model. */
 export type SiliconCollection = Record<string, SiliconQuality[]>;
@@ -245,6 +246,8 @@ export interface FarmBuffs {
 export interface RoomUpgrades {
   /** Warehouse battery bank: charges at the valley tariff, so night-time power is cheaper there. */
   battery: boolean;
+  /** Rooms fitted with a surge protector: a thermal shutdown there no longer trips the racks next to it. */
+  surge: RoomId[];
 }
 
 /** Smart BMC (Lab research): automatic maintenance paid with cash, by threshold. */
@@ -378,6 +381,8 @@ export interface GameData {
   reputation: ReputationState;
   /** Silicon Collection album (survives Halvings). */
   collection: SiliconCollection;
+  /** Power purchase agreement in force (Energy Desk research; belongs to the run). */
+  ppa: PowerContract | null;
   /** Daily books of the last two weeks (survive Halvings). */
   ledger: DayLedger[];
   /** Contextual hints already shown (survive Halvings). */

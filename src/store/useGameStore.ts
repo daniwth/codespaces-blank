@@ -7,7 +7,7 @@ import { SAVE_KEY, SAVE_VERSION } from '../config/gameBalance';
 import type { GameData, RoomId } from '../types/player';
 import { bnAdd, bnMax, bnToNumber } from '../utils/bignum';
 import { fxBus, sfxBus, type SfxCue, type VisualFx } from '../utils/eventBus';
-import { formatNumber } from '../utils/formatters';
+import { formatCash, formatNumber } from '../utils/formatters';
 import { decodeSave, encodeSave } from '../utils/saveCodec';
 import { localDay } from '../config/daily';
 import { nextHint } from '../config/hints';
@@ -34,7 +34,7 @@ const DATA_KEYS: (keyof GameData)[] = [
   'roomTemps', 'technicians', 'pool', 'market', 'bots', 'event', 'nextEventAt', 'talents', 'vip',
   'achievements', 'stats', 'settings', 'contracts', 'challenge', 'challengeRecords', 'alts', 'minedCoin',
   'research', 'boost', 'nextAirdropAt', 'roadmap', 'daily', 'autopilot', 'buffs', 'upgrades', 'bmc', 'biosProfiles',
-  'cycle', 'orders', 'poolPending', 'reputation', 'collection', 'ledger', 'hints',
+  'cycle', 'orders', 'poolPending', 'reputation', 'collection', 'ppa', 'ledger', 'hints',
 ];
 
 export const extractData = (s: GameStore): GameData => {
@@ -52,7 +52,7 @@ export const selectSimInput = (s: GameStore): SimInput => ({
   event: s.event, nextEventAt: s.nextEventAt, talents: s.talents, vip: s.vip, cash: s.cash, cc: s.cc,
   meme: s.meme, memeCostBasis: s.memeCostBasis, ccCostBasis: s.ccCostBasis, alts: s.alts, minedCoin: s.minedCoin, lastTick: s.lastTick, challenge: s.challenge,
   research: s.research, boost: s.boost, buffs: s.buffs, upgrades: s.upgrades, bmc: s.bmc,
-  cycle: s.cycle, orders: s.orders, poolPending: s.poolPending, challengeRecords: s.challengeRecords, collection: s.collection,
+  cycle: s.cycle, orders: s.orders, poolPending: s.poolPending, challengeRecords: s.challengeRecords, collection: s.collection, ppa: s.ppa,
 });
 
 /**
@@ -114,6 +114,7 @@ let logId = 0;
 /** Floating canvas label of a simulated rack event (3×5 font: short, no accents needed). */
 export function rackFxLabel(fx: RackFx): Extract<VisualFx, { kind: 'rackText' }> {
   if (fx.kind === 'block') return { kind: 'rackText', rackUid: fx.rackUid, text: `+${formatNumber(fx.value)} $${fx.coin ?? 'CC'}`, color: '#fde047', big: true };
+  if (fx.kind === 'surge') return { kind: 'rackText', rackUid: fx.rackUid, text: 'SURGE!', color: '#fde047' };
   if (fx.kind === 'shutdown') return { kind: 'rackText', rackUid: fx.rackUid, text: `${Math.round(fx.value)}C OFF!`, color: '#f43f5e' };
   return { kind: 'rackText', rackUid: fx.rackUid, text: `${Math.round(fx.value)}C!`, color: '#fb923c' };
 }
@@ -223,6 +224,8 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
         cycle: out.cycle,
         orders: out.filledOrders.length ? s.orders.filter((o) => !out.filledOrders.includes(o.id)) : s.orders,
         poolPending: Math.max(0, s.poolPending + out.poolPendingDelta),
+        // A contract that ran out is dropped; one in force keeps count of what it saved.
+        ppa: s.ppa && s.ppa.endsAt <= out.now ? null : s.ppa && out.ppaSaved !== 0 ? { ...s.ppa, saved: s.ppa.saved + out.ppaSaved } : s.ppa,
         ledger: foldLedger(s.ledger, out, s.market[out.minedCoin].price, localDay(out.now)),
         bots: s.bots.map((b) => (fires[b.id] !== undefined ? { ...b, lastFiredAt: fires[b.id] } : b)),
         event: out.event,
@@ -246,6 +249,7 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
 
   return {
     applyTick: (out) => {
+      const contract = get().ppa;
       mergeTick(out);
       set((s) => ({ history: sampleHistory(s.history, out) }));
       const { pushLog, logT, checkAchievements, advanceContractBoard, checkChallenge, checkResearch, checkRoadmap, tickAirdrop } = get();
@@ -255,6 +259,7 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
       out.sounds.forEach((cue) => sfxBus.emit(SOUND_MAP[cue]));
       if (out.blocksFound > 0) fxBus.emit({ kind: 'block' });
       out.rackFx.forEach((fx) => fxBus.emit(rackFxLabel(fx)));
+      if (contract && !get().ppa) logT('Your power contract ended: the farm is back on the spot price. It saved {saved} in total.', { saved: formatCash(contract.saved + out.ppaSaved) }, contract.saved + out.ppaSaved >= 0 ? 'good' : 'warn');
       if (out.raids > 0) raidRooms(out, get().racks).forEach((until, roomId) => fxBus.emit({ kind: 'raid', roomId, until }));
       checkResearch(out.now);
       tickAirdrop(out.now);

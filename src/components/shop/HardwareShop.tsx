@@ -1,7 +1,8 @@
 import { Building2, Cpu, Fan, HardHat, Plug, Server } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import { COOLER_CATALOG, GPU_CATALOG, MAX_TECHNICIANS, PSU_CATALOG, RACK_CATALOG } from '../../config/hardwareCatalog';
-import { ROOM_CATALOG, ROOM_MECHANICS, ROOM_ORDER } from '../../config/roomsCatalog';
+import { ROOM_BY_ID, ROOM_CATALOG, ROOM_MECHANICS, ROOM_ORDER, surgeProtectorPrice } from '../../config/roomsCatalog';
+import { SURGE } from '../../config/synergy';
 import type { RoomId } from '../../types/player';
 import { talentModifiers } from '../../config/prestigeTree';
 import type { ComponentKind } from '../../store/slices/hardwareSlice';
@@ -114,6 +115,7 @@ export function HardwareShop() {
     difficulty: st.live.minedCoin === st.minedCoin ? st.live.difficulty : 1,
     pool: st.pool,
     battery: st.upgrades.battery,
+    surge: st.upgrades.surge,
     challengeRecords: st.challengeRecords,
     collection: st.collection,
     usedMarket: talentModifiers(st.talents).usedMarket,
@@ -346,6 +348,21 @@ export function HardwareShop() {
           >
             <div className="text-dim">{t('Warehouse upgrade: charges at the valley tariff.')}</div>
             <div>{t('Night-time power in the Warehouse costs {pct}% less.', { pct: Math.round((1 - ROOM_MECHANICS.warehouse.valleyMul) * 100) })}</div>
+          </Card>
+        )}
+
+        {cat === 'rooms' && (
+          <Card
+            icon={<SpriteImg src={sprites.psuIcon('psu2000')} width={84} height={30} alt="" />}
+            title={`${t('Surge Protector')} · ${t(ROOM_BY_ID[s.activeRoom].name)}`}
+            price={s.surge.includes(s.activeRoom) ? t('OWNED') : formatCash(surgeProtectorPrice(s.activeRoom))}
+            affordable={!s.surge.includes(s.activeRoom) && can(surgeProtectorPrice(s.activeRoom))}
+            disabled={s.surge.includes(s.activeRoom)}
+            cta={s.surge.includes(s.activeRoom) ? '✓' : t('Buy')}
+            onBuy={() => actions.buyRoomUpgrade('surge', s.activeRoom)}
+          >
+            <div className="text-dim">{t('Upgrade of the room you are looking at.')}</div>
+            <div>{t('A thermal shutdown no longer trips the racks on the pads next to it ({pct}% chance each, {sec}s reboot).', { pct: Math.round(SURGE.chance * 100), sec: SURGE.rebootSec })}</div>
           </Card>
         )}
 

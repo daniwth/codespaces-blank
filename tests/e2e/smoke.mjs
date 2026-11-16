@@ -1382,6 +1382,74 @@ try {
       await context.close();
     }
   });
+
+  // ───────────── v10: new mechanics ─────────────
+  await check('v10: power market contract, surge protector and maintenance forecast (desktop + 390 px)', async () => {
+    for (const viewport of [{ width: 1600, height: 1000 }, { width: 390, height: 844 }]) {
+      const { context, p } = await fresh({ viewport });
+      const pageErrors = [];
+      p.on('pageerror', (e) => pageErrors.push(e.message));
+      try {
+        await p.addInitScript(() => localStorage.getItem('hh-lang') ?? localStorage.setItem('hh-lang', 'en'));
+        // Both projects researched; the starter card's paste is a few minutes from the threshold.
+        await bootPatched(p, `
+          const g = Object.values(state.gpus)[0];
+          g.paste = 0.55;
+          state.cash = '50000';
+          state.research = { levels: { energy: 1, predictive: 1 }, active: null };
+          state.nextAirdropAt = Date.now() + 3600000;
+          state.hints = ['overload', 'throttle', 'brownout', 'paste', 'cluster', 'rooms', 'bull', 'bear', 'bmc', 'orders', 'energy', 'predictive', 'pnl', 'hotkeys'];
+        `);
+        const panel = (tab) => p.locator(`nav[aria-label="Panels"] button[title="${tab}"]`);
+        const tag = viewport.width;
+        // Power market: forecast, live quotes, sign and cancel a contract.
+        await panel('Market').click();
+        const desk = p.getByTestId('energy-desk');
+        await desk.scrollIntoViewIfNeeded();
+        await p.getByTestId('energy-forecast').waitFor({ timeout: 5000 });
+        assert(/spot \d+% of retail/.test((await p.getByTestId('energy-spot').textContent()) ?? ''), 'no spot readout');
+        const quote = (await p.getByTestId('ppa-quote-short').textContent()) ?? '';
+        assert(/^\d+%$/.test(quote.trim()), `quote: ${quote}`);
+        await p.getByTestId('ppa-sign-short').click();
+        await p.getByTestId('ppa-active').waitFor({ timeout: 3000 });
+        assert(new RegExp(`fixed at ${quote.trim()}`).test((await p.getByTestId('ppa-active').textContent()) ?? ''), 'the contract did not lock the quoted rate');
+        await p.waitForFunction(() => /vs spot|more than spot/.test(document.querySelector('[data-testid="ppa-saved"]')?.textContent ?? ''), null, { timeout: 5000 });
+        await desk.screenshot({ path: join(ART, `v10-energy-${tag}.png`) });
+        await p.waitForTimeout(2300);
+        const saved = await p.evaluate(() => JSON.parse(localStorage.getItem('hash-harvest-tycoon')).state.ppa);
+        assert(saved && saved.plan === 'short' && saved.rate > 0.5 && saved.rate < 1.2, `contract not persisted: ${JSON.stringify(saved)}`);
+        await p.getByTestId('ppa-cancel').click();
+        await p.getByTestId('ppa-sign-long').waitFor({ timeout: 3000 });
+        // Lab: the two new projects are listed.
+        await panel('Lab').click();
+        await p.getByText('Energy Desk').first().waitFor({ timeout: 3000 });
+        await p.getByText('Predictive Maintenance').first().waitFor({ timeout: 3000 });
+        // Shop: the Surge Protector of this room.
+        await panel('Shop').click();
+        await p.getByRole('button', { name: 'Rooms', exact: true }).click();
+        await p.getByText(/Surge Protector · Bedroom/).scrollIntoViewIfNeeded();
+        const card = p.locator('div.bg-panel-2').filter({ hasText: 'Surge Protector · Bedroom' }).last();
+        await p.screenshot({ path: join(ART, `v10-surge-${tag}.png`) });
+        await card.getByRole('button').first().click();
+        await p.waitForFunction(() => {
+          const st = JSON.parse(localStorage.getItem('hash-harvest-tycoon') ?? '{}').state;
+          return st && st.upgrades.surge.includes('bedroom');
+        }, null, { timeout: 6000 });
+        if (viewport.width > 1000) {
+          // HUD diagnosis: the forecast is part of the bottleneck list.
+          await p.getByTestId('hud-hash').hover();
+          await p.getByTestId('hud-diagnosis').waitFor({ timeout: 3000 });
+          const list = (await p.getByTestId('hud-bottleneck').textContent()) ?? '';
+          assert(/will need new thermal paste within \d+ min/.test(list), `forecast missing: ${list}`);
+          assert(/of retail\)/.test((await p.getByTestId('hud-diagnosis').textContent()) ?? ''), 'the P&L does not show the power price');
+          await p.screenshot({ path: join(ART, 'v10-forecast.png') });
+        }
+        assert(pageErrors.length === 0, pageErrors.join(' | '));
+      } finally {
+        await context.close();
+      }
+    }
+  });
 } catch (err) {
   results.push({ name: 'harness', ok: false, err: err.message });
   console.error(err);

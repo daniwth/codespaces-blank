@@ -174,6 +174,7 @@ export function createInitialData(carry?: Partial<GameData>, challenge?: Challen
     reputation: carry?.reputation ?? emptyReputation(),
     // The starter card is the first entry of the album.
     collection: collect(carry?.collection ?? {}, 'px460', 'bronze'),
+    ppa: null,
     ledger: carry?.ledger ?? [],
     hints: carry?.hints ?? [],
   };

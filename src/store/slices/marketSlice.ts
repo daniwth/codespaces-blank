@@ -3,11 +3,12 @@ import { BOT_UNLOCK_LEVEL, MARKET, POOLS, levelFromEarnings } from '../../config
 import { COIN_INFO } from '../../config/altcoins';
 import { talentModifiers } from '../../config/prestigeTree';
 import type { TradeOrder, TradingBot } from '../../types/economy';
+import { PPA_PLANS, ppaActive, ppaCancelFee, ppaQuote } from '../../config/energy';
 import { ORDERS } from '../../config/marketCycle';
 import { researchModifiers } from '../../config/research';
 import { bnAdd, bnGte, bnSub, bnToNumber } from '../../utils/bignum';
 import { fxBus, makeUid, sfxBus } from '../../utils/eventBus';
-import { formatCash, formatNumber, formatPrice } from '../../utils/formatters';
+import { formatCash, formatDuration, formatNumber, formatPrice } from '../../utils/formatters';
 import { buyPrice, realizedEarnings, sellPrice } from '../gamePhysics';
 import { costBasisOf, holdingOf, walletPatch } from '../wallets';
 import type { GetState, MarketSlice, SetState } from '../storeTypes';
@@ -104,6 +105,41 @@ export function createMarketSlice(set: SetState, get: GetState): MarketSlice {
       set({ orders: [...s.orders, order] });
       s.logT(kind === 'tp' ? 'Take-profit placed: sell {pct}% of ${coin} at {price} or more.' : 'Stop-loss placed: sell {pct}% of ${coin} at {price} or less.', { pct: order.amountPct, coin, price: formatPrice(price) }, 'info');
       sfxBus.emit('install');
+      return true;
+    },
+
+    signPpa: (plan, now = Date.now()) => {
+      const s = get();
+      if (!researchModifiers(s.research.levels).energyDesk) {
+        s.logT('Research the Energy Desk in the Lab to sign power contracts.', undefined, 'warn');
+        sfxBus.emit('error');
+        return false;
+      }
+      if (ppaActive(s.ppa, now)) {
+        s.logT('A power contract is already in force.', undefined, 'warn');
+        sfxBus.emit('error');
+        return false;
+      }
+      const def = PPA_PLANS[plan];
+      const rate = ppaQuote(plan, now);
+      set({ ppa: { plan, rate, signedAt: now, endsAt: now + def.durationSec * 1000, saved: 0 } });
+      s.logT('Power contract signed: {name} at {pct}% of the retail tariff for {time}.', { name: def.name, pct: Math.round(rate * 100), time: formatDuration(def.durationSec) }, 'good');
+      sfxBus.emit('install');
+      return true;
+    },
+
+    cancelPpa: (now = Date.now()) => {
+      const s = get();
+      if (!ppaActive(s.ppa, now)) return false;
+      const fee = ppaCancelFee(s.ppa, s.live.electricityPerSec, now);
+      if (!bnGte(s.cash, fee)) {
+        s.logT('Not enough cash for {label} ({price}).', { label: 'Termination fee', price: formatCash(fee) }, 'warn');
+        sfxBus.emit('error');
+        return false;
+      }
+      set({ ppa: null, cash: bnSub(s.cash, fee) });
+      s.logT('Power contract cancelled for a {fee} fee.', { fee: formatCash(fee) }, 'warn');
+      sfxBus.emit('switch');
       return true;
     },
 

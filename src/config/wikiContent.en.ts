@@ -4,6 +4,9 @@
  * number comes from the balance config; tables come from `wikiTables.ts`.
  */
 import { COLLECTION } from './collection';
+import { ENERGY, PPA_PLANS, SPOT_MAX, SPOT_MIN } from './energy';
+import { FORECAST_HORIZON_SEC, SURGE } from './synergy';
+import { LEDGER_DAYS } from '../store/gamePhysics';
 import { REPUTATION } from './reputation';
 import { ROOM_BY_ID as V9_ROOMS, ROOM_MECHANICS } from './roomsCatalog';
 import { SYNERGY } from './synergy';
@@ -886,6 +889,22 @@ export function sectionsEn(): WikiSection[] {
               `**Relics and Collection.** Each challenge cleared gives a permanent relic. The Silicon Collection (Rigs tab) pays +${pct(COLLECTION.familyHash)} hashrate per brand completed in all four grades.`,
               '**In the room.** Click a technician to rally the crew, catch the rare Nitrogen, VIP and Audit drones, and press T for the thermal view.',
               '**Keyboard.** 1-9 and 0 switch tabs, T thermal view, R quick maintenance, B BIOS, M mute, ? shows the guide.',
+            ),
+          ],
+        },
+        {
+          id: 'v10-systems',
+          title: 'Power market, surges and forecasts',
+          keywords: ['ppa', 'power contract', 'contrato de energia', 'spot', 'energy desk', 'mesa de energia', 'surge', 'sobretension', 'protector', 'predictive', 'predictivo', 'forecast', 'prevision', 'ledger', 'libro diario', 'hint', 'pista', 'offline', 'daltonismo', 'colour-blind'],
+          blocks: [
+            list(
+              `**Energy Desk** (Lab). Your bill follows a wholesale spot index instead of the flat retail tariff: ${pct(ENERGY.mean)} of it on average, swinging between ${pct(SPOT_MIN)} and ${pct(SPOT_MAX)}. The Market shows the exact forecast for the next 30 minutes.`,
+              `**Power contracts.** ${PPA_PLANS.short.name} (${Math.round(PPA_PLANS.short.durationSec / 60)} min) and ${PPA_PLANS.long.name} (${Math.round(PPA_PLANS.long.durationSec / 60)} min) lock a fixed rate. The quote leans towards the spot price of the moment, so sign in a trough. Breaking one costs ${pct(ENERGY.cancelFee)} of what it would still bill. While you are away, uncontracted power bills the average.`,
+              `**Power surges.** When a GPU hits thermal shutdown, each rack on the pads next to it has a ${pct(SURGE.chance)} chance to trip and reboot for ${SURGE.rebootSec} s. A Surge Protector (Shop, Rooms) stops it in that room; self-powered racks are immune.`,
+              `**Predictive Maintenance** (Lab). The HUD diagnosis and every rack show which GPUs will need paste or a repair within ${Math.round(FORECAST_HORIZON_SEC / 60)} minutes, using the same rates as the simulation.`,
+              '**Welcome back report.** It lists what happened while you were away and what to fix first, with one-click re-paste and repair.',
+              `**Daily books** (Trophies). Mined value, trading profit, electricity and automatic maintenance per day, for the last ${LEDGER_DAYS} days.`,
+              '**Hints and palette** (System). One-time hints appear the first time a mechanic matters, and the thermal view has a colour-blind safe palette.',
             ),
           ],
         },

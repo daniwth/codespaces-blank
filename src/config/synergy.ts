@@ -23,7 +23,22 @@ export const DEFAULT_BMC: BmcConfig = { enabled: true, autoPaste: true, pasteBel
 /** Slider ranges of the Smart BMC thresholds. */
 export const BMC_LIMITS = { paste: [0.05, 0.9], health: [0.1, 0.9], step: 0.05 } as const;
 
-export const DEFAULT_UPGRADES: RoomUpgrades = { battery: false };
+export const DEFAULT_UPGRADES: RoomUpgrades = { battery: false, surge: [] };
+
+/**
+ * Power surge: when a GPU hits thermal shutdown, the spike may trip the PSU of the racks on the
+ * pads next to it, which then reboot. A room's Surge Protector stops it; self-powered racks are immune.
+ */
+export const SURGE = {
+  chance: 0.5,
+  rebootSec: 20,
+  /** Protector price: a share of the room's price, with a floor for the free starter room. */
+  priceShare: 0.12,
+  minPrice: 600,
+} as const;
+
+/** Predictive Maintenance looks this far ahead. */
+export const FORECAST_HORIZON_SEC = 600;
 
 export const BIOS_PROFILE_IDS: BiosProfileId[] = ['eco', 'balanced', 'max'];
 export const BIOS_PROFILE_NAMES: Record<BiosProfileId, string> = { eco: 'Eco', balanced: 'Balanced', max: 'Max Hash' };

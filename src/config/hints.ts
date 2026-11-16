@@ -81,6 +81,16 @@ export const HINTS: HintDef[] = [
     when: (c) => (c.research.levels.orders ?? 0) > 0,
   },
   {
+    id: 'energy', title: 'Energy Desk open',
+    text: 'Your power bill now follows the wholesale spot price. The Market shows its forecast: sign a contract in a trough to lock a cheap rate.', tab: 'market',
+    when: (c) => (c.research.levels.energy ?? 0) > 0,
+  },
+  {
+    id: 'predictive', title: 'Predictive Maintenance online',
+    text: 'The diagnosis in the top bar and every rack now tell you which GPUs will need paste or a repair, and when.',
+    when: (c) => (c.research.levels.predictive ?? 0) > 0,
+  },
+  {
     id: 'pnl', title: 'Live profit and loss',
     text: 'Hover the hashrate in the top bar to see what you earn per second and what is holding the farm back.',
     when: (c) => c.stats.playTimeSec > 120,

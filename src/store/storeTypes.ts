@@ -1,6 +1,6 @@
 import type { AirdropKind } from '../config/airdrops';
 import type { AutopilotPlanId } from '../config/autopilot';
-import type { CoinId, MineableCoin, OrderKind, PoolMode, TradeResult, TradingBot } from '../types/economy';
+import type { CoinId, MineableCoin, OrderKind, PoolMode, PpaPlanId, TradeResult, TradingBot } from '../types/economy';
 import type { ComponentKind, GpuInstance, OverclockSettings, SiliconQuality } from '../types/hardware';
 import type { BiosProfileId, BmcConfig, ChallengeId, GameData, GameSettings, ResearchId, RoomId, RoomUpgrades, TalentId } from '../types/player';
 import type { LiveMetrics, MessageTone, OfflineDigest, SimOutput } from './gamePhysics';
@@ -154,7 +154,8 @@ export interface RoomsSlice {
   storeRack: (rackUid: string) => void;
   hireTechnician: () => boolean;
   /** Buy a one-off room upgrade (the Warehouse battery bank). */
-  buyRoomUpgrade: (id: keyof RoomUpgrades) => boolean;
+  /** Battery Bank (Warehouse) or the Surge Protector of `roomId`. */
+  buyRoomUpgrade: (id: keyof RoomUpgrades, roomId?: RoomId) => boolean;
 }
 
 export interface MarketSlice {
@@ -169,6 +170,10 @@ export interface MarketSlice {
   /** Place a one-shot take-profit / stop-loss sell order (needs the Order Desk research). */
   addOrder: (coin: CoinId, kind: OrderKind, price: number, amountPct: number) => boolean;
   removeOrder: (id: string) => void;
+  /** Lock the rate quoted right now for the plan's duration (Energy Desk research). */
+  signPpa: (plan: PpaPlanId, now?: number) => boolean;
+  /** Break the contract in force, paying the early termination fee. */
+  cancelPpa: (now?: number) => boolean;
 }
 
 export interface EconomySlice {

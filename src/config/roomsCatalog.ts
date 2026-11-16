@@ -1,4 +1,5 @@
 import type { RoomDefinition, RoomId } from '../types/player';
+import { SURGE } from './synergy';
 
 /**
  * Progressive rooms. Each one adds rack pads, a bigger contracted power line,
@@ -52,6 +53,10 @@ export function padsAdjacent(a: number, b: number, count: number): boolean {
   const { perRow } = padRows(count);
   return Math.abs(a - b) === 1 && Math.floor(a / perRow) === Math.floor(b / perRow);
 }
+
+/** Price of the Surge Protector of a room. */
+export const surgeProtectorPrice = (roomId: RoomId): number =>
+  Math.max(SURGE.minPrice, Math.round(ROOM_BY_ID[roomId].price * SURGE.priceShare));
 
 // ───────────────────────── Room identity ─────────────────────────
 

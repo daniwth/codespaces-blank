@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { COIN_IDS, COIN_INFO } from '../../config/altcoins';
 import { BOT_UNLOCK_LEVEL, MARKET, levelFromEarnings } from '../../config/gameBalance';
 import { talentModifiers } from '../../config/prestigeTree';
+import { EnergyDesk } from './EnergyDesk';
 import { useT } from '../../i18n';
 import { sprites } from '../../engine/SpriteManager';
 import { sellPrice } from '../../store/gamePhysics';
@@ -215,6 +216,8 @@ export function MarketTerminal() {
           </>
         )}
       </div>
+
+      <EnergyDesk />
 
       <div className="border-t-2 border-[#1b1838] pt-2">
         <div className="mb-2 flex items-center gap-2">

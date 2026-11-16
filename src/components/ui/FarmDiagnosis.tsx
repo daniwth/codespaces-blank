@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { useT } from '../../i18n';
-import { diagnoseFarm, farmPnl } from '../../store/gamePhysics';
+import { runModifiers } from '../../config/modifiers';
+import { diagnoseFarm, farmPnl, maintenanceForecast } from '../../store/gamePhysics';
 import { useGameShallow } from '../../store/useGameStore';
 import { formatCash } from '../../utils/formatters';
 
@@ -12,9 +13,11 @@ function DiagnosisPanel() {
   const s = useGameShallow((st) => ({
     live: st.live, pool: st.pool, price: st.market[st.minedCoin].price, coin: st.minedCoin,
     racks: st.racks, gpus: st.gpus, ownedRooms: st.ownedRooms, talents: st.talents, challenge: st.challenge,
+    technicians: st.technicians, buffs: st.buffs, research: st.research.levels, challengeRecords: st.challengeRecords, collection: st.collection,
   }));
+  const mods = runModifiers(s.talents, s.research, s);
   const pnl = farmPnl(s.live, s.pool, s.price);
-  const issues = diagnoseFarm(s, s.live);
+  const issues = diagnoseFarm(s, s.live, mods.predictive ? maintenanceForecast(s, s.live, mods, Date.now()) : undefined);
   const top = issues[0];
   const row = (label: string, value: number, color: string, sign: '+' | '-') => (
     <>
@@ -27,7 +30,7 @@ function DiagnosisPanel() {
       <div className="font-pixel text-[9px] text-neon">{t('LIVE P&L (${coin} at market price)', { coin: s.coin })}</div>
       <div className="grid grid-cols-[1fr_auto] gap-x-3">
         {row(t('Gross mining'), pnl.gross, '#a3e635', '+')}
-        {row(t('Electricity'), pnl.electricity, '#fbbf24', '-')}
+        {row(mods.energyDesk ? t('Electricity ({pct}% of retail)', { pct: Math.round(s.live.energyMul * 100) }) : t('Electricity'), pnl.electricity, '#fbbf24', '-')}
         {row(t('Pool and market fees'), pnl.fees, '#fb923c', '-')}
         <span className="border-t border-[#3a3470] pt-0.5 text-ink">{t('Net profit')}</span>
         <span className="border-t border-[#3a3470] pt-0.5 text-right font-pixel text-[10px]" style={{ color: pnl.net >= 0 ? '#a3e635' : '#f43f5e' }} data-testid="hud-net">

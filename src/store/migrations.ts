@@ -11,12 +11,13 @@ import { MAX_NEWS_SEC, MAX_PHASE_SEC, NEWS_INTERVAL, ORDERS, isMarketPhase, isNe
 import { REPUTATION, emptyReputation } from '../config/reputation';
 import { BUFFS, emptyBuffs } from '../config/buffs';
 import { localDay } from '../config/daily';
+import { PPA_PLANS, isPpaPlan, ppaRateBounds } from '../config/energy';
 import { HINT_IDS } from '../config/hints';
 import { RESEARCH_BY_ID, RESEARCH_IDS, isResearchId } from '../config/research';
 import { ROADMAP } from '../config/roadmap';
 import { ROOM_BY_ID } from '../config/roomsCatalog';
 import { TALENT_BY_ID } from '../config/prestigeTree';
-import type { AltWallets, Candle, CoinMarket, MarketCycle, MarketState, MineableCoin, TradeOrder, TradingBot } from '../types/economy';
+import type { AltWallets, Candle, CoinMarket, MarketCycle, MarketState, MineableCoin, PowerContract, TradeOrder, TradingBot } from '../types/economy';
 import type { ReputationState } from '../types/contracts';
 import type { CoolerInstance, GpuInstance, OverclockSettings, PsuInstance, RackInstance, SiliconQuality } from '../types/hardware';
 import type {
@@ -93,7 +94,8 @@ function sanitizeBmc(raw: unknown): BmcConfig {
 
 /** The battery bank only exists in a farm that owns the Warehouse. */
 function sanitizeUpgrades(raw: unknown, ownedRooms: RoomId[]): RoomUpgrades {
-  return { battery: isObject(raw) && raw.battery === true && ownedRooms.includes('warehouse') };
+  const surge = isObject(raw) && Array.isArray(raw.surge) ? ownedRooms.filter((id) => (raw.surge as unknown[]).includes(id)) : [];
+  return { battery: isObject(raw) && raw.battery === true && ownedRooms.includes('warehouse'), surge };
 }
 
 function sanitizeGpu(uid: string, raw: unknown): GpuInstance | null {
@@ -369,6 +371,22 @@ function sanitizeSettings(raw: unknown): GameSettings {
   };
 }
 
+/** A contract must be one a supplier could have quoted, and it never outlives its plan. */
+function sanitizePpa(raw: unknown, now: number): PowerContract | null {
+  if (!isObject(raw) || !isPpaPlan(raw.plan)) return null;
+  const plan = PPA_PLANS[raw.plan];
+  const endsAt = Math.min(finite(raw.endsAt, 0), now + plan.durationSec * 1000);
+  if (endsAt <= now) return null;
+  const [lo, hi] = ppaRateBounds(raw.plan);
+  return {
+    plan: raw.plan,
+    rate: clamp(finite(raw.rate, hi), lo, hi),
+    signedAt: Math.min(finite(raw.signedAt, now), now),
+    endsAt,
+    saved: clamp(finite(raw.saved, 0), -1e300, 1e300),
+  };
+}
+
 function sanitizeLedger(raw: unknown, now: number): DayLedger[] {
   if (!Array.isArray(raw)) return [];
   const today = localDay(now);
@@ -462,6 +480,7 @@ function sanitize(data: GameData, source: Json): GameData {
     poolPending: clamp(finite(source.poolPending, 0), 0, 1e300),
     reputation: emptyReputation(),
     collection: sanitizeCollection(source.collection, gpus),
+    ppa: sanitizePpa(source.ppa, now),
     ledger: sanitizeLedger(source.ledger, now),
     hints: sanitizeHints(source.hints),
     pool: typeof source.pool === 'string' && source.pool in POOLS ? (source.pool as GameData['pool']) : 'public',
@@ -497,7 +516,8 @@ function sanitize(data: GameData, source: Json): GameData {
  *            undervolt floor of every chip (`silicon.vFloor`), room upgrades, the Smart BMC thresholds
  *            and the saved BIOS profiles; the market cycle and news, take-profit / stop-loss orders, PPLNS
  *            pending shares, contract reputation and the Silicon Collection (seeded from the GPUs owned).
- * v9 → v10: added the daily ledger, the contextual hints already seen, and two settings (thermal palette, hints).
+ * v9 → v10: added the daily ledger, the contextual hints already seen, two settings (thermal palette, hints),
+ *            the power contract (`ppa`) and the rooms with a surge protector (`upgrades.surge`).
  */
 export function migrateSave(raw: unknown, fromVersion: number): GameData {
   const defaults = createInitialData();
@@ -540,10 +560,11 @@ export function migrateSave(raw: unknown, fromVersion: number): GameData {
     delete source.reputation;
     delete source.collection;
   }
-  // v9 → v10: no daily books and no hint memory; sanitize() starts both empty and picks the default palette.
+  // v9 → v10: no daily books, hint memory or power contract; sanitize() starts them empty and picks the default palette.
   if (fromVersion < 10) {
     delete source.ledger;
     delete source.hints;
+    delete source.ppa;
   }
   const merged = mergeTyped(defaults, source);
   merged.saveVersion = SAVE_VERSION;

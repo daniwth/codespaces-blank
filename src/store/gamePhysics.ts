@@ -20,7 +20,7 @@ import {
 import { BUFFS, blockMulOf, crewRallied, nitroActive } from '../config/buffs';
 import { challengeRules } from '../config/challenges';
 import { MAX_PADS, ROOM_BY_ID, ROOM_MECHANICS, garageWave, isNight, padsAdjacent } from '../config/roomsCatalog';
-import { SYNERGY } from '../config/synergy';
+import { FORECAST_HORIZON_SEC, SURGE, SYNERGY } from '../config/synergy';
 import { runModifiers, type RunModifiers } from '../config/modifiers';
 import { talentModifiers, type TalentModifiers } from '../config/prestigeTree';
 import {
@@ -33,6 +33,7 @@ import {
   POOLS,
 } from '../config/gameBalance';
 import type { ActiveNetworkEvent, AltCoinId, CoinId, MarketCycle, MarketState, MineableCoin, NetworkEventId, PoolMode } from '../types/economy';
+import { ENERGY, gridSpot, ppaActive } from '../config/energy';
 import { MARKET_PHASES, NEWS, NEWS_IDS, NEWS_INTERVAL, cycleEffect } from '../config/marketCycle';
 import type {
   GpuInstance,
@@ -54,7 +55,7 @@ export type SimInput = Pick<
   | 'gpus' | 'psus' | 'coolers' | 'racks' | 'ownedRooms' | 'roomTemps' | 'technicians'
   | 'pool' | 'market' | 'bots' | 'event' | 'nextEventAt' | 'talents' | 'vip'
   | 'cash' | 'cc' | 'ccCostBasis' | 'meme' | 'memeCostBasis' | 'alts' | 'minedCoin' | 'lastTick' | 'challenge'
-  | 'research' | 'boost' | 'buffs' | 'upgrades' | 'bmc' | 'cycle' | 'orders' | 'poolPending' | 'challengeRecords' | 'collection'
+  | 'research' | 'boost' | 'buffs' | 'upgrades' | 'bmc' | 'cycle' | 'orders' | 'poolPending' | 'challengeRecords' | 'collection' | 'ppa'
 >;
 
 export type MessageTone = 'info' | 'good' | 'warn' | 'bad';
@@ -123,6 +124,10 @@ export interface LiveMetrics {
   avgTemp: number;
   /** Night half of the shared day/night clock. */
   night: boolean;
+  /** Wholesale spot index right now (1 without the Energy Desk). */
+  gridSpot: number;
+  /** Multiplier actually billed on the retail tariff: the contract rate, or the spot index. */
+  energyMul: number;
   /** Hashrate multiplier of the Overdrive surge right now (1 = none). */
   surge: number;
   rooms: Partial<Record<RoomId, RoomLive>>;
@@ -132,9 +137,9 @@ export interface LiveMetrics {
 
 /** Something worth a floating label over one rack (online ticks only). */
 export interface RackFx {
-  kind: 'block' | 'hot' | 'shutdown';
+  kind: 'block' | 'hot' | 'shutdown' | 'surge';
   rackUid: string;
-  /** Coins paid (block) or die temperature in °C (hot, shutdown). */
+  /** Coins paid (block), die temperature in °C (hot, shutdown) or reboot seconds (surge). */
   value: number;
   coin?: MineableCoin;
 }
@@ -186,6 +191,10 @@ export interface SimOutput {
   filledOrders: string[];
   /** Change of the PPLNS shares waiting for the next pool block. */
   poolPendingDelta: number;
+  /** Dollars the power contract saved against the spot index during the tick (negative = it cost more). */
+  ppaSaved: number;
+  /** Racks tripped by a power surge from a neighbour's thermal shutdown. */
+  surges: number;
   /** What the Smart BMC did during the tick: GPUs re-pasted and repaired, and the cash it spent. */
   bmc: { pasted: number; repaired: number; spent: number };
 }
@@ -520,7 +529,7 @@ const emptyYields = (): Record<MineableCoin, CoinYield> => ({
 });
 
 function emptyLive(): LiveMetrics {
-  return { totalHash: 0, ccPerSec: 0, minedCoin: 'CC', coinPerSec: 0, yields: emptyYields(), electricityPerSec: 0, gridDemand: 1, difficulty: 1, hottest: 0, avgTemp: 0, night: false, surge: 1, rooms: {}, racks: {}, gpus: {} };
+  return { totalHash: 0, ccPerSec: 0, minedCoin: 'CC', coinPerSec: 0, yields: emptyYields(), electricityPerSec: 0, gridDemand: 1, difficulty: 1, hottest: 0, avgTemp: 0, night: false, gridSpot: 1, energyMul: 1, surge: 1, rooms: {}, racks: {}, gpus: {} };
 }
 
 interface StepAccumulator {
@@ -541,6 +550,8 @@ interface StepAccumulator {
   bmcPasted: number;
   bmcRepaired: number;
   bmcSpent: number;
+  ppaSaved: number;
+  surges: number;
 }
 
 /** Floating labels are eye candy: a busy tick keeps only the first few. */
@@ -600,6 +611,16 @@ function stepEvents(w: World, rooms: RoomId[], now: number, acc: StepAccumulator
   }
 }
 
+/** Paste and wear the crew restores per GPU per second (eight cards' worth of attention per technician pool). */
+function crewRates(racks: Record<string, Pick<RackInstance, 'roomId' | 'gpuSlots'>>, technicians: number, mods: Pick<RunModifiers, 'techSpeed'>, crewSpeed: number): { techPaste: number; techRepair: number } {
+  const totalMounted = Object.values(racks).reduce((a, r) => a + (r.roomId ? r.gpuSlots.filter(Boolean).length : 0), 0);
+  const techShare = totalMounted > 0 ? Math.min(1, 8 / totalMounted) : 0;
+  return {
+    techPaste: technicians * PHYSICS.techPastePerSec * mods.techSpeed * techShare * crewSpeed,
+    techRepair: technicians * PHYSICS.techWearRepairPerSec * mods.techSpeed * techShare * crewSpeed,
+  };
+}
+
 function step(w: World, input: SimInput, dt: number, now: number, mods: RunModifiers, opts: SimOptions, acc: StepAccumulator, live: LiveMetrics): void {
   const rules = challengeRules(input.challenge?.id);
   const rooms = usableRooms(input);
@@ -623,13 +644,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
   const coinId = input.minedCoin;
   const eventDifficulty = (coin: MineableCoin): number => (spiking ? spikeDifficulty(coin) : 1);
 
-  const totalMounted = Object.values(w.racks).reduce(
-    (acc2, r) => acc2 + (r.roomId ? r.gpuSlots.filter(Boolean).length : 0),
-    0,
-  );
-  const techShare = totalMounted > 0 ? Math.min(1, 8 / totalMounted) : 0;
-  const techPaste = input.technicians * PHYSICS.techPastePerSec * mods.techSpeed * techShare * crewSpeed;
-  const techRepair = input.technicians * PHYSICS.techWearRepairPerSec * mods.techSpeed * techShare * crewSpeed;
+  const { techPaste, techRepair } = crewRates(w.racks, input.technicians, mods, crewSpeed);
 
   live.rooms = {};
   live.racks = {};
@@ -656,6 +671,12 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
 
   const night = isNight(now);
   live.night = night;
+  // Energy Desk: the bill follows the wholesale index (its long-run mean offline), or the contract rate.
+  const spot = mods.energyDesk ? (opts.offline ? ENERGY.mean : gridSpot(now)) : 1;
+  const contract = mods.energyDesk && ppaActive(input.ppa, now) ? input.ppa.rate : null;
+  const energyMul = contract ?? spot;
+  live.gridSpot = spot;
+  live.energyMul = energyMul;
   const bmcOn = mods.smartBmc && input.bmc.enabled;
   const arctic = ROOM_MECHANICS.arctic;
 
@@ -737,7 +758,9 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
     const paidShare = roomWall > 0 ? paidWall / roomWall : 0;
     // Warehouse battery bank: valley (night) power is cheaper.
     const valley = roomId === 'warehouse' && input.upgrades.battery && night;
-    const price = wattPrice(roomId, mods) * (valley ? ROOM_MECHANICS.warehouse.valleyMul : 1);
+    const price = wattPrice(roomId, mods) * (valley ? ROOM_MECHANICS.warehouse.valleyMul : 1) * energyMul;
+    /** Racks where a GPU just hit thermal shutdown (source of a power surge). */
+    const tripped: RackInstance[] = [];
     const billedWall = rackInfo.reduce((a, r) => a + r.wall * r.tariff, 0) * paidShare;
     electricityRate += billedWall * price;
     farmPaidWall += paidWall;
@@ -785,6 +808,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
           acc.messages.push(gameMsg('bad', 'THERMAL SHUTDOWN: {name} hit {temp}°C!', { name: model.name, temp: g.temp.toFixed(0) }));
           acc.sounds.push('shutdown');
           pushRackFx(acc, opts, { kind: 'shutdown', rackUid: rack.uid, value: g.temp });
+          if (!tripped.includes(rack)) tripped.push(rack);
         } else if (g.shutdown && g.temp <= PHYSICS.restartTemp) {
           g.shutdown = false;
           acc.messages.push(gameMsg('info', '{name} cooled down and restarted.', { name: model.name }));
@@ -863,6 +887,27 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
         preheating,
       };
     });
+
+    // Power surge: a thermal shutdown may trip the PSU of the racks on the pads next to it (never offline).
+    if (!opts.offline && tripped.length > 0 && !input.upgrades.surge.includes(roomId)) {
+      const hit = new Set<RackInstance>();
+      tripped.forEach((src) => {
+        rackInfo.forEach((dst) => {
+          if (dst.rack === src || hit.has(dst.rack) || tripped.includes(dst.rack) || dst.status !== 'online' || dst.topo.selfPowered) return;
+          if (!padsAdjacent(src.pad ?? -9, dst.rack.pad ?? -99, pads)) return;
+          if (Math.random() < SURGE.chance) hit.add(dst.rack);
+        });
+      });
+      hit.forEach((rack) => {
+        rack.rebootUntil = Math.max(rack.rebootUntil, now + SURGE.rebootSec * 1000);
+        acc.surges += 1;
+        pushRackFx(acc, opts, { kind: 'surge', rackUid: rack.uid, value: SURGE.rebootSec });
+      });
+      if (hit.size > 0) {
+        acc.messages.push(gameMsg('bad', 'POWER SURGE in {room}: {n} racks next to the shutdown are rebooting. A Surge Protector stops this.', { room: room.name, n: hit.size }));
+        acc.sounds.push('alarm');
+      }
+    }
 
     // Room air temperature relaxes towards its heat-loaded target
     const target = baseAmbient + roomHeat * room.heatPerWatt;
@@ -952,6 +997,8 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
   // ── Electricity bill (auto-debits coins when cash runs dry: $CC first, then the altcoins) ──
   let bill = electricityRate * dt;
   acc.electricity += bill;
+  // What the same watts would have cost on the spot index.
+  if (contract !== null && contract > 0) acc.ppaSaved += (bill / contract) * (spot - contract);
   const fromCash = Math.min(bill, Math.max(0, w.cash));
   w.cash -= fromCash;
   bill -= fromCash;
@@ -1036,7 +1083,7 @@ export function simulate(input: SimInput, dtSec: number, now: number, opts: SimO
   const modsAfter = pending
     ? runModifiers(input.talents, { ...input.research.levels, [pending.id]: (input.research.levels[pending.id] ?? 0) + 1 }, input)
     : mods;
-  const acc: StepAccumulator = { ccMined: 0, coinMined: 0, electricity: 0, earnedCash: 0, gems: 0, blocks: 0, raids: 0, overheats: 0, bestTrade: 0, peakTemp: 0, botEarned: 0, messages: [], sounds: [], rackFx: [], bmcPasted: 0, bmcRepaired: 0, bmcSpent: 0 };
+  const acc: StepAccumulator = { ccMined: 0, coinMined: 0, electricity: 0, earnedCash: 0, gems: 0, blocks: 0, raids: 0, overheats: 0, bestTrade: 0, peakTemp: 0, botEarned: 0, messages: [], sounds: [], rackFx: [], bmcPasted: 0, bmcRepaired: 0, bmcSpent: 0, ppaSaved: 0, surges: 0 };
   const live = emptyLive();
   const cash0 = w.cash;
   const cc0 = w.cc;
@@ -1108,6 +1155,8 @@ export function simulate(input: SimInput, dtSec: number, now: number, opts: SimO
     filledOrders: w.filledOrders,
     poolPendingDelta: w.poolPending - input.poolPending,
     bmc: { pasted: acc.bmcPasted, repaired: acc.bmcRepaired, spent: acc.bmcSpent },
+    ppaSaved: acc.ppaSaved,
+    surges: acc.surges,
   };
 }
 
@@ -1145,7 +1194,7 @@ export function farmPnl(live: Pick<LiveMetrics, 'coinPerSec' | 'electricityPerSe
 
 export type BottleneckId =
   | 'blackout' | 'no_psu' | 'overload' | 'shutdown' | 'brownout' | 'throttle' | 'hull' | 'preheat' | 'noise'
-  | 'psu_near' | 'line_near' | 'paste_worn' | 'worn_gpus' | 'empty_slots' | 'empty_pads' | 'no_gpus';
+  | 'psu_near' | 'line_near' | 'paste_worn' | 'worn_gpus' | 'paste_soon' | 'wear_soon' | 'empty_slots' | 'empty_pads' | 'no_gpus';
 
 /** Mounted GPUs below this paste level are worth a re-paste (the mass action and the diagnosis agree on it). */
 export const PASTE_WORN_BELOW = 0.5;
@@ -1165,7 +1214,7 @@ export interface Bottleneck {
  * What is holding the farm back right now, most severe first (empty when nothing is). Read from the
  * live metrics of the last tick, so it always agrees with what the simulation is doing.
  */
-export function diagnoseFarm(data: Pick<GameData, 'racks' | 'gpus' | 'ownedRooms' | 'talents' | 'challenge'>, live: LiveMetrics): Bottleneck[] {
+export function diagnoseFarm(data: Pick<GameData, 'racks' | 'gpus' | 'ownedRooms' | 'talents' | 'challenge'>, live: LiveMetrics, forecast?: MaintenanceForecast): Bottleneck[] {
   const out: Bottleneck[] = [];
   const rooms = usableRooms(data);
   const placed = Object.values(data.racks).filter((r) => r.roomId && rooms.includes(r.roomId));
@@ -1213,6 +1262,10 @@ export function diagnoseFarm(data: Pick<GameData, 'racks' | 'gpus' | 'ownedRooms
   const worn = mountedUids.filter((u) => gpuHealth(data.gpus[u]) < HEALTH_WORN_BELOW).length;
   if (worn) add('worn_gpus', 2, '{n} GPUs are below {pct}% health: repair them.', { n: worn, pct: Math.round(HEALTH_WORN_BELOW * 100) });
 
+  // Predictive Maintenance: what is about to need attention, before it does.
+  if (forecast && forecast.pasteSoon > 0) add('paste_soon', 1, '{n} GPUs will need new thermal paste within {min} min.', { n: forecast.pasteSoon, min: Math.max(1, Math.ceil((forecast.nextSec ?? 0) / 60)) });
+  if (forecast && forecast.wearSoon > 0) add('wear_soon', 2, '{n} overheating GPUs will need a repair within {min} min.', { n: forecast.wearSoon, min: Math.max(1, Math.ceil((forecast.nextSec ?? 0) / 60)) });
+
   const freeSlots = placed.reduce((a, r) => a + r.gpuSlots.filter((u) => !u).length, 0);
   const mountedGpus = placed.reduce((a, r) => a + r.gpuSlots.filter(Boolean).length, 0);
   if (mountedGpus === 0) add('no_gpus', 3, 'No GPU is mounted in a placed rack.');
@@ -1222,6 +1275,54 @@ export function diagnoseFarm(data: Pick<GameData, 'racks' | 'gpus' | 'ownedRooms
   if (freePads) add('empty_pads', 1, '{n} empty rack pads.', { n: freePads });
 
   return out.sort((a, b) => b.severity - a.severity);
+}
+
+// ───────────────────────── Predictive maintenance ─────────────────────────
+
+export interface GpuForecast {
+  /** Seconds until the paste dries below the re-paste threshold (0 = already there, null = not drying). */
+  pasteSec: number | null;
+  /** Seconds until the health drops below the repair threshold (0 = already there, null = not wearing). */
+  wearSec: number | null;
+}
+
+export interface MaintenanceForecast {
+  gpus: Record<string, GpuForecast>;
+  /** Mounted GPUs that are fine now but cross a threshold within the horizon. */
+  pasteSoon: number;
+  wearSoon: number;
+  /** Seconds until the first of them does (null when none will). */
+  nextSec: number | null;
+}
+
+type ForecastWorld = Pick<GameData, 'racks' | 'gpus' | 'technicians' | 'buffs'>;
+
+/**
+ * Where paste and wear are heading at the current load (Predictive Maintenance research). It uses the
+ * same rates as the simulation, so a forecast of "5 minutes" is 5 minutes if nothing changes.
+ */
+export function maintenanceForecast(data: ForecastWorld, live: LiveMetrics, mods: RunModifiers, now: number, horizonSec: number = FORECAST_HORIZON_SEC): MaintenanceForecast {
+  const rally = data.technicians > 0 && crewRallied(data.buffs, now);
+  const { techPaste, techRepair } = crewRates(data.racks, data.technicians, mods, rally ? BUFFS.crew.speedMul : 1);
+  const pasteDrop = 1 / (PHYSICS.pasteLifetimeSec * mods.pasteLifeMul) - techPaste;
+  const wearGain = PHYSICS.wearPerMinute / 60 - techRepair;
+  const wearLimit = PHYSICS.maxWear * (1 - HEALTH_WORN_BELOW);
+  const out: MaintenanceForecast = { gpus: {}, pasteSoon: 0, wearSoon: 0, nextSec: null };
+  const soon = (sec: number | null): boolean => sec !== null && sec > 0 && sec <= horizonSec;
+  Object.values(data.racks).filter((r) => r.roomId).flatMap((r) => r.gpuSlots).forEach((uid) => {
+    const g = uid ? data.gpus[uid] : undefined;
+    if (!uid || !g) return;
+    const running = live.gpus[uid]?.running ?? false;
+    const pasteSec = g.paste < PASTE_WORN_BELOW ? 0 : running && pasteDrop > 0 ? (g.paste - PASTE_WORN_BELOW) / pasteDrop : null;
+    const wearSec = g.wear > wearLimit ? 0 : running && g.temp > PHYSICS.wearTemp && wearGain > 0 ? (wearLimit - g.wear) / wearGain : null;
+    out.gpus[uid] = { pasteSec, wearSec };
+    if (soon(pasteSec)) out.pasteSoon += 1;
+    if (soon(wearSec)) out.wearSoon += 1;
+    [pasteSec, wearSec].forEach((sec) => {
+      if (soon(sec) && sec !== null) out.nextSec = out.nextSec === null ? sec : Math.min(out.nextSec, sec);
+    });
+  });
+  return out;
 }
 
 // ───────────────────────── Daily ledger ─────────────────────────

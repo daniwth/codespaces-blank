@@ -4,14 +4,15 @@ import { COOLER_BY_ID, GPU_BY_ID, PSU_BY_ID, QUALITY_DEFS, RACK_BY_ID } from '..
 import { ROOM_BY_ID, ROOM_MECHANICS } from '../../config/roomsCatalog';
 import { sprites } from '../../engine/SpriteManager';
 import { PHYSICS } from '../../config/gameBalance';
-import { clusterUids, liquidCooling, rackNoise, rackNominalLoad } from '../../store/gamePhysics';
-import { SYNERGY } from '../../config/synergy';
+import { clusterUids, liquidCooling, maintenanceForecast, rackNoise, rackNominalLoad, type GpuForecast } from '../../store/gamePhysics';
+import { runModifiers } from '../../config/modifiers';
+import { FORECAST_HORIZON_SEC, SYNERGY } from '../../config/synergy';
 import { repairCost, repasteCost } from '../../store/slices/hardwareSlice';
 import { useGameShallow, useGameStore } from '../../store/useGameStore';
 import type { GpuInstance } from '../../types/hardware';
 import { useT } from '../../i18n';
 import { cn } from '../../utils/cn';
-import { formatCash, formatHashrate, formatMultiplier, formatPercent, formatPower, formatTemp, tempColor } from '../../utils/formatters';
+import { formatCash, formatDuration, formatHashrate, formatMultiplier, formatPercent, formatPower, formatTemp, tempColor } from '../../utils/formatters';
 import { Meter } from '../ui/Meter';
 import { PixelButton } from '../ui/PixelButton';
 import { PixelModal } from '../ui/PixelModal';
@@ -57,7 +58,16 @@ export function RackDetailModal({ rackUid }: { rackUid: string }) {
     psus: st.psus,
     coolers: st.coolers,
     live: st.live,
+    technicians: st.technicians,
+    buffs: st.buffs,
+    talents: st.talents,
+    research: st.research.levels,
+    challengeRecords: st.challengeRecords,
+    collection: st.collection,
   }));
+  const mods = runModifiers(s.talents, s.research, s);
+  // Predictive Maintenance: where the paste and the wear of each card are heading.
+  const forecast = mods.predictive ? maintenanceForecast(s, s.live, mods, Date.now()) : null;
   const actions = useGameStore.getState();
   const [sel, setSel] = useState<Selection | null>(null);
   const [tab, setTab] = useState<InvTab>('gpu');
@@ -240,7 +250,7 @@ export function RackDetailModal({ rackUid }: { rackUid: string }) {
                       style={{ background: g ? (powered ? '#facc15' : '#52525b') : '#27272a' }}
                     />
                     {g ? (
-                      <GpuRow gpu={g} rackUid={rack.uid} slot={i} live={s.live.gpus[g.uid]} />
+                      <GpuRow gpu={g} rackUid={rack.uid} slot={i} live={s.live.gpus[g.uid]} eta={forecast?.gpus[g.uid]} />
                     ) : (
                       <button
                         type="button"
@@ -419,7 +429,7 @@ function Empty({ text }: { text: string }) {
   return <div className="border-2 border-dashed border-edge p-3 text-center text-[16px] text-dim">{text}</div>;
 }
 
-function GpuRow({ gpu, rackUid, slot, live }: { gpu: GpuInstance; rackUid: string; slot: number; live?: { hash: number; throttled: boolean; running: boolean } }) {
+function GpuRow({ gpu, rackUid, slot, live, eta }: { gpu: GpuInstance; rackUid: string; slot: number; live?: { hash: number; throttled: boolean; running: boolean }; eta?: GpuForecast }) {
   const t = useT();
   const actions = useGameStore.getState();
   const gm = GPU_BY_ID[gpu.modelId];
@@ -447,6 +457,16 @@ function GpuRow({ gpu, rackUid, slot, live }: { gpu: GpuInstance; rackUid: strin
           </div>
           {gpu.wear > 0 && <span className="text-hot">{t('wear -{pct}', { pct: formatPercent(gpu.wear, 1) })}</span>}
         </div>
+        {eta && (eta.pasteSec !== null || eta.wearSec !== null) && (
+          <div className="flex flex-wrap gap-x-2 text-[14px]" data-testid="gpu-forecast">
+            {eta.pasteSec !== null && (
+              <span style={{ color: eta.pasteSec <= FORECAST_HORIZON_SEC ? '#fbbf24' : '#5eead4' }}>
+                {eta.pasteSec <= 0 ? t('re-paste now') : t('re-paste in {time}', { time: formatDuration(Math.round(eta.pasteSec)) })}
+              </span>
+            )}
+            {eta.wearSec !== null && <span className="text-hot">{eta.wearSec <= 0 ? t('repair now') : t('repair in {time}', { time: formatDuration(Math.round(eta.wearSec)) })}</span>}
+          </div>
+        )}
       </div>
       <div className="flex flex-wrap gap-0.5">
         <PixelButton size="xs" variant="gold" onClick={() => actions.openBios(gpu.uid)} title={t('Overclock in the BIOS')}>

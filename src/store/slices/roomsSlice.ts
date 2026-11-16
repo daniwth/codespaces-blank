@@ -1,6 +1,6 @@
 import { tr } from '../../i18n';
 import { MAX_TECHNICIANS, TECHNICIAN_BASE_COST, TECHNICIAN_COST_GROWTH } from '../../config/hardwareCatalog';
-import { MAX_PADS, ROOM_BY_ID, ROOM_MECHANICS, ROOM_ORDER } from '../../config/roomsCatalog';
+import { MAX_PADS, ROOM_BY_ID, ROOM_MECHANICS, ROOM_ORDER, surgeProtectorPrice } from '../../config/roomsCatalog';
 import { talentModifiers } from '../../config/prestigeTree';
 import type { RoomId, TalentLevels } from '../../types/player';
 import { bnGte, bnSub } from '../../utils/bignum';
@@ -69,8 +69,21 @@ export function createRoomsSlice(set: SetState, get: GetState): RoomsSlice {
       sfxBus.emit('switch');
     },
 
-    buyRoomUpgrade: (id) => {
+    buyRoomUpgrade: (id, roomId) => {
       const s = get();
+      if (id === 'surge') {
+        if (!roomId || !s.ownedRooms.includes(roomId) || s.upgrades.surge.includes(roomId)) return false;
+        const cost = surgeProtectorPrice(roomId);
+        if (!bnGte(s.cash, cost)) {
+          s.logT('Not enough cash for {label} ({price}).', { label: 'Surge Protector', price: formatCash(cost) }, 'warn');
+          sfxBus.emit('error');
+          return false;
+        }
+        set({ cash: bnSub(s.cash, cost), upgrades: { ...s.upgrades, surge: [...s.upgrades.surge, roomId] } });
+        s.logT('Surge Protector installed in {room}: a thermal shutdown there no longer trips the racks next to it.', { room: ROOM_BY_ID[roomId].name }, 'good');
+        sfxBus.emit('unlock');
+        return true;
+      }
       if (id !== 'battery' || s.upgrades.battery) return false;
       if (!s.ownedRooms.includes('warehouse')) {
         s.logT('Unlock {name} first.', { name: ROOM_BY_ID.warehouse.name }, 'warn');

@@ -7,6 +7,9 @@
  * rooms, talents, The Halving, $CC, $SC…) go through the dictionary (`tr`).
  */
 import { COLLECTION } from './collection';
+import { ENERGY, PPA_PLANS, SPOT_MAX, SPOT_MIN } from './energy';
+import { FORECAST_HORIZON_SEC, SURGE } from './synergy';
+import { LEDGER_DAYS } from '../store/gamePhysics';
 import { REPUTATION } from './reputation';
 import { ROOM_BY_ID as V9_ROOMS, ROOM_MECHANICS } from './roomsCatalog';
 import { SYNERGY } from './synergy';
@@ -892,6 +895,22 @@ export function sectionsEs(): WikiSection[] {
               `**Reliquias y Colección.** Cada reto superado da una reliquia permanente. La Colección de Silicio (pestaña Rigs) da +${pct(COLLECTION.familyHash)} de hashrate por cada marca completada en los cuatro grados.`,
               '**En la sala.** Haz clic en un técnico para arengar al equipo, atrapa los drones raros de Nitrógeno, VIP y Auditoría, y pulsa T para la vista térmica.',
               '**Teclado.** 1-9 y 0 cambian de pestaña, T vista térmica, R mantenimiento rápido, B BIOS, M silenciar, ? muestra la guía.',
+            ),
+          ],
+        },
+        {
+          id: 'v10-systems',
+          title: 'Mercado eléctrico, sobretensiones y previsiones',
+          keywords: ['ppa', 'power contract', 'contrato de energia', 'spot', 'energy desk', 'mesa de energia', 'surge', 'sobretension', 'protector', 'predictive', 'predictivo', 'forecast', 'prevision', 'ledger', 'libro diario', 'hint', 'pista', 'offline', 'daltonismo', 'colour-blind'],
+          blocks: [
+            list(
+              `**Mesa de energía** (Laboratorio). Tu factura sigue un índice spot mayorista en vez de la tarifa fija: ${pct(ENERGY.mean)} de ella de media, oscilando entre ${pct(SPOT_MIN)} y ${pct(SPOT_MAX)}. El Mercado muestra la previsión exacta de los próximos 30 minutos.`,
+              `**Contratos de energía.** ${PPA_PLANS.short.name} (${Math.round(PPA_PLANS.short.durationSec / 60)} min) y ${PPA_PLANS.long.name} (${Math.round(PPA_PLANS.long.durationSec / 60)} min) fijan la tarifa. La oferta se acerca al precio spot del momento, así que firma en un valle. Romper uno cuesta ${pct(ENERGY.cancelFee)} de lo que aún facturaría. Mientras no estás, la energía sin contrato se factura a la media.`,
+              `**Sobretensiones.** Cuando una GPU llega al apagado térmico, cada rack de las plataformas contiguas tiene un ${pct(SURGE.chance)} de probabilidad de dispararse y reiniciarse ${SURGE.rebootSec} s. Un protector de sobretensión (Tienda, Salas) lo evita en esa sala; los racks autoalimentados son inmunes.`,
+              `**Mantenimiento predictivo** (Laboratorio). El diagnóstico del HUD y cada rack muestran qué GPUs necesitarán pasta o reparación en ${Math.round(FORECAST_HORIZON_SEC / 60)} minutos, con las mismas tasas que la simulación.`,
+              '**Informe de regreso.** Lista lo que pasó mientras no estabas y qué arreglar primero, con cambio de pasta y reparación en un clic.',
+              `**Libro diario** (Trofeos). Valor minado, beneficio de trading, electricidad y mantenimiento automático por día, de los últimos ${LEDGER_DAYS} días.`,
+              '**Pistas y paleta** (Sistema). Las pistas aparecen una sola vez cuando una mecánica importa por primera vez, y la vista térmica tiene una paleta apta para daltonismo.',
             ),
           ],
         },

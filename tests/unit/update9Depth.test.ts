@@ -243,11 +243,11 @@ describe('room identity', () => {
 
   it('Warehouse: the battery bank makes night power cheaper, and only there', () => {
     const w = build('warehouse', [{ pad: 0, gpus: same('vx2070', 'bronze', 4), coolers: ['tower', 'tower'] }]);
-    const bill = (now: number, battery: boolean) => simulate({ ...w.data, upgrades: { battery } }, 1, now, settle).live.electricityPerSec;
+    const bill = (now: number, battery: boolean) => simulate({ ...w.data, upgrades: { battery, surge: [] } }, 1, now, settle).live.electricityPerSec;
     expect(bill(MIDNIGHT, true)).toBeCloseTo(bill(MIDNIGHT, false) * ROOM_MECHANICS.warehouse.valleyMul, 10);
     expect(bill(NOON, true)).toBeCloseTo(bill(NOON, false), 10);
     const g = build('garage', [{ pad: 0, gpus: same('vx2070', 'bronze', 4), coolers: ['tower', 'tower'] }]);
-    const garage = (battery: boolean) => simulate({ ...g.data, upgrades: { battery } }, 1, MIDNIGHT, settle).live.electricityPerSec;
+    const garage = (battery: boolean) => simulate({ ...g.data, upgrades: { battery, surge: [] } }, 1, MIDNIGHT, settle).live.electricityPerSec;
     expect(garage(true)).toBeCloseTo(garage(false), 10);
   });
 
@@ -364,7 +364,7 @@ describe('battery bank purchase', () => {
     expect(store().upgrades.battery).toBe(true);
     expect(Number(store().cash)).toBe(1_000_000 - ROOM_MECHANICS.warehouse.batteryPrice);
     expect(store().buyRoomUpgrade('battery')).toBe(false);
-    useGameStore.setState({ upgrades: { battery: false }, cash: '10' });
+    useGameStore.setState({ upgrades: { battery: false, surge: [] }, cash: '10' });
     expect(store().buyRoomUpgrade('battery')).toBe(false);
   });
 });
@@ -386,7 +386,7 @@ describe('save v9: phase 3 fields', () => {
     expect(a.gpus[uid].silicon.vFloor).toBeGreaterThanOrEqual(QUALITY_DEFS.bronze.vFloor[0]);
     expect(a.gpus[uid].silicon.vFloor).toBeLessThanOrEqual(QUALITY_DEFS.bronze.vFloor[1]);
     expect(a.gpus[uid].condensed).toBe(false);
-    expect(a.upgrades).toEqual({ battery: false });
+    expect(a.upgrades).toEqual({ battery: false, surge: [] });
     expect(a.bmc).toEqual(DEFAULT_BMC);
     expect(a.biosProfiles).toEqual(DEFAULT_BIOS_PROFILES);
   });
@@ -394,7 +394,7 @@ describe('save v9: phase 3 fields', () => {
   it('round-trips and sanitizes tampered values', () => {
     const data = createInitialData();
     data.ownedRooms = ['bedroom', 'garage', 'warehouse'];
-    data.upgrades = { battery: true };
+    data.upgrades = { battery: true, surge: [] };
     data.bmc = { enabled: false, autoPaste: false, pasteBelow: 0.4, autoRepair: true, healthBelow: 0.6 };
     data.biosProfiles = { ...data.biosProfiles, eco: { core: -100, mem: -50, voltage: 880 } };
     const back = migrateSave(JSON.parse(JSON.stringify(data)), SAVE_VERSION);

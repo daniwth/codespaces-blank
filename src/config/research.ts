@@ -8,7 +8,7 @@ import type { ResearchId, ResearchLevels } from '../types/player';
  * after the previous one: a +4% hashrate level pays back in a few minutes once the farm's
  * income is ~1/100 of its price per second, like a GPU of the matching tier.
  */
-export type ResearchIcon = 'chip' | 'fan' | 'bolt' | 'drop' | 'pylon' | 'truck' | 'robot' | 'orders';
+export type ResearchIcon = 'chip' | 'fan' | 'bolt' | 'drop' | 'pylon' | 'truck' | 'robot' | 'orders' | 'meter' | 'radar';
 
 /** Translatable effect line: an English template with `{placeholders}` plus its values. */
 export interface ResearchEffect {
@@ -86,6 +86,18 @@ export const RESEARCH: ResearchDef[] = [
     maxLevel: 1, costBase: 2_500, costGrowth: 1, timeBase: 120, timeGrowth: 1, effect: 1,
     effectOf: () => ({ key: 'take-profit and stop-loss orders', params: {} }),
   },
+  {
+    id: 'energy', name: 'Energy Desk', icon: 'meter', color: '#fde047',
+    description: 'A wholesale power account: the bill follows a spot index that is cheaper on average but swings, and you can lock a fixed rate with a power contract in the Market.',
+    maxLevel: 1, costBase: 4_000, costGrowth: 1, timeBase: 150, timeGrowth: 1, effect: 1,
+    effectOf: () => ({ key: 'wholesale power and fixed-rate contracts', params: {} }),
+  },
+  {
+    id: 'predictive', name: 'Predictive Maintenance', icon: 'radar', color: '#5eead4',
+    description: 'Vibration and thermal telemetry on every card: the diagnosis and the rack view tell you which GPUs will need paste or a repair before they do.',
+    maxLevel: 1, costBase: 3_000, costGrowth: 1, timeBase: 120, timeGrowth: 1, effect: 1,
+    effectOf: () => ({ key: 'maintenance forecast', params: {} }),
+  },
 ];
 
 export const RESEARCH_BY_ID = Object.fromEntries(RESEARCH.map((r) => [r.id, r])) as Record<ResearchId, ResearchDef>;
@@ -120,6 +132,10 @@ export interface ResearchModifiers {
   hardwarePriceMul: number;
   /** Smart BMC researched: automatic maintenance is available. */
   smartBmc: boolean;
+  /** Energy Desk: wholesale spot power and fixed-rate contracts. */
+  energyDesk: boolean;
+  /** Predictive Maintenance: forecasts of paste and wear. */
+  predictive: boolean;
   /** Order Desk researched: take-profit / stop-loss orders work. */
   orderDesk: boolean;
 }
@@ -134,6 +150,8 @@ export function researchModifiers(levels: ResearchLevels): ResearchModifiers {
     lineMul: 1 + l('grid') * RESEARCH_BY_ID.grid.effect,
     hardwarePriceMul: 1 - l('logistics') * RESEARCH_BY_ID.logistics.effect,
     smartBmc: l('bmc') > 0,
+    energyDesk: l('energy') > 0,
+    predictive: l('predictive') > 0,
     orderDesk: l('orders') > 0,
   };
 }
