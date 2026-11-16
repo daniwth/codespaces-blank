@@ -225,6 +225,11 @@ export const useAccountStore = create<AccountState>()(
             set({ resetToken: reset.slice(0, 128), authView: 'reset', linkOutcome: 'reset-ready', error: null, notice: null });
             return;
           }
+          // A link opened while signed in never swaps the session for someone else's account.
+          if (get().token) {
+            set({ notice: tr('You are already signed in. Log out first to confirm another account.') });
+            return;
+          }
           set({ authView: 'verifying', linkOutcome: 'verified' });
           const res = await run(() => cloudApi.verifyEmail((verify ?? '').slice(0, 128)));
           if (!res) {
@@ -233,7 +238,7 @@ export const useAccountStore = create<AccountState>()(
           }
           set({ baseRevision: null, pendingChecksum: null, syncState: 'idle', conflict: null, guest: false, authView: 'login', pendingEmail: null });
           afterAuth(res.token, res.user);
-          set({ notice: tr('Email confirmed. You are signed in.') });
+          set({ notice: res.passwordResetRequired ? tr('Email confirmed. For your safety we emailed you a link to choose your password.') : tr('Email confirmed. You are signed in.') });
           useGameStore.getState().pushLog(tr('Account created: {email}', { email: res.user.email }), 'good');
           sfxBus.emit('success');
         },

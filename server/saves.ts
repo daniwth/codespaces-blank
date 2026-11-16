@@ -59,7 +59,14 @@ export function inspectSave(blob: string): { checksum: string; version: number; 
   if (typeof envelope.version !== 'number' || !Number.isInteger(envelope.version) || envelope.version < 1 || envelope.version > MAX_SAVE_VERSION) {
     throw new HttpError(400, 'invalid_save', 'Unsupported save version.');
   }
-  const expected = createHash('sha256').update(SAVE_SALT + JSON.stringify(envelope.data)).digest('hex');
+  let canonical: string;
+  try {
+    canonical = JSON.stringify(envelope.data);
+  } catch {
+    // Nesting deep enough to overflow the serializer is not a save.
+    throw new HttpError(400, 'invalid_save', 'Save is too deeply nested.');
+  }
+  const expected = createHash('sha256').update(SAVE_SALT + canonical).digest('hex');
   if (expected !== envelope.checksum) throw new HttpError(400, 'invalid_save', 'Save checksum mismatch.');
 
   const d = envelope.data;

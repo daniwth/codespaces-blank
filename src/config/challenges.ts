@@ -1,3 +1,4 @@
+import { dict, hasKey } from '../utils/dict';
 import type { ChallengeId } from '../types/player';
 
 /** Restrictions a challenge puts on a run (enforced by the pure simulation and the store actions). */
@@ -66,9 +67,9 @@ export const CHALLENGES: ChallengeDef[] = [
   },
 ];
 
-export const CHALLENGE_BY_ID = Object.fromEntries(CHALLENGES.map((c) => [c.id, c])) as Record<ChallengeId, ChallengeDef>;
+export const CHALLENGE_BY_ID = dict(Object.fromEntries(CHALLENGES.map((c) => [c.id, c])) as Record<ChallengeId, ChallengeDef>);
 export const CHALLENGE_IDS: ChallengeId[] = CHALLENGES.map((c) => c.id);
 
-export const isChallengeId = (v: unknown): v is ChallengeId => typeof v === 'string' && v in CHALLENGE_BY_ID;
+export const isChallengeId = (v: unknown): v is ChallengeId => hasKey(CHALLENGE_BY_ID, v);
 
 export const challengeRules = (id: ChallengeId | null | undefined): ChallengeRules => (id ? CHALLENGE_BY_ID[id].rules : NO_RULES);

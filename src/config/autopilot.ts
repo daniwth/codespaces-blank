@@ -1,3 +1,4 @@
+import { dict } from '../utils/dict';
 /**
  * AI Farm Manager: a gem-bought autopilot that runs the farm for a while. The time only runs
  * down while the game is open (it cannot act on a closed game), so a plan is never wasted.
@@ -17,7 +18,7 @@ export const AUTOPILOT_PLANS: AutopilotPlan[] = [
   { id: 'd1', label: '1 day', seconds: 86_400, gems: 25 },
 ];
 
-export const AUTOPILOT_PLAN_BY_ID = Object.fromEntries(AUTOPILOT_PLANS.map((p) => [p.id, p])) as Record<AutopilotPlanId, AutopilotPlan>;
+export const AUTOPILOT_PLAN_BY_ID = dict(Object.fromEntries(AUTOPILOT_PLANS.map((p) => [p.id, p])) as Record<AutopilotPlanId, AutopilotPlan>);
 
 export const AUTOPILOT = {
   /** Banked time can never exceed this (7 days). */

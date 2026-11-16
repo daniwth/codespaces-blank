@@ -1,3 +1,4 @@
+import { dict, hasKey } from '../utils/dict';
 import type { GpuStyle } from '../types/hardware';
 import type { FoundryNodeId } from '../types/player';
 
@@ -70,9 +71,9 @@ export const FOUNDRY_NODES: FoundryNode[] = [
   },
 ];
 
-export const FOUNDRY_BY_ID = Object.fromEntries(FOUNDRY_NODES.map((n) => [n.id, n])) as Record<FoundryNodeId, FoundryNode>;
+export const FOUNDRY_BY_ID = dict(Object.fromEntries(FOUNDRY_NODES.map((n) => [n.id, n])) as Record<FoundryNodeId, FoundryNode>);
 export const FOUNDRY_IDS: FoundryNodeId[] = FOUNDRY_NODES.map((n) => n.id);
-export const isFoundryNode = (v: unknown): v is FoundryNodeId => typeof v === 'string' && v in FOUNDRY_BY_ID;
+export const isFoundryNode = (v: unknown): v is FoundryNodeId => hasKey(FOUNDRY_BY_ID, v);
 
 export type FoundryState = 'owned' | 'available' | 'locked' | 'excluded';
 

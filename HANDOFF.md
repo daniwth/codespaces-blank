@@ -45,6 +45,16 @@ Reply to the user in Spanish. Project conventions are in `CLAUDE.md`; do not rep
 - Chip Foundry: `src/config/foundry.ts` (`FOUNDRY_NODES`, `foundryState`, `foundryModifiers`, `legalFoundry`). `GameData.foundry` is run-scoped; the simulation applies hashrate and heat per chip family (`chipFamily(model.style)`), purchases use `lotteryLuck` (`hardwareSlice.ts`). UI: `FoundryTree.tsx` at the bottom of the Lab.
 - Sandbox mode: `GameData.sandbox`, set by `startNewGame(challenge, sandbox)` from the title screen and carried through The Halving. The simulation skips wear, paste drying, bad network events, raids and surges; challenge runs are refused in `createInitialData`.
 
+## Security hardening (after the adversarial audit)
+- Server never dies on a request: `requestPath` only accepts origin-form targets, the listener body is fully wrapped, plus `clientError` / `unhandledRejection` handlers and request timeouts (`server/index.ts`).
+- Sign-up: an unverified address registered again with a different password becomes `contested`; on verification no password is kept and the mailbox gets a reset link (`passwordResetRequired` in the verify answer). Never go back to "latest password wins".
+- A development server listens on 127.0.0.1 only (`listenHost`, override with `HOST`) and `devLink` is only returned to loopback clients. A live Stripe key makes the deployment public.
+- Billing: a paid subscription with no account, or a second one, is cancelled at Stripe from the webhook; a repeated checkout reuses the open session; Stripe ids are validated before they enter a path; deleting an account also deletes its Stripe customer (best effort).
+- Limits: per-account login failures across IPs, IPv6 counted per /64 (`server/net.ts`), mail budget per mailbox (`canonicalEmail`), common passwords refused, stricter email syntax.
+- Saves are attacker input. Catalog `*_BY_ID` tables have no prototype (`src/utils/dict.ts`); check ids with `hasKey`, never `table[id]` truthiness or `id in table`. `migrations.ts` caps hardware counts (`SAVE_CAPS`), mounts each part once, one rack per pad, validates `event`, bounds wallets and counters. `safeMigrate` keeps an unreadable save under `BROKEN_SAVE_KEY` instead of overwriting it.
+- Regression tests: `tests/unit/securityHardening.test.ts` (hostile saves) and the new checks in `tests/server/security.mjs`.
+- Known and accepted: a player can edit their own local save (gems, VIP, autopilot time cost no money and nobody else sees them); the session token lives in localStorage; there is no "log out everywhere" besides a password reset.
+
 ## i18n
 - `src/i18n/index.ts`: English text is the key. React uses `const t = useT()`, other code `tr(en, params)`. Placeholders are `{name}`.
 - Language lives in `useLangStore` / localStorage `hh-lang`, outside the save. Dictionaries: `src/i18n/es/*.ts`, merged in `es/index.ts` (`update9.ts` holds everything added by the v9 update).
@@ -73,3 +83,4 @@ Reply to the user in Spanish. Project conventions are in `CLAUDE.md`; do not rep
 - v10, part 2 (power market and contracts, power surges and protectors, Predictive Maintenance): 455 unit, 38/38 server, 43/43 E2E.
 - v11 (ranks with gem rewards and high-rank bonuses, Flash Mining, Pool Partner, Hard Fork event; save v11): 477 unit, 38/38 server, 44/44 E2E.
 - v12 (Chip Foundry tree, Sandbox mode; save v12): 490 unit, 38/38 server, 45/45 E2E.
+- Security hardening after the audit: 504 unit, 45/45 server, 45/45 E2E.

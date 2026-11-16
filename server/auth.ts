@@ -12,18 +12,34 @@ const SCRYPT = { N: 2 ** 17, r: 8, p: 1, keylen: 64 };
 const MAXMEM = 256 * 1024 * 1024;
 /** At most 2 hashes run at once; beyond 64 queued requests the server answers 503. */
 const hashSlot = createSemaphore(2, 64);
-const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,24}$/;
+// No separators or markup characters: an address is one mailbox, never a list or a header fragment.
+const EMAIL_RE = /^[^\s@,;:<>()[\]"\\]{1,64}@[a-z0-9](?:[a-z0-9.-]{0,188}[a-z0-9])?\.[a-z]{2,24}$/;
+
+/** The few passwords everyone tries first. Not a strength meter: just the obvious ones. */
+const COMMON_PASSWORDS = new Set([
+  'password', 'password1', 'password123', 'passw0rd', '12345678', '123456789', '1234567890', 'qwertyuiop', 'qwerty123',
+  'iloveyou', '11111111', '00000000', 'abcdefgh', 'abc12345', 'letmein1', 'admin123', 'welcome1', 'hashharvest',
+]);
+
+/** Mailbox behind an address: `+tag` aliases share one inbox, so they share the mail budget. */
+export const canonicalEmail = (email: string): string => {
+  const at = email.lastIndexOf('@');
+  return at < 0 ? email : `${email.slice(0, at).split('+')[0]}${email.slice(at)}`;
+};
 
 export const normalizeEmail = (email: string): string => email.trim().toLowerCase();
 
-export function validatePassword(password: string): void {
+export function validatePassword(password: string, email = ''): void {
   if (password.length < 8) throw new HttpError(400, 'weak_password', 'Password must be at least 8 characters.');
   if (password.length > 200) throw new HttpError(400, 'weak_password', 'Password is too long.');
+  const lower = password.toLowerCase();
+  if (COMMON_PASSWORDS.has(lower)) throw new HttpError(400, 'weak_password', 'That password is too common. Choose another one.');
+  if (email && (lower === email || lower === email.split('@')[0])) throw new HttpError(400, 'weak_password', 'Your password cannot be your email address.');
 }
 
 export function validateCredentials(email: string, password: string): void {
   if (!EMAIL_RE.test(email)) throw new HttpError(400, 'invalid_email', 'Enter a valid email address.');
-  validatePassword(password);
+  validatePassword(password, email);
 }
 
 /** Encodes as scrypt$N$r$p$salt$hash (base64url). */
@@ -101,5 +117,8 @@ export function revokeSession(req: IncomingMessage): void {
   const token = bearer(req);
   if (token) sessions.remove(hashToken(token));
 }
+
+/** Stored instead of a hash when no password may log in until the owner of the mailbox sets one. */
+export const UNUSABLE_PASSWORD = '!';
 
 export const newUserId = (): string => `usr_${randomUUID().replace(/-/g, '')}`;

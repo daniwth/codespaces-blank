@@ -1,3 +1,4 @@
+import { dict } from '../utils/dict';
 import type { RoomDefinition, RoomId } from '../types/player';
 import { SURGE } from './synergy';
 
@@ -33,7 +34,7 @@ export const ROOM_CATALOG: RoomDefinition[] = [
   },
 ];
 
-export const ROOM_BY_ID = Object.fromEntries(ROOM_CATALOG.map((r) => [r.id, r])) as Record<RoomId, RoomDefinition>;
+export const ROOM_BY_ID = dict(Object.fromEntries(ROOM_CATALOG.map((r) => [r.id, r])) as Record<RoomId, RoomDefinition>);
 
 export const ROOM_ORDER: RoomId[] = ROOM_CATALOG.map((r) => r.id);
 

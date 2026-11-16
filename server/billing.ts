@@ -116,9 +116,30 @@ function planFromPrice(priceId: string | undefined): PlanId | null {
   return null;
 }
 
+const userOfSubscription = (sub: StripeSubscription): UserRow | undefined =>
+  (sub.metadata?.userId && users.byId(sub.metadata.userId)) || users.byCustomer(sub.customer);
+
+/**
+ * A paid Miner Pass that no account can use: its account was deleted before the checkout was paid,
+ * or the account already has another live subscription. It would keep charging for nothing.
+ */
+function strayReason(sub: StripeSubscription): string | null {
+  if (!ACTIVE_STATUSES.has(sub.status) || !planFromPrice(sub.items?.data?.[0]?.price?.id)) return null;
+  const user = userOfSubscription(sub);
+  if (!user) return 'its account no longer exists';
+  if (user.sub_id && user.sub_id !== sub.id && hasLiveStripeSub(user)) return 'the account already has a subscription';
+  return null;
+}
+
+/** Stripe ids go into request paths: anything that is not a plain id is refused, not sent. */
+const stripeId = (id: string): string => {
+  if (!/^[A-Za-z0-9_]{1,255}$/.test(id)) throw new HttpError(400, 'bad_event', 'Malformed Stripe id.');
+  return id;
+};
+
 /** Persists an authoritative subscription object (always fetched from Stripe). */
 function applySubscription(sub: StripeSubscription): void {
-  const user = (sub.metadata?.userId && users.byId(sub.metadata.userId)) || users.byCustomer(sub.customer);
+  const user = userOfSubscription(sub);
   if (!user) {
     console.warn('[billing] subscription for unknown user', sub.id);
     return;
@@ -152,6 +173,10 @@ export interface CheckoutResult {
   reactivated: boolean;
 }
 
+/** The Checkout Session a user was last sent to: a second click reuses it instead of opening another payable one. */
+const openCheckouts = new Map<string, { url: string; plan: PlanId; at: number }>();
+const CHECKOUT_REUSE_MS = 20 * 60_000;
+
 /** Users with a Stripe call in flight: concurrent requests must not each open a paid Checkout Session. */
 const checkoutInFlight = new Set<string>();
 
@@ -184,7 +209,7 @@ async function startCheckoutLocked(user: UserRow, planId: PlanId): Promise<Check
 
   if (hasLiveStripeSub(user) && user.sub_id) {
     if (ACTIVE_STATUSES.has(user.sub_status) && user.cancel_at_period_end) {
-      const resumed = await stripe<StripeSubscription>('POST', `/subscriptions/${user.sub_id}`, { cancel_at_period_end: false });
+      const resumed = await stripe<StripeSubscription>('POST', `/subscriptions/${stripeId(user.sub_id)}`, { cancel_at_period_end: false });
       applySubscription(resumed);
       return { url: null, demo: false, reactivated: true };
     }
@@ -193,13 +218,15 @@ async function startCheckoutLocked(user: UserRow, planId: PlanId): Promise<Check
   }
 
   if (!plan.stripePriceId) throw new HttpError(500, 'plan_not_configured', 'This plan is not available right now.');
+  const open = openCheckouts.get(user.id);
+  if (open && open.plan === planId && Date.now() - open.at < CHECKOUT_REUSE_MS) return { url: open.url, demo: false, reactivated: false };
   let customer = user.stripe_customer_id;
   if (!customer) {
     const created = await stripe<{ id: string }>('POST', '/customers', { email: user.email, metadata: { userId: user.id } }, `customer-${user.id}`);
     customer = created.id;
     users.setCustomer(user.id, customer);
   }
-  const session = await stripe<{ url: string }>('POST', '/checkout/sessions', {
+  const session = await stripe<{ id?: string; url: string }>('POST', '/checkout/sessions', {
     mode: 'subscription',
     customer,
     client_reference_id: user.id,
@@ -210,6 +237,8 @@ async function startCheckoutLocked(user: UserRow, planId: PlanId): Promise<Check
     success_url: `${config.appUrl}/?checkout=success`,
     cancel_url: `${config.appUrl}/?checkout=cancel`,
   });
+  if (openCheckouts.size > 5_000) openCheckouts.clear();
+  openCheckouts.set(user.id, { url: session.url, plan: planId, at: Date.now() });
   return { url: session.url, demo: false, reactivated: false };
 }
 
@@ -237,10 +266,22 @@ export function demoCancel(user: UserRow): void {
  * Throws (and the account is kept) if the cancellation cannot be confirmed.
  */
 export async function cancelBillingForDeletion(user: UserRow): Promise<void> {
-  if (devBilling || !hasLiveStripeSub(user) || !user.sub_id) return;
-  const canceled = await stripe<StripeSubscription>('DELETE', `/subscriptions/${user.sub_id}`);
-  if (!TERMINAL_STATUSES.has(canceled.status)) {
-    throw new HttpError(502, 'billing_error', 'Could not cancel your subscription. Your account was not deleted.');
+  if (devBilling) return;
+  openCheckouts.delete(user.id);
+  if (hasLiveStripeSub(user) && user.sub_id) {
+    const canceled = await stripe<StripeSubscription>('DELETE', `/subscriptions/${stripeId(user.sub_id)}`);
+    if (!TERMINAL_STATUSES.has(canceled.status)) {
+      throw new HttpError(502, 'billing_error', 'Could not cancel your subscription. Your account was not deleted.');
+    }
+  }
+  // Removing the customer also voids any Checkout Session still open for it. Best effort: a checkout
+  // paid afterwards anyway is cancelled when its webhook finds no account (see handleWebhook).
+  if (user.stripe_customer_id) {
+    try {
+      await stripe<{ id: string }>('DELETE', `/customers/${stripeId(user.stripe_customer_id)}`);
+    } catch {
+      console.warn('[billing] could not delete the Stripe customer of a deleted account');
+    }
   }
 }
 
@@ -297,7 +338,7 @@ export async function handleWebhook(raw: Buffer, signature: string | undefined):
       const customer = typeof obj.customer === 'string' ? obj.customer : null;
       const subId = typeof obj.subscription === 'string' ? obj.subscription : null;
       if (userId && customer) customerLink = { userId, customer };
-      if (subId) subscription = await stripe<StripeSubscription>('GET', `/subscriptions/${subId}`);
+      if (subId) subscription = await stripe<StripeSubscription>('GET', `/subscriptions/${stripeId(subId)}`);
       break;
     }
     case 'customer.subscription.created':
@@ -305,16 +346,26 @@ export async function handleWebhook(raw: Buffer, signature: string | undefined):
     case 'customer.subscription.deleted': {
       // Re-fetch instead of trusting the payload: immune to out-of-order delivery.
       if (typeof obj.id !== 'string') throw new HttpError(400, 'bad_event', 'Subscription event without id.');
-      subscription = await stripe<StripeSubscription>('GET', `/subscriptions/${obj.id}`);
+      subscription = await stripe<StripeSubscription>('GET', `/subscriptions/${stripeId(obj.id)}`);
       break;
     }
     default:
       break;
   }
 
+  // A subscription nobody can use is cancelled at Stripe right away, so it stops charging.
+  const stray = subscription ? strayReason(subscription) : null;
+  if (subscription && stray) {
+    console.error(`[billing] cancelling stray subscription ${subscription.id}: ${stray}`);
+    await stripe<StripeSubscription>('DELETE', `/subscriptions/${stripeId(subscription.id)}`);
+    subscription = null;
+  }
+
   transaction(() => {
     if (!markWebhookEvent(event.id)) return;
-    if (customerLink && users.byId(customerLink.userId)) users.setCustomer(customerLink.userId, customerLink.customer);
+    // A customer id is only linked to an account that has none yet: an event can never re-point an account.
+    const linkUser = customerLink ? users.byId(customerLink.userId) : undefined;
+    if (customerLink && linkUser && (!linkUser.stripe_customer_id || linkUser.stripe_customer_id === customerLink.customer)) users.setCustomer(customerLink.userId, customerLink.customer);
     if (subscription) applySubscription(subscription);
   });
 }

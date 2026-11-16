@@ -1,3 +1,4 @@
+import { hasKey } from '../utils/dict';
 import type { PowerContract, PpaPlanId } from '../types/economy';
 
 /**
@@ -45,7 +46,7 @@ export const PPA_PLANS: Record<PpaPlanId, PpaPlan> = {
   long: { id: 'long', name: 'Baseload 120', durationSec: 120 * 60, follow: 0.3, premium: 0.025 },
 };
 export const PPA_PLAN_IDS: PpaPlanId[] = ['short', 'long'];
-export const isPpaPlan = (v: unknown): v is PpaPlanId => typeof v === 'string' && v in PPA_PLANS;
+export const isPpaPlan = (v: unknown): v is PpaPlanId => hasKey(PPA_PLANS, v);
 
 /**
  * Fixed rate a supplier offers right now: it leans towards the spot price of the moment, so

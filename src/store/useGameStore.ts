@@ -349,7 +349,13 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
         sfxBus.emit('error');
         return { ok: false, message: tr(result.error) };
       }
-      const data = migrateSave(result.data, result.version);
+      let data: GameData;
+      try {
+        data = migrateSave(result.data, result.version);
+      } catch {
+        sfxBus.emit('error');
+        return { ok: false, message: tr('This save could not be read.') };
+      }
       bumpWorldEpoch();
       set({ ...data, ...initialUi(), ...keepNav(get()), sideTab: 'system', lastTick: Date.now() });
       gameStorage.flush();
@@ -425,11 +431,31 @@ export const useGameStore = create<GameStore>()(
       version: SAVE_VERSION,
       storage: createJSONStorage(() => gameStorage),
       partialize: (s) => extractData(s),
-      migrate: (persisted, version) => migrateSave(persisted, version),
-      merge: (persisted, current) => ({ ...current, ...migrateSave(persisted, SAVE_VERSION) }),
+      migrate: (persisted, version) => safeMigrate(persisted, version),
+      merge: (persisted, current) => ({ ...current, ...safeMigrate(persisted, SAVE_VERSION) }),
     },
   ),
 );
+
+/** Where a stored save that could not be read is set aside, so the next autosave does not destroy it. */
+export const BROKEN_SAVE_KEY = `${SAVE_KEY}:unreadable`;
+
+/**
+ * `migrateSave` is written never to throw, whatever the save holds. If it ever does, the stored save
+ * is kept under a backup key and the game starts fresh instead of crashing on every load.
+ */
+export function safeMigrate(raw: unknown, version: number): GameData {
+  try {
+    return migrateSave(raw, version);
+  } catch {
+    try {
+      localStorage.setItem(BROKEN_SAVE_KEY, JSON.stringify(raw));
+    } catch {
+      // No storage (private mode, quota): nothing more can be done.
+    }
+    return createInitialData();
+  }
+}
 
 /** Shallow-compared selector hook for picking several fields at once. */
 export function useGameShallow<T>(selector: (s: GameStore) => T): T {

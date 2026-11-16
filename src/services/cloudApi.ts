@@ -91,6 +91,8 @@ interface AuthResponse {
   token: string;
   expiresAt: number;
   user: AccountUser;
+  /** The sign-up was repeated with different passwords: none is trusted and a reset link was emailed. */
+  passwordResetRequired?: boolean;
 }
 
 /** Answer of the email-sending endpoints; `devLink` only exists on a local server in log-mail mode. */

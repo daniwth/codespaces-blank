@@ -447,4 +447,9 @@ export const esUpdate9: Dict = {
   'SANDBOX': 'SANDBOX',
   'A relaxed farm: hardware never wears or dries out, and no bad event, raid or power surge hits you. Starts with {cash}. No challenge runs.': 'Una granja relajada: el hardware no se desgasta ni se seca, y no te afectan eventos malos, redadas ni sobretensiones. Empiezas con {cash}. Sin partidas de desafío.',
   'Sandbox mode: hardware never degrades and no bad event, raid or surge reaches the farm.': 'Modo sandbox: el hardware no se degrada y ningún evento malo, redada o sobretensión llega a la granja.',
+
+  // security hardening
+  'This save could not be read.': 'No se pudo leer este guardado.',
+  'You are already signed in. Log out first to confirm another account.': 'Ya has iniciado sesión. Cierra sesión primero para confirmar otra cuenta.',
+  'Email confirmed. For your safety we emailed you a link to choose your password.': 'Correo confirmado. Por tu seguridad te hemos enviado un enlace para elegir tu contraseña.',
 };

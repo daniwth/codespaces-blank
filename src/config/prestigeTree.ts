@@ -1,3 +1,4 @@
+import { dict } from '../utils/dict';
 import type { TalentId, TalentLevels, TalentNode } from '../types/player';
 
 const pct = (v: number) => `${Math.round(v * 100)}%`;
@@ -106,7 +107,7 @@ export const PRESTIGE_TREE: TalentNode[] = [
   },
 ];
 
-export const TALENT_BY_ID = Object.fromEntries(PRESTIGE_TREE.map((t) => [t.id, t])) as Record<TalentId, TalentNode>;
+export const TALENT_BY_ID = dict(Object.fromEntries(PRESTIGE_TREE.map((t) => [t.id, t])) as Record<TalentId, TalentNode>);
 
 export const talentLevel = (talents: TalentLevels, id: TalentId): number => talents[id] ?? 0;
 

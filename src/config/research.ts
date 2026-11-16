@@ -1,3 +1,4 @@
+import { dict, hasKey } from '../utils/dict';
 import type { ResearchId, ResearchLevels } from '../types/player';
 
 /**
@@ -100,10 +101,10 @@ export const RESEARCH: ResearchDef[] = [
   },
 ];
 
-export const RESEARCH_BY_ID = Object.fromEntries(RESEARCH.map((r) => [r.id, r])) as Record<ResearchId, ResearchDef>;
+export const RESEARCH_BY_ID = dict(Object.fromEntries(RESEARCH.map((r) => [r.id, r])) as Record<ResearchId, ResearchDef>);
 export const RESEARCH_IDS: ResearchId[] = RESEARCH.map((r) => r.id);
 
-export const isResearchId = (v: unknown): v is ResearchId => typeof v === 'string' && v in RESEARCH_BY_ID;
+export const isResearchId = (v: unknown): v is ResearchId => hasKey(RESEARCH_BY_ID, v);
 
 export const researchLevel = (levels: ResearchLevels, id: ResearchId): number => levels[id] ?? 0;
 

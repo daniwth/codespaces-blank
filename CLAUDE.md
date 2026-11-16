@@ -19,6 +19,8 @@ Pixel-art crypto-mining tycoon: React 19 + TypeScript strict + Vite + Zustand + 
 - Player edits to simulated GPU fields must call `recordGpuEdit` (`src/store/editLedger.ts`) so in-flight ticks don't revert them.
 - Modals must register in `src/utils/modalStack.ts` so Escape only closes the top one.
 - Dates, clocks and money use the `format*` helpers in `src/utils/formatters.ts` (game language, never the browser locale). Canvas text goes through `drawPixelText` (accents are stripped by `pixelTextOf`).
+- Saves are untrusted input: look ids up with `hasKey` (`src/utils/dict.ts`), sanitize every new persisted field in `migrations.ts`, and add a hostile case to `tests/unit/securityHardening.test.ts`.
+- A development server only listens on 127.0.0.1 (set `HOST` to change it).
 - The server refuses demo billing and the console mailer on a public deployment (`NODE_ENV=production` or a non-local `APP_URL`).
 
 ## Agents (`.claude/agents/`)

@@ -6,17 +6,17 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 import {
-  burnPasswordCheck, consumeEmailToken, createSession, hashPassword, issueEmailToken, needsRehash, newUserId, normalizeEmail,
-  requireUser, revokeSession, validateCredentials, validatePassword, verifyPassword,
+  burnPasswordCheck, canonicalEmail, consumeEmailToken, createSession, hashPassword, issueEmailToken, needsRehash, newUserId, normalizeEmail,
+  requireUser, revokeSession, UNUSABLE_PASSWORD, validateCredentials, validatePassword, verifyPassword,
 } from './auth.ts';
 import {
   cancelBillingForDeletion, demoCancel, handleWebhook, isPlanId, onBillingStartup, openPortal, PLANS, publicUser,
   startCheckout, subscriptionOf,
 } from './billing.ts';
-import { billingMode, config, devBilling, mailMode } from './config.ts';
+import { billingMode, config, devBilling, listenHost, mailMode } from './config.ts';
 import { emailTokens, purgeWebhookEvents, saves, sessions, transaction, users, type UserRow } from './db.ts';
 import {
-  clientIp, createRateLimiter, HttpError, PAGE_CSP, readJson, readRawBody, SECURITY_HEADERS, sendError, sendJson, str,
+  clientIp, createRateLimiter, HttpError, isLoopback, PAGE_CSP, readJson, readRawBody, SECURITY_HEADERS, sendError, sendJson, str,
 } from './http.ts';
 import { alreadyRegisteredMail, dispatchMail, resetMail, verifyMail } from './mail.ts';
 import { inspectSave } from './saves.ts';
@@ -38,6 +38,11 @@ const loginIpLimiter = createRateLimiter(30, 60_000);
  * it, so a third party cannot lock a victim out of their own account.
  */
 const loginFailLimiter = createRateLimiter(10, 10 * 60_000);
+/**
+ * Failed logins per account across every address: bounds a distributed guessing attack. The cap is far
+ * above what a person mistypes, so locking someone out takes a sustained attack, not a prank.
+ */
+const loginAccountLimiter = createRateLimiter(200, 60 * 60_000);
 const sensitiveLimiter = createRateLimiter(10, 60_000);
 const saveLimiter = createRateLimiter(30, 60_000);
 
@@ -53,10 +58,20 @@ const allow = (limiter: ReturnType<typeof createRateLimiter>, key: string): bool
 
 /** Emails a fresh single-use verification link. Returns the dev link when allowed. */
 function sendVerification(user: UserRow): string | undefined {
-  if (!allow(mailTargetLimiter, `verify:${user.email}`)) return undefined;
+  if (!allow(mailTargetLimiter, `verify:${canonicalEmail(user.email)}`)) return undefined;
   const link = `${config.appUrl}/?verify=${issueEmailToken(user.id, 'verify')}`;
   return dispatchMail(verifyMail(user.email, link), link);
 }
+
+/** Emails a single-use link to choose a new password. Returns the dev link when allowed. */
+function sendReset(user: UserRow): string | undefined {
+  if (!allow(mailTargetLimiter, `reset:${canonicalEmail(user.email)}`)) return undefined;
+  const link = `${config.appUrl}/?reset=${issueEmailToken(user.id, 'reset')}`;
+  return dispatchMail(resetMail(user.email, link), link);
+}
+
+/** Dev links only ever travel back to the machine the server runs on. */
+const devLinkFor = (req: IncomingMessage, link: string | undefined): { devLink?: string } => (link && isLoopback(req) ? { devLink: link } : {});
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
 
@@ -94,14 +109,18 @@ const routes: Record<string, Handler> = {
     if (created) {
       devLink = sendVerification(user);
     } else if (user.email_verified === 0) {
-      // A sign-up nobody confirmed holds no data: the latest password wins, so whoever owns the
-      // mailbox ends up with the password they chose (an earlier squatter cannot pre-set it).
-      users.setPasswordHash(user.id, passwordHash);
+      // Someone already signed up with this address and nobody confirmed it. We cannot tell the owner
+      // of the mailbox from a stranger by the password alone, so a repeat with a different password
+      // marks the sign-up as contested: no password is trusted, and whoever opens the email (the
+      // owner) is asked to choose one. Neither a squatter nor a late hijacker keeps a working password.
+      if (!(await verifyPassword(password, user.password_hash))) users.setContested(user.id, true);
       devLink = sendVerification(user);
-    } else if (allow(mailTargetLimiter, `already:${email}`)) {
+    } else if (allow(mailTargetLimiter, `already:${canonicalEmail(email)}`)) {
       devLink = dispatchMail(alreadyRegisteredMail(email, `${config.appUrl}/`), `${config.appUrl}/`);
     }
-    sendJson(res, 202, { accepted: true, ...(devLink ? { devLink } : {}) });
+    // Every path costs two password hashes, so the answer time says nothing about the address.
+    if (created || user.email_verified !== 0) await burnPasswordCheck(password);
+    sendJson(res, 202, { accepted: true, ...devLinkFor(req, devLink) });
   },
 
   'POST /api/auth/verify': async (req, res) => {
@@ -109,11 +128,23 @@ const routes: Record<string, Handler> = {
     const body = await readJson(req);
     const userId = consumeEmailToken(str(body.token, 'token', 128), 'verify');
     if (!userId) throw new HttpError(400, 'invalid_token', 'This link is invalid or has expired.');
+    const pending = users.byId(userId);
+    if (!pending) throw new HttpError(400, 'invalid_token', 'This link is invalid or has expired.');
     users.markVerified(userId);
-    const user = users.byId(userId);
-    if (!user) throw new HttpError(400, 'invalid_token', 'This link is invalid or has expired.');
+    // Contested sign-up: the password on file may be a stranger's. Nobody logs in with it; the owner
+    // of the mailbox (who just proved it) gets a link to choose their own.
+    let resetLink: string | undefined;
+    if (pending.contested) {
+      users.setPasswordHash(userId, UNUSABLE_PASSWORD);
+      users.setContested(userId, false);
+      resetLink = sendReset(pending);
+    }
+    const user = users.byId(userId) ?? pending;
     const session = createSession(user.id);
-    sendJson(res, 200, { token: session.token, expiresAt: session.expiresAt, user: publicUser(user) });
+    sendJson(res, 200, {
+      token: session.token, expiresAt: session.expiresAt, user: publicUser(user),
+      ...(pending.contested ? { passwordResetRequired: true, ...devLinkFor(req, resetLink) } : {}),
+    });
   },
 
   'POST /api/auth/resend': async (req, res) => {
@@ -121,19 +152,15 @@ const routes: Record<string, Handler> = {
     const body = await readJson(req);
     const user = users.byEmail(normalizeEmail(str(body.email, 'email', 254)));
     const devLink = user && user.email_verified === 0 ? sendVerification(user) : undefined;
-    sendJson(res, 202, { accepted: true, ...(devLink ? { devLink } : {}) });
+    sendJson(res, 202, { accepted: true, ...devLinkFor(req, devLink) });
   },
 
   'POST /api/auth/forgot': async (req, res) => {
     mailRequestLimiter.hit(`forgot:${clientIp(req)}`);
     const body = await readJson(req);
     const user = users.byEmail(normalizeEmail(str(body.email, 'email', 254)));
-    let devLink: string | undefined;
-    if (user && allow(mailTargetLimiter, `reset:${user.email}`)) {
-      const link = `${config.appUrl}/?reset=${issueEmailToken(user.id, 'reset')}`;
-      devLink = dispatchMail(resetMail(user.email, link), link);
-    }
-    sendJson(res, 202, { accepted: true, ...(devLink ? { devLink } : {}) });
+    const devLink = user ? sendReset(user) : undefined;
+    sendJson(res, 202, { accepted: true, ...devLinkFor(req, devLink) });
   },
 
   'POST /api/auth/reset': async (req, res) => {
@@ -148,6 +175,7 @@ const routes: Record<string, Handler> = {
       if (!userId) return false;
       users.setPasswordHash(userId, passwordHash);
       users.markVerified(userId); // reading the reset email proves the mailbox
+      users.setContested(userId, false);
       sessions.removeAllForUser(userId);
       emailTokens.removeAllForUser(userId);
       return true;
@@ -163,11 +191,13 @@ const routes: Record<string, Handler> = {
     const failKey = `${email}|${ip}`;
     loginIpLimiter.hit(ip);
     loginFailLimiter.check(failKey);
+    loginAccountLimiter.check(email);
     const password = str(body.password, 'password', 200);
     const user = users.byEmail(email);
     const ok = user ? await verifyPassword(password, user.password_hash) : (await burnPasswordCheck(password), false);
     if (!user || !ok) {
       loginFailLimiter.hit(failKey);
+      if (user) loginAccountLimiter.hit(email);
       throw new HttpError(401, 'bad_credentials', 'Wrong email or password.');
     }
     loginFailLimiter.reset(failKey);
@@ -297,9 +327,19 @@ function serveStatic(req: IncomingMessage, res: ServerResponse): boolean {
 
 // ───────────────────────── Server ─────────────────────────
 
+/**
+ * Path of a request target. Only the origin form is served ("/path?query"): an absolute URL, an
+ * authority or a target starting with "//" is refused instead of being parsed.
+ */
+export function requestPath(target: string | undefined): string {
+  const raw = target ?? '/';
+  if (!raw.startsWith('/') || raw.startsWith('//') || raw.includes('\\')) throw new HttpError(400, 'bad_request', 'Malformed URL.');
+  return raw.split(/[?#]/, 1)[0];
+}
+
 const server = createServer({ maxHeaderSize: 8 * 1024 }, async (req, res) => {
-  const path = new URL(req.url ?? '/', 'http://x').pathname;
   try {
+    const path = requestPath(req.url);
     if (path.startsWith('/api/')) {
       const handler = routes[`${req.method} ${path}`];
       if (!handler) throw new HttpError(404, 'not_found', 'Unknown endpoint.');
@@ -308,8 +348,29 @@ const server = createServer({ maxHeaderSize: 8 * 1024 }, async (req, res) => {
     }
     if (!serveStatic(req, res)) sendJson(res, 404, { error: { code: 'not_found', message: 'Not found.' } });
   } catch (err) {
-    sendError(res, err);
+    try {
+      if (res.headersSent) res.destroy();
+      else sendError(res, err);
+    } catch {
+      res.destroy();
+    }
   }
+});
+// Slow or stalled clients are cut off instead of holding a connection open for ever.
+server.headersTimeout = 10_000;
+server.requestTimeout = 30_000;
+server.keepAliveTimeout = 5_000;
+server.maxConnections = 2_000;
+server.on('clientError', (_err, socket) => {
+  if (socket.writable) socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
+  else socket.destroy();
+});
+// Last line of defence: one bad request must never take the whole server down.
+process.on('unhandledRejection', (reason) => {
+  console.error('[server] unhandled rejection', reason instanceof Error ? reason.message : reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[server] uncaught exception', err.message);
 });
 
 setInterval(() => {
@@ -326,7 +387,7 @@ if (seeded === 'removed') console.info(`[server] removed the development test ac
 else if (seeded === 'created' || seeded === 'reset') console.info(`[server] dev test account ${seeded}: "${TEST_ACCOUNT.login}" / "${TEST_ACCOUNT.password}"`);
 else if (seeded === 'kept') console.info(`[server] dev test account "${TEST_ACCOUNT.login}" ready`);
 
-server.listen(config.port, () => {
+server.listen(config.port, listenHost, () => {
   console.info(`[server] Hash Harvest accounts on http://localhost:${config.port}`);
   console.info(`[server] billing mode: ${billingMode} · mail mode: ${mailMode}${config.trustProxyHops ? ` · trusting ${config.trustProxyHops} proxy hop(s)` : ''}`);
 });

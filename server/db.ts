@@ -86,6 +86,8 @@ export interface UserRow {
   period_end: number;
   cancel_at_period_end: number;
   email_verified: number;
+  /** An unverified sign-up was repeated with a different password: nobody's password is trusted (see register). */
+  contested: number;
 }
 
 export interface SaveSummary {
@@ -106,12 +108,17 @@ export interface SaveRow {
   summary: string;
 }
 
+if (!(db.prepare('PRAGMA table_info(users)').all() as { name: string }[]).some((c) => c.name === 'contested')) {
+  db.exec('ALTER TABLE users ADD COLUMN contested INTEGER NOT NULL DEFAULT 0');
+}
+
 const q = {
   userById: db.prepare('SELECT * FROM users WHERE id = ?'),
   userByEmail: db.prepare('SELECT * FROM users WHERE email = ?'),
   userByCustomer: db.prepare('SELECT * FROM users WHERE stripe_customer_id = ?'),
   insertUser: db.prepare('INSERT INTO users (id, email, password_hash, created_at, email_verified) VALUES (?, ?, ?, ?, 0)'),
   markVerified: db.prepare('UPDATE users SET email_verified = 1 WHERE id = ?'),
+  setContested: db.prepare('UPDATE users SET contested = ? WHERE id = ?'),
   purgeUnverified: db.prepare('DELETE FROM users WHERE email_verified = 0 AND created_at < ?'),
   deleteUserSessions: db.prepare('DELETE FROM sessions WHERE user_id = ?'),
   insertEmailToken: db.prepare('INSERT INTO email_tokens (token_hash, user_id, kind, created_at, expires_at) VALUES (?, ?, ?, ?, ?)'),
@@ -159,6 +166,7 @@ export const users = {
   setCustomer: (id: string, customerId: string) => q.setCustomer.run(customerId, id),
   setPasswordHash: (id: string, hash: string) => q.setPassword.run(hash, id),
   markVerified: (id: string) => q.markVerified.run(id),
+  setContested: (id: string, contested: boolean) => q.setContested.run(contested ? 1 : 0, id),
   /** Unverified sign-ups older than the cutoff never proved their mailbox: free the address. */
   purgeUnverified: (olderThanMs: number) => q.purgeUnverified.run(Date.now() - olderThanMs),
   /** Demo subscriptions are void once real billing is enabled. Returns rows changed. */

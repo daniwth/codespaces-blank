@@ -1,4 +1,5 @@
-import { SAVE_VERSION, levelFromEarnings } from '../config/gameBalance';
+import { ACHIEVEMENTS, EVENT_INTERVAL, NETWORK_EVENTS, SAVE_VERSION, levelFromEarnings } from '../config/gameBalance';
+import { hasKey, isUnsafeKey } from '../utils/dict';
 import { bnToNumber } from '../utils/bignum';
 import { COOLER_BY_ID, GPU_BY_ID, OC_LIMITS, PSU_BY_ID, QUALITY_DEFS, QUALITY_ORDER, RACK_BY_ID } from '../config/hardwareCatalog';
 import { BIOS_PROFILE_IDS, BMC_LIMITS, DEFAULT_BIOS_PROFILES, DEFAULT_BMC, defaultBiosProfiles } from '../config/synergy';
@@ -18,9 +19,9 @@ import { legalFoundry } from '../config/foundry';
 import { ABILITIES, rankIndex } from '../config/ranks';
 import { RESEARCH_BY_ID, RESEARCH_IDS, isResearchId } from '../config/research';
 import { ROADMAP } from '../config/roadmap';
-import { ROOM_BY_ID } from '../config/roomsCatalog';
+import { MAX_PADS, ROOM_BY_ID } from '../config/roomsCatalog';
 import { TALENT_BY_ID } from '../config/prestigeTree';
-import type { AltWallets, Candle, CoinMarket, MarketCycle, MarketState, MineableCoin, PowerContract, TradeOrder, TradingBot } from '../types/economy';
+import type { ActiveNetworkEvent, AltWallets, Candle, NetworkEventId, CoinMarket, MarketCycle, MarketState, MineableCoin, PowerContract, TradeOrder, TradingBot } from '../types/economy';
 import type { ReputationState } from '../types/contracts';
 import type { CoolerInstance, GpuInstance, OverclockSettings, PsuInstance, RackInstance, SiliconQuality } from '../types/hardware';
 import type {
@@ -39,7 +40,12 @@ const str = (v: unknown): string | null => (typeof v === 'string' && v.length > 
 
 /** BigNum fields must be finite decimal strings (break_infinity throws otherwise). */
 const BIGNUM_KEYS = ['cash', 'cc', 'runEarnings', 'lifetimeEarnings'] as const;
-const BIGNUM_RE = /^-?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i;
+const BIGNUM_RE = /^(\d{1,40}\.?\d{0,40}|\.\d{1,40})(e[+-]?\d{1,4})?$/i;
+
+/** Most hardware a save may hold: far above any real farm, far below what would stall the simulation. */
+export const SAVE_CAPS = { gpus: 5_000, racks: 600, parts: 5_000 } as const;
+/** Upper bound of the plain counters of a save (gems, $SC, career stats). */
+const COUNTER_MAX = 1e12;
 
 /** Deep-merge `raw` over `defaults`, keeping only values whose type matches. */
 function mergeTyped<T>(defaults: T, raw: unknown): T {
@@ -49,7 +55,7 @@ function mergeTyped<T>(defaults: T, raw: unknown): T {
     if (!isObject(raw)) return defaults;
     const out: Json = { ...defaults };
     // Records keyed by uid (hardware maps) are dynamic: take raw entries as-is.
-    if (Object.keys(defaults).length === 0) return raw as T;
+    if (Object.keys(defaults).length === 0) return Object.fromEntries(Object.entries(raw).filter(([key]) => !isUnsafeKey(key))) as T;
     Object.keys(defaults).forEach((key) => {
       out[key] = mergeTyped((defaults as Json)[key], raw[key]);
     });
@@ -104,7 +110,7 @@ function sanitizeUpgrades(raw: unknown, ownedRooms: RoomId[]): RoomUpgrades {
 function sanitizeGpu(uid: string, raw: unknown): GpuInstance | null {
   if (!isObject(raw)) return null;
   const modelId = str(raw.modelId);
-  if (!modelId || !GPU_BY_ID[modelId]) return null;
+  if (!modelId || !hasKey(GPU_BY_ID, modelId)) return null;
   const quality = QUALITY_ORDER.includes(raw.quality as SiliconQuality) ? (raw.quality as SiliconQuality) : 'bronze';
   const silicon = isObject(raw.silicon) ? raw.silicon : {};
   return {
@@ -112,9 +118,10 @@ function sanitizeGpu(uid: string, raw: unknown): GpuInstance | null {
     modelId,
     quality,
     silicon: {
-      coreHeadroom: finite(silicon.coreHeadroom, 60),
-      memHeadroom: finite(silicon.memHeadroom, 250),
-      vScale: finite(silicon.vScale, 8),
+      // No grade rolls outside these ranges: an edited chip cannot overclock without limit.
+      coreHeadroom: clamp(finite(silicon.coreHeadroom, 60), 0, OC_LIMITS.core.max),
+      memHeadroom: clamp(finite(silicon.memHeadroom, 250), 0, OC_LIMITS.mem.max),
+      vScale: clamp(finite(silicon.vScale, 8), 0, 40),
       // Chips minted before v9 have no undervolt floor: each gets a fixed roll inside its grade's range.
       vFloor: clamp(finite(silicon.vFloor, defaultVFloor(uid, quality)), OC_LIMITS.voltage.min, OC_LIMITS.voltage.stock),
     },
@@ -124,7 +131,7 @@ function sanitizeGpu(uid: string, raw: unknown): GpuInstance | null {
     wear: clamp(finite(raw.wear, 0), 0, 0.6),
     paste: clamp(finite(raw.paste, 1), 0, 1),
     shutdown: raw.shutdown === true,
-    overheatSeconds: Math.max(0, finite(raw.overheatSeconds, 0)),
+    overheatSeconds: clamp(finite(raw.overheatSeconds, 0), 0, 1e9),
     condensed: raw.condensed === true,
   };
 }
@@ -132,25 +139,33 @@ function sanitizeGpu(uid: string, raw: unknown): GpuInstance | null {
 function sanitizeParts<T extends PsuInstance | CoolerInstance>(raw: unknown, valid: (modelId: string) => boolean): Record<string, T> {
   if (!isObject(raw)) return {};
   const out: Record<string, T> = {};
-  Object.entries(raw).forEach(([uid, part]) => {
+  Object.entries(raw).slice(0, SAVE_CAPS.parts).forEach(([uid, part]) => {
     const modelId = isObject(part) ? str(part.modelId) : null;
-    if (modelId && valid(modelId)) out[uid] = { uid, modelId } as T;
+    if (!isUnsafeKey(uid) && modelId && valid(modelId)) out[uid] = { uid, modelId } as T;
   });
   return out;
 }
 
-function sanitizeRack(uid: string, raw: unknown, gpus: Record<string, unknown>, coolers: Record<string, unknown>, psus: Record<string, unknown>): RackInstance | null {
+/**
+ * `taken` holds every part already mounted in an earlier rack: a card, cooler or PSU exists once, so it
+ * can only be mounted once (a save that lists one uid in many racks would multiply its hashrate).
+ */
+function sanitizeRack(uid: string, raw: unknown, gpus: Record<string, unknown>, coolers: Record<string, unknown>, psus: Record<string, unknown>, taken: Set<string>, now: number): RackInstance | null {
   if (!isObject(raw)) return null;
   const modelId = str(raw.modelId);
-  const model = modelId ? RACK_BY_ID[modelId] : undefined;
+  const model = modelId && hasKey(RACK_BY_ID, modelId) ? RACK_BY_ID[modelId] : undefined;
   if (!model || !modelId) return null;
+  const mount = (u: unknown, pool: Record<string, unknown>): string | null => {
+    if (typeof u !== 'string' || !hasKey(pool, u) || taken.has(u)) return null;
+    taken.add(u);
+    return u;
+  };
   const slots = (list: unknown, size: number, pool: Record<string, unknown>) =>
     Array.from({ length: size }, (_, i) => {
-      const u = Array.isArray(list) ? list[i] : null;
-      return typeof u === 'string' && pool[u] ? u : null;
+      return mount(Array.isArray(list) ? list[i] : null, pool);
     });
-  const roomId = typeof raw.roomId === 'string' && ROOM_BY_ID[raw.roomId as RoomId] ? (raw.roomId as RoomId) : null;
-  const pad = roomId && typeof raw.pad === 'number' && Number.isInteger(raw.pad) && raw.pad >= 0 ? raw.pad : null;
+  const roomId = hasKey(ROOM_BY_ID, raw.roomId) ? (raw.roomId as RoomId) : null;
+  const pad = roomId && typeof raw.pad === 'number' && Number.isInteger(raw.pad) && raw.pad >= 0 && raw.pad < MAX_PADS ? raw.pad : null;
   return {
     uid,
     modelId,
@@ -158,8 +173,9 @@ function sanitizeRack(uid: string, raw: unknown, gpus: Record<string, unknown>, 
     pad,
     gpuSlots: slots(raw.gpuSlots, model.slots, gpus),
     fanSlots: slots(raw.fanSlots, model.fanSlots, coolers),
-    psuUid: typeof raw.psuUid === 'string' && psus[raw.psuUid] ? raw.psuUid : null,
-    rebootUntil: finite(raw.rebootUntil, 0),
+    psuUid: mount(raw.psuUid, psus),
+    // The longest reboot in the game lasts well under ten minutes.
+    rebootUntil: clamp(finite(raw.rebootUntil, 0), 0, now + 600_000),
   };
 }
 
@@ -333,7 +349,7 @@ function sanitizeCollection(raw: unknown, gpus: Record<string, GpuInstance>): Si
   let out: SiliconCollection = {};
   if (isObject(raw)) {
     Object.entries(raw).forEach(([modelId, grades]) => {
-      if (!GPU_BY_ID[modelId] || !Array.isArray(grades)) return;
+      if (!hasKey(GPU_BY_ID, modelId) || !Array.isArray(grades)) return;
       QUALITY_ORDER.forEach((q) => {
         if (grades.includes(q)) out = collect(out, modelId, q);
       });
@@ -379,7 +395,7 @@ function sanitizeSettings(raw: unknown): GameSettings {
 }
 
 function sanitizePartner(raw: unknown, now: number): PoolPartner | null {
-  if (!isObject(raw) || typeof raw.pool !== 'string' || !(raw.pool in POOLS)) return null;
+  if (!isObject(raw) || !hasKey(POOLS, raw.pool)) return null;
   const until = Math.min(finite(raw.until, 0), now + ABILITIES.partner.durationSec * 1000);
   return until > now ? { pool: raw.pool as PoolPartner['pool'], until } : null;
 }
@@ -425,10 +441,21 @@ function sanitizeTalents(raw: unknown): TalentLevels {
   if (!isObject(raw)) return {};
   const out: TalentLevels = {};
   Object.entries(raw).forEach(([id, lvl]) => {
-    const node = TALENT_BY_ID[id as TalentId];
+    const node = hasKey(TALENT_BY_ID, id) ? TALENT_BY_ID[id as TalentId] : undefined;
     if (node) out[id as TalentId] = clamp(Math.floor(finite(lvl, 0)), 0, node.maxLevel);
   });
   return out;
+}
+
+/** A network event must be a known one, end within its own maximum length and (a blackout) hit an owned room. */
+function sanitizeEvent(raw: unknown, now: number, ownedRooms: RoomId[]): ActiveNetworkEvent | null {
+  if (!isObject(raw) || !hasKey(NETWORK_EVENTS, raw.id)) return null;
+  const id = raw.id as NetworkEventId;
+  const endsAt = Math.min(finite(raw.endsAt, 0), now + NETWORK_EVENTS[id].duration[1] * 1000);
+  if (endsAt <= now) return null;
+  const roomId = hasKey(ROOM_BY_ID, raw.roomId) && ownedRooms.includes(raw.roomId as RoomId) ? (raw.roomId as RoomId) : null;
+  if (id === 'blackout' && !roomId) return null;
+  return { id, startedAt: Math.min(finite(raw.startedAt, now), now), endsAt, roomId: id === 'blackout' ? roomId : null };
 }
 
 /** Rebuilds every dynamic record from scratch so a tampered save can never crash the game. */
@@ -439,35 +466,45 @@ function sanitize(data: GameData, source: Json): GameData {
 
   const gpus: Record<string, GpuInstance> = {};
   if (useSource('gpus')) {
-    Object.entries(source.gpus as Json).forEach(([uid, g]) => {
-      const clean = sanitizeGpu(uid, g);
+    Object.entries(source.gpus as Json).slice(0, SAVE_CAPS.gpus).forEach(([uid, g]) => {
+      const clean = isUnsafeKey(uid) ? null : sanitizeGpu(uid, g);
       if (clean) gpus[uid] = clean;
     });
   } else Object.assign(gpus, defaults.gpus);
-  const psus = useSource('psus') ? sanitizeParts<PsuInstance>(source.psus, (id) => !!PSU_BY_ID[id]) : defaults.psus;
-  const coolers = useSource('coolers') ? sanitizeParts<CoolerInstance>(source.coolers, (id) => !!COOLER_BY_ID[id]) : defaults.coolers;
+  const psus = useSource('psus') ? sanitizeParts<PsuInstance>(source.psus, (id) => hasKey(PSU_BY_ID, id)) : defaults.psus;
+  const coolers = useSource('coolers') ? sanitizeParts<CoolerInstance>(source.coolers, (id) => hasKey(COOLER_BY_ID, id)) : defaults.coolers;
   const racks: Record<string, RackInstance> = {};
   if (useSource('racks')) {
-    Object.entries(source.racks as Json).forEach(([uid, r]) => {
-      const clean = sanitizeRack(uid, r, gpus, coolers, psus);
-      if (clean) racks[uid] = clean;
+    const taken = new Set<string>();
+    /** One rack per floor pad. */
+    const pads = new Set<string>();
+    Object.entries(source.racks as Json).slice(0, SAVE_CAPS.racks).forEach(([uid, r]) => {
+      const clean = isUnsafeKey(uid) ? null : sanitizeRack(uid, r, gpus, coolers, psus, taken, now);
+      if (!clean) return;
+      const spot = `${clean.roomId}:${clean.pad}`;
+      if (clean.roomId && pads.has(spot)) Object.assign(clean, { roomId: null, pad: null });
+      else if (clean.roomId) pads.add(spot);
+      racks[uid] = clean;
     });
   } else Object.assign(racks, defaults.racks);
 
   const roomTemps: Partial<Record<RoomId, number>> = {};
   if (isObject(source.roomTemps)) {
     Object.entries(source.roomTemps).forEach(([id, t]) => {
-      if (ROOM_BY_ID[id as RoomId] && typeof t === 'number' && Number.isFinite(t)) roomTemps[id as RoomId] = t;
+      if (hasKey(ROOM_BY_ID, id) && typeof t === 'number' && Number.isFinite(t)) roomTemps[id as RoomId] = clamp(t, -60, 200);
     });
   }
 
   const big: Partial<GameData> = {};
   BIGNUM_KEYS.forEach((key) => {
     const v = data[key];
-    big[key] = typeof v === 'string' && BIGNUM_RE.test(v.trim()) && Number.isFinite(Number(v.trim().replace(/e.*/i, ''))) ? v.trim() : defaults[key];
+    // Non-negative and finite as a number: a wallet of 1e999999 would turn every tick into NaN.
+    big[key] = typeof v === 'string' && BIGNUM_RE.test(v.trim()) && Number.isFinite(Number(v.trim())) ? v.trim() : defaults[key];
   });
 
-  const ownedRooms = (Array.isArray(data.ownedRooms) ? data.ownedRooms : []).filter((id) => !!ROOM_BY_ID[id]);
+  const ownedRooms = (Array.isArray(data.ownedRooms) ? data.ownedRooms : []).filter((id) => hasKey(ROOM_BY_ID, id));
+  const knownAchievements = new Set(ACHIEVEMENTS.map((a) => a.id));
+  const counter = (v: unknown): number => clamp(Math.floor(finite(v, 0)), 0, COUNTER_MAX);
   const clean: Omit<GameData, 'contracts'> = {
     ...data,
     ...big,
@@ -506,15 +543,20 @@ function sanitize(data: GameData, source: Json): GameData {
     rankSeen: sanitizeRankSeen(source.rankSeen, big.lifetimeEarnings ?? defaults.lifetimeEarnings),
     ledger: sanitizeLedger(source.ledger, now),
     hints: sanitizeHints(source.hints),
-    pool: typeof source.pool === 'string' && source.pool in POOLS ? (source.pool as GameData['pool']) : 'public',
+    pool: hasKey(POOLS, source.pool) ? (source.pool as GameData['pool']) : 'public',
+    event: sanitizeEvent(source.event, now, ownedRooms),
+    nextEventAt: clamp(finite(data.nextEventAt, now), 0, now + EVENT_INTERVAL[1] * 1000),
+    stats: Object.fromEntries(Object.entries(data.stats).map(([key, v]) => [key, clamp(finite(v, 0), 0, 1e18)])) as unknown as GameData['stats'],
+    vip: { ...data.vip, goldRacksBought: clamp(Math.floor(finite(data.vip.goldRacksBought, 0)), 0, 10_000) },
+    scLifetime: counter(data.scLifetime),
     settings: sanitizeSettings(source.settings),
-    achievements: (Array.isArray(data.achievements) ? data.achievements : []).filter((a): a is string => typeof a === 'string'),
+    achievements: [...new Set((Array.isArray(data.achievements) ? data.achievements : []).filter((a): a is string => typeof a === 'string' && knownAchievements.has(a)))],
     technicians: clamp(Math.floor(finite(data.technicians, 0)), 0, 6),
     meme: Math.max(0, finite(data.meme, 0)),
     memeCostBasis: Math.max(0, finite(data.memeCostBasis, 0)),
     ccCostBasis: Math.max(0, finite(data.ccCostBasis, 0)),
-    gems: Math.max(0, Math.floor(finite(data.gems, 0))),
-    sc: Math.max(0, Math.floor(finite(data.sc, 0))),
+    gems: counter(data.gems),
+    sc: counter(data.sc),
     runStartedAt: Math.min(Date.now(), finite(data.runStartedAt, Date.now())),
     ownedRooms: ownedRooms.length ? Array.from(new Set(ownedRooms)) : ['bedroom'],
     activeRoom: ownedRooms.includes(data.activeRoom) ? data.activeRoom : 'bedroom',

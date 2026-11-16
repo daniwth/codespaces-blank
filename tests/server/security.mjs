@@ -6,6 +6,7 @@
 import { spawn } from 'node:child_process';
 import { createHash, createHmac } from 'node:crypto';
 import { createServer } from 'node:http';
+import { connect } from 'node:net';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
@@ -111,7 +112,7 @@ const api = (port) => async (method, path, body, headers = {}) => {
   return { status: res.status, json: await res.json().catch(() => null), headers: res.headers };
 };
 /** Registers and confirms an account through the emailed (dev) link; returns the verification session. */
-const signup = async (call, email, password = 'password123', headers = {}) => {
+const signup = async (call, email, password = 'harvest-pass-42', headers = {}) => {
   const reg = await call('POST', '/auth/register', { email, password }, headers);
   assert(reg.status === 202 && reg.json?.devLink, `register ${email}: ${reg.status} ${JSON.stringify(reg.json)}`);
   const ver = await call('POST', '/auth/verify', { token: linkParam(reg.json.devLink, 'verify') });
@@ -141,7 +142,7 @@ try {
     assert(data.gems === 1000 && !('gpus' in data) && !('lifetimeEarnings' in data), `save: ${JSON.stringify(data)}`);
     const wrong = await d('POST', '/auth/login', { email: 'danitest', password: 'aitest' });
     assert(wrong.status === 401, 'a wrong password logged in');
-    const taken = await d('POST', '/auth/register', { email: 'danitest', password: 'password123' });
+    const taken = await d('POST', '/auth/register', { email: 'danitest', password: 'harvest-pass-42' });
     assert(taken.status === 400, 'the test login could be registered as a normal account');
   });
 
@@ -180,6 +181,14 @@ try {
     assert(kept.json.summary.gpuCount === 2, 'a rejected save replaced the stored one');
   });
 
+  await check('cloud save: a deeply nested payload answers 400, not 500', async () => {
+    const login = await d('POST', '/auth/login', { email: 'danitest', password: 'AITEST' });
+    const depth = 200_000;
+    const blob = Buffer.from(`{"format":"hash-harvest-save","version":8,"checksum":"x","data":{"a":${'['.repeat(depth)}${']'.repeat(depth)}}}`).toString('base64');
+    const r = await d('PUT', '/save', { blob, force: true }, { Authorization: `Bearer ${login.json.token}` });
+    assert(r.status === 400 && r.json.error.code === 'invalid_save', `got ${r.status} ${JSON.stringify(r.json)}`);
+  });
+
   await check('demo billing and the console mailer never start on a public deployment (non-local APP_URL)', async () => {
     const pub = await start(P.prod, { STRIPE_SECRET_KEY: '', APP_URL: 'https://hash.example.com' }).then(() => 'started', (e) => e.out);
     assert(pub !== 'started' && /Refusing to start: demo billing/.test(pub), `unexpected: ${pub}`);
@@ -200,7 +209,7 @@ try {
 
   await check('X-Forwarded-For rotation does not bypass the register limit', async () => {
     const codes = [];
-    for (let i = 0; i < 12; i += 1) codes.push((await d('POST', '/auth/register', { email: `xff${i}@x.io`, password: 'password123' }, { 'X-Forwarded-For': `10.0.0.${i}` })).status);
+    for (let i = 0; i < 12; i += 1) codes.push((await d('POST', '/auth/register', { email: `xff${i}@x.io`, password: 'harvest-pass-42' }, { 'X-Forwarded-For': `10.0.0.${i}` })).status);
     assert(codes.includes(429), `no 429 in ${codes}`);
   });
 
@@ -220,6 +229,31 @@ try {
     assert(r.status === 400 || r.status === 404, `got ${r.status}`);
   });
 
+  await check('a request target that is not a path answers 400 and never takes the server down', async () => {
+    // Sent over a raw socket: fetch() would normalize these targets before they leave.
+    const rawRequest = (target) =>
+      new Promise((resolve) => {
+        const sock = connect(P.demo, '127.0.0.1');
+        let out = '';
+        sock.on('data', (c) => (out += c));
+        sock.on('close', () => resolve(out));
+        sock.on('error', () => resolve(out));
+        sock.setTimeout(3000, () => sock.destroy());
+        sock.write(`GET ${target} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n`);
+      });
+    for (const target of ['//', '//evil.example/x', 'http://[::1', 'http://evil.example/api/health', '/\\\\evil', '*']) {
+      const answer = await rawRequest(target);
+      assert(/^HTTP\/1\.1 400/.test(answer), `"${target}" answered: ${answer.slice(0, 40) || '(nothing)'}`);
+      const health = await fetch(`http://localhost:${P.demo}/api/health`).then((r) => r.status).catch(() => 0);
+      assert(health === 200, `the server died after "${target}"`);
+    }
+  });
+
+  await check('API answers carry a deny-all CSP', async () => {
+    const r = await d('GET', '/health');
+    assert(/default-src 'none'/.test(r.headers.get('content-security-policy') ?? ''), 'no CSP on a JSON answer');
+  });
+
   await check('static pages ship CSP and frame protections', async () => {
     const r = await fetch(`http://localhost:${P.demo}/`);
     if (r.status === 404) return; // dist not built
@@ -230,7 +264,7 @@ try {
   await check('demo: cancel then re-subscribe resumes instead of stacking', async () => {
     await stop(demo);
     demo = await start(P.demo, { STRIPE_SECRET_KEY: '', TRUST_PROXY: '1', SEED_TEST_ACCOUNT: '1' });
-    const reg = { json: await signup(d, 'demo@x.io', 'password123', { 'X-Forwarded-For': '203.0.113.9' }) };
+    const reg = { json: await signup(d, 'demo@x.io', 'harvest-pass-42', { 'X-Forwarded-For': '203.0.113.9' }) };
     const auth = { Authorization: `Bearer ${reg.json.token}` };
     await d('POST', '/billing/checkout', { plan: 'monthly' }, auth);
     await d('POST', '/billing/cancel', {}, auth);
@@ -239,11 +273,11 @@ try {
   });
 
   await check('a third party cannot lock a victim out (TRUST_PROXY=1)', async () => {
-    await signup(d, 'victim@x.io', 'password123', { 'X-Forwarded-For': '198.51.100.1' });
+    await signup(d, 'victim@x.io', 'harvest-pass-42', { 'X-Forwarded-For': '198.51.100.1' });
     for (let i = 0; i < 12; i += 1) await d('POST', '/auth/login', { email: 'victim@x.io', password: 'wrong-pass' }, { 'X-Forwarded-For': '192.0.2.66' });
-    const victim = await d('POST', '/auth/login', { email: 'victim@x.io', password: 'password123' }, { 'X-Forwarded-For': '198.51.100.1' });
+    const victim = await d('POST', '/auth/login', { email: 'victim@x.io', password: 'harvest-pass-42' }, { 'X-Forwarded-For': '198.51.100.1' });
     assert(victim.status === 200, `victim got ${victim.status}`);
-    const attacker = await d('POST', '/auth/login', { email: 'victim@x.io', password: 'password123' }, { 'X-Forwarded-For': '192.0.2.66' });
+    const attacker = await d('POST', '/auth/login', { email: 'victim@x.io', password: 'harvest-pass-42' }, { 'X-Forwarded-For': '192.0.2.66' });
     assert(attacker.status === 429, `attacker pair should be blocked, got ${attacker.status}`);
   });
   await stop(demo);
@@ -259,7 +293,7 @@ try {
   const s = api(P.live);
 
   await check('demo subscriptions are voided when real billing starts', async () => {
-    const login = await s('POST', '/auth/login', { email: 'demo@x.io', password: 'password123' });
+    const login = await s('POST', '/auth/login', { email: 'demo@x.io', password: 'harvest-pass-42' });
     assert(login.status === 200, `login ${login.status}`);
     assert(login.json.user.subscription.active === false, JSON.stringify(login.json.user.subscription));
   });
@@ -319,6 +353,27 @@ try {
     assert(me.json.user.subscription.active, 'stale deleted event revoked access');
   });
 
+  await check('a paid subscription nobody can use is cancelled at Stripe: deleted account, or a second one', async () => {
+    mkSub('sub_ORPHAN', 'usr_deleted_long_ago', 'active', 'price_month', { customer: 'cus_gone' });
+    const orphan = await hook({ id: 'evt_orphan', type: 'customer.subscription.created', data: { object: { id: 'sub_ORPHAN' } } });
+    assert(orphan.status === 200 && subs.get('sub_ORPHAN').status === 'canceled', `orphan kept billing: ${orphan.status} ${subs.get('sub_ORPHAN').status}`);
+    mkSub('sub_DUP', uid, 'active');
+    const dup = await hook({ id: 'evt_dup', type: 'customer.subscription.created', data: { object: { id: 'sub_DUP' } } });
+    assert(dup.status === 200 && subs.get('sub_DUP').status === 'canceled', 'a duplicate subscription kept billing');
+    assert(subs.get('sub_A').status === 'active', 'the current subscription was cancelled');
+    const me = await s('GET', '/me', undefined, auth);
+    assert(me.json.user.subscription.active, 'the account lost its pass');
+    // Another product on the same Stripe account is none of our business.
+    mkSub('sub_OTHER_PRODUCT', 'usr_deleted_long_ago', 'active', 'price_SOMETHING_ELSE', { customer: 'cus_gone' });
+    await hook({ id: 'evt_other_product', type: 'customer.subscription.created', data: { object: { id: 'sub_OTHER_PRODUCT' } } });
+    assert(subs.get('sub_OTHER_PRODUCT').status === 'active', 'a foreign product was cancelled');
+  });
+
+  await check('a webhook cannot steer a Stripe call with a crafted id', async () => {
+    const r = await hook({ id: 'evt_path', type: 'customer.subscription.updated', data: { object: { id: '../customers' } } });
+    assert(r.status === 400, `got ${r.status}`);
+  });
+
   await check('subscriptions to other products never grant a Miner Pass', async () => {
     const other = { json: await signup(s, 'other@x.io') };
     mkSub('sub_X', other.json.user.id, 'active', 'price_SOMETHING_ELSE');
@@ -334,14 +389,14 @@ try {
 
   await check('account deletion keeps the account if Stripe cancel fails', async () => {
     stripeDown = true;
-    const r = await s('DELETE', '/me', { password: 'password123' }, auth);
+    const r = await s('DELETE', '/me', { password: 'harvest-pass-42' }, auth);
     stripeDown = false;
     assert(r.status === 502, `got ${r.status}`);
     assert((await s('GET', '/me', undefined, auth)).status === 200, 'account was deleted anyway');
   });
 
   await check('account deletion cancels the live Stripe subscription', async () => {
-    const r = await s('DELETE', '/me', { password: 'password123' }, auth);
+    const r = await s('DELETE', '/me', { password: 'harvest-pass-42' }, auth);
     assert(r.status === 200, `got ${r.status}`);
     assert(subs.get('sub_A').status === 'canceled', 'subscription still billable');
   });
@@ -358,26 +413,26 @@ try {
 
   await check('register answers identically for a new and an already-registered email (no token, no oracle)', async () => {
     const ip = freshIp();
-    const fresh = await m('POST', '/auth/register', { email: 'oracle@x.io', password: 'password123' }, ip);
+    const fresh = await m('POST', '/auth/register', { email: 'oracle@x.io', password: 'harvest-pass-42' }, ip);
     await m('POST', '/auth/verify', { token: linkParam(fresh.json.devLink, 'verify') });
     const again = await m('POST', '/auth/register', { email: 'oracle@x.io', password: 'another-pass1' }, ip);
-    const unknown = await m('POST', '/auth/register', { email: 'oracle2@x.io', password: 'password123' }, ip);
+    const unknown = await m('POST', '/auth/register', { email: 'oracle2@x.io', password: 'harvest-pass-42' }, ip);
     assert(fresh.status === 202 && again.status === 202 && unknown.status === 202, `${fresh.status}/${again.status}/${unknown.status}`);
     const shape = (r) => Object.keys(r.json).sort().join(',');
     assert(shape(fresh) === shape(again) && shape(again) === shape(unknown), `body shapes differ: ${shape(fresh)} | ${shape(again)} | ${shape(unknown)}`);
     assert(!('token' in fresh.json) && !('user' in again.json), 'register must not issue a session');
     assert(!JSON.stringify(again.json).includes('verify='), 'existing account leaked a verification token');
     // The "you already have an account" mail changes nothing: the original password still works, the new one does not.
-    assert((await login('oracle@x.io', 'password123')).status === 200, 'original password stopped working');
+    assert((await login('oracle@x.io', 'harvest-pass-42')).status === 200, 'original password stopped working');
     assert((await login('oracle@x.io', 'another-pass1')).status === 401, 'register changed an existing password');
   });
 
   await check('unverified login is refused only after the right password; wrong/unknown stay generic', async () => {
     const ip = freshIp();
-    await m('POST', '/auth/register', { email: 'pending@x.io', password: 'password123' }, ip);
+    await m('POST', '/auth/register', { email: 'pending@x.io', password: 'harvest-pass-42' }, ip);
     const wrong = await login('pending@x.io', 'wrong-pass1', ip);
     const unknown = await login('ghost@x.io', 'wrong-pass1', ip);
-    const right = await login('pending@x.io', 'password123', ip);
+    const right = await login('pending@x.io', 'harvest-pass-42', ip);
     assert(wrong.status === 401 && wrong.json.error.code === 'bad_credentials', JSON.stringify(wrong.json));
     assert(unknown.status === 401 && unknown.json.error.message === wrong.json.error.message, 'unknown email answered differently');
     assert(right.status === 403 && right.json.error.code === 'email_not_verified' && !right.json.token, JSON.stringify(right.json));
@@ -385,7 +440,7 @@ try {
 
   await check('verification token: hashed at rest, single-use, returns a working session', async () => {
     const ip = freshIp();
-    const reg = await m('POST', '/auth/register', { email: 'verify1@x.io', password: 'password123' }, ip);
+    const reg = await m('POST', '/auth/register', { email: 'verify1@x.io', password: 'harvest-pass-42' }, ip);
     const token = linkParam(reg.json.devLink, 'verify');
     assert(reg.json.devLink.startsWith('http://localhost:5173/?verify='), reg.json.devLink);
     const rows = db.prepare('SELECT token_hash FROM email_tokens').all().map((r) => r.token_hash);
@@ -396,12 +451,12 @@ try {
     const reuse = await m('POST', '/auth/verify', { token }, ip);
     assert(reuse.status === 400 && reuse.json.error.code === 'invalid_token', `reuse: ${reuse.status}`);
     assert((await m('POST', '/auth/verify', { token: 'x'.repeat(43) }, ip)).status === 400, 'garbage token accepted');
-    assert((await login('verify1@x.io', 'password123', ip)).status === 200, 'cannot log in after verifying');
+    assert((await login('verify1@x.io', 'harvest-pass-42', ip)).status === 200, 'cannot log in after verifying');
   });
 
   await check('verification token expires after 24 h', async () => {
     const ip = freshIp();
-    const reg = await m('POST', '/auth/register', { email: 'verify-old@x.io', password: 'password123' }, ip);
+    const reg = await m('POST', '/auth/register', { email: 'verify-old@x.io', password: 'harvest-pass-42' }, ip);
     const uid = db.prepare("SELECT id FROM users WHERE email = 'verify-old@x.io'").get().id;
     const row = db.prepare("SELECT expires_at, created_at FROM email_tokens WHERE user_id = ? AND kind = 'verify'").get(uid);
     const ttl = row.expires_at - row.created_at;
@@ -409,23 +464,71 @@ try {
     db.prepare('UPDATE email_tokens SET expires_at = ? WHERE user_id = ?').run(Date.now() - 1000, uid);
     const r = await m('POST', '/auth/verify', { token: linkParam(reg.json.devLink, 'verify') }, ip);
     assert(r.status === 400 && r.json.error.code === 'invalid_token', `expired token accepted: ${r.status}`);
-    assert((await login('verify-old@x.io', 'password123', ip)).status === 403, 'expired link verified the account');
+    assert((await login('verify-old@x.io', 'harvest-pass-42', ip)).status === 403, 'expired link verified the account');
   });
 
-  await check('re-registering an unverified address: newest password and link win, older link dies', async () => {
+  await check('re-registering an unverified address never hands the account to a stranger (hijack and squatting)', async () => {
     const ip = freshIp();
-    const first = await m('POST', '/auth/register', { email: 'squat@x.io', password: 'squatter-pass1' }, ip);
-    const second = await m('POST', '/auth/register', { email: 'squat@x.io', password: 'owner-pass123' }, ip);
-    assert((await m('POST', '/auth/verify', { token: linkParam(first.json.devLink, 'verify') }, ip)).status === 400, 'old link still valid');
-    assert((await m('POST', '/auth/verify', { token: linkParam(second.json.devLink, 'verify') }, ip)).status === 200, 'new link rejected');
-    assert((await login('squat@x.io', 'squatter-pass1', ip)).status === 401, 'squatter password survived');
-    assert((await login('squat@x.io', 'owner-pass123', ip)).status === 200, 'owner password rejected');
+    // Hijack: the victim signs up, an attacker repeats the sign-up with another password before the victim clicks.
+    const victim = await m('POST', '/auth/register', { email: 'hijacked@x.io', password: 'victim-pass-001' }, ip);
+    const attacker = await m('POST', '/auth/register', { email: 'hijacked@x.io', password: 'attacker-pass-1' }, ip);
+    assert((await m('POST', '/auth/verify', { token: linkParam(victim.json.devLink, 'verify') }, ip)).status === 400, 'old link still valid');
+    // The victim opens the newest email in the inbox.
+    const clicked = await m('POST', '/auth/verify', { token: linkParam(attacker.json.devLink, 'verify') }, ip);
+    assert(clicked.status === 200 && clicked.json.token && clicked.json.passwordResetRequired === true, `verify: ${clicked.status} ${JSON.stringify(clicked.json)}`);
+    assert((await login('hijacked@x.io', 'attacker-pass-1')).status === 401, 'the attacker password works: account hijacked');
+    assert((await login('hijacked@x.io', 'victim-pass-001')).status === 401, 'a contested password was kept');
+    // Only the mailbox can set the password now.
+    const reset = await m('POST', '/auth/reset', { token: linkParam(clicked.json.devLink, 'reset'), password: 'victim-new-pass-9' }, ip);
+    assert(reset.status === 200, `reset: ${reset.status} ${JSON.stringify(reset.json)}`);
+    assert((await login('hijacked@x.io', 'victim-new-pass-9')).status === 200, 'the owner cannot log in after choosing a password');
+    assert((await login('hijacked@x.io', 'attacker-pass-1')).status === 401, 'the attacker password works after the reset');
+
+    // Squatting: a stranger pre-registers the address, the owner signs up later.
+    await m('POST', '/auth/register', { email: 'squat@x.io', password: 'squatter-pass1' }, ip);
+    const owner = await m('POST', '/auth/register', { email: 'squat@x.io', password: 'owner-pass-1234' }, ip);
+    const ok = await m('POST', '/auth/verify', { token: linkParam(owner.json.devLink, 'verify') }, ip);
+    assert(ok.status === 200 && ok.json.passwordResetRequired === true, 'a squatted sign-up was not contested');
+    assert((await login('squat@x.io', 'squatter-pass1')).status === 401, 'squatter password survived');
+
+    // Repeating the sign-up with the same password (a lost email) is not contested.
+    await m('POST', '/auth/register', { email: 'twice@x.io', password: 'same-pass-twice' }, ip);
+    const twice = await m('POST', '/auth/register', { email: 'twice@x.io', password: 'same-pass-twice' }, ip);
+    const fine = await m('POST', '/auth/verify', { token: linkParam(twice.json.devLink, 'verify') }, ip);
+    assert(fine.status === 200 && fine.json.passwordResetRequired === undefined, 'an honest repeat was contested');
+    assert((await login('twice@x.io', 'same-pass-twice')).status === 200, 'cannot log in after an honest repeat');
+  });
+
+  await check('sign-up refuses the obvious passwords and addresses that are not one mailbox', async () => {
+    const ip = freshIp();
+    for (const password of ['password', 'Password123', '12345678', 'weak@x.io', 'weak']) {
+      const r = await m('POST', '/auth/register', { email: 'weak@x.io', password }, ip);
+      assert(r.status === 400 && r.json.error.code === 'weak_password', `"${password}" answered ${r.status}`);
+    }
+    for (const email of ['a<script>@b.com', 'x,victim@target.com', 'a b@c.com', 'a@b', 'a@b..com.', 'a;b@c.com', '"a"@b.com']) {
+      const r = await m('POST', '/auth/register', { email, password: 'harvest-pass-42' }, freshIp());
+      assert(r.status === 400 && r.json.error.code === 'invalid_email', `"${email}" answered ${r.status}`);
+    }
+  });
+
+  await check('mail cap is per mailbox: +tag aliases share one budget', async () => {
+    const ip = freshIp();
+    const before = (await m('POST', '/auth/register', { email: 'alias@x.io', password: 'harvest-pass-42' }, ip)).json.devLink;
+    assert(before, 'first mail not sent');
+    await m('POST', '/auth/verify', { token: linkParam(before, 'verify') });
+    const sent = [];
+    for (let i = 0; i < 5; i += 1) sent.push((await m('POST', '/auth/forgot', { email: 'alias@x.io' }, freshIp())).json.devLink);
+    assert(sent.filter(Boolean).length === 3, `forgot mails sent to one mailbox: ${sent.filter(Boolean).length}`);
+    // A brand new +tag address is its own account, but it draws on the same mailbox budget.
+    const tagged = [];
+    for (let i = 0; i < 5; i += 1) tagged.push((await m('POST', '/auth/register', { email: `alias+${i}@x.io`, password: 'harvest-pass-42' }, freshIp())).json.devLink);
+    assert(tagged.filter(Boolean).length <= 3, `verification mails to one mailbox through aliases: ${tagged.filter(Boolean).length}`);
   });
 
   await check('resend verification: always 202, fresh link replaces the old one, per-IP and per-address caps', async () => {
     const ip = freshIp();
-    await signup(m, 'resend-ok@x.io', 'password123', ip);
-    await m('POST', '/auth/register', { email: 'resend-me@x.io', password: 'password123' }, ip);
+    await signup(m, 'resend-ok@x.io', 'harvest-pass-42', ip);
+    await m('POST', '/auth/register', { email: 'resend-me@x.io', password: 'harvest-pass-42' }, ip);
     const old = (await m('POST', '/auth/resend', { email: 'resend-me@x.io' }, ip));
     const verified = await m('POST', '/auth/resend', { email: 'resend-ok@x.io' }, ip);
     const unknown = await m('POST', '/auth/resend', { email: 'nobody@x.io' }, ip);
@@ -445,7 +548,7 @@ try {
 
   await check('forgot password: always 202, mails only real accounts, newest token wins', async () => {
     const ip = freshIp();
-    await signup(m, 'forgetful@x.io', 'password123', ip);
+    await signup(m, 'forgetful@x.io', 'harvest-pass-42', ip);
     const unknown = await m('POST', '/auth/forgot', { email: 'nobody-here@x.io' }, ip);
     const first = await m('POST', '/auth/forgot', { email: 'forgetful@x.io' }, ip);
     const second = await m('POST', '/auth/forgot', { email: 'Forgetful@X.io' }, ip);
@@ -487,7 +590,7 @@ try {
 
   await check('reset token expires after 1 h and a reset confirms the mailbox', async () => {
     const ip = freshIp();
-    await m('POST', '/auth/register', { email: 'reset-late@x.io', password: 'password123' }, ip);
+    await m('POST', '/auth/register', { email: 'reset-late@x.io', password: 'harvest-pass-42' }, ip);
     const forgot = await m('POST', '/auth/forgot', { email: 'reset-late@x.io' }, ip);
     const token = linkParam(forgot.json.devLink, 'reset');
     const uid = db.prepare("SELECT id FROM users WHERE email = 'reset-late@x.io'").get().id;
@@ -509,13 +612,13 @@ try {
 
   await check('per-IP register limit stays, but probing taken emails no longer locks out new sign-ups', async () => {
     const ip = freshIp();
-    await signup(m, 'taken@x.io', 'password123', ip);
+    await signup(m, 'taken@x.io', 'harvest-pass-42', ip);
     const codes = [];
-    for (let i = 0; i < 6; i += 1) codes.push((await m('POST', '/auth/register', { email: 'taken@x.io', password: 'password123' }, ip)).status);
-    const brandNew = await m('POST', '/auth/register', { email: 'newcomer@x.io', password: 'password123' }, ip);
+    for (let i = 0; i < 6; i += 1) codes.push((await m('POST', '/auth/register', { email: 'taken@x.io', password: 'harvest-pass-42' }, ip)).status);
+    const brandNew = await m('POST', '/auth/register', { email: 'newcomer@x.io', password: 'harvest-pass-42' }, ip);
     assert(codes.every((c) => c === 202) && brandNew.status === 202, `${codes} then ${brandNew.status}`);
     const rest = [];
-    for (let i = 0; i < 4; i += 1) rest.push((await m('POST', '/auth/register', { email: `cap${i}@x.io`, password: 'password123' }, ip)).status);
+    for (let i = 0; i < 4; i += 1) rest.push((await m('POST', '/auth/register', { email: `cap${i}@x.io`, password: 'harvest-pass-42' }, ip)).status);
     assert(rest.includes(429), `register limit disappeared: ${rest}`);
   });
 
@@ -539,7 +642,7 @@ try {
 
   await check('production: no devLink anywhere; the mailer receives a Bearer-authenticated JSON email', async () => {
     const before = inbox.length;
-    const reg = await h('POST', '/auth/register', { email: 'prod@x.io', password: 'password123' });
+    const reg = await h('POST', '/auth/register', { email: 'prod@x.io', password: 'harvest-pass-42' });
     assert(reg.status === 202 && !('devLink' in reg.json) && !JSON.stringify(reg.json).includes('verify='), JSON.stringify(reg.json));
     assert(await waitInbox(before + 1), 'no verification email was sent');
     const mail = inbox[before];
@@ -553,14 +656,14 @@ try {
     assert(forgot.status === 202 && !('devLink' in forgot.json), JSON.stringify(forgot.json));
     assert(await waitInbox(before + 2), 'no reset email was sent');
     assert(/\/\?reset=[\w-]+/.test(inbox[before + 1].body.text), 'reset email has no link');
-    const dup = await h('POST', '/auth/register', { email: 'prod@x.io', password: 'password123' });
+    const dup = await h('POST', '/auth/register', { email: 'prod@x.io', password: 'harvest-pass-42' });
     assert(dup.status === 202 && !('devLink' in dup.json), 'existing email answered differently');
     assert(await waitInbox(before + 3) && /already/i.test(inbox[before + 2].body.subject), 'no "already registered" email');
   });
 
   await check('production: a mail API outage still answers 202 and never leaks details', async () => {
     mailApiDown = true;
-    const r = await h('POST', '/auth/register', { email: 'prod-down@x.io', password: 'password123' });
+    const r = await h('POST', '/auth/register', { email: 'prod-down@x.io', password: 'harvest-pass-42' });
     mailApiDown = false;
     assert(r.status === 202 && JSON.stringify(r.json) === '{"accepted":true}', JSON.stringify(r.json));
   });

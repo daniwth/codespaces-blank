@@ -2,6 +2,9 @@ import { createHash } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { isIP } from 'node:net';
 import { config } from './config.ts';
+import { ipBucket } from './net.ts';
+
+export { ipBucket };
 
 export class HttpError extends Error {
   readonly status: number;
@@ -45,6 +48,8 @@ export function sendJson(res: ServerResponse, status: number, body: unknown): vo
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(payload),
     'Cache-Control': 'no-store',
+    // API answers are data: nothing in them may ever load or run.
+    'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'",
   });
   res.end(payload);
 }
@@ -94,6 +99,16 @@ export const str = (v: unknown, field: string, max = 512): string => {
  * appended by the closest trusted proxy (counting from the right).
  */
 export function clientIp(req: IncomingMessage): string {
+  return ipBucket(rawClientIp(req));
+}
+
+/** True for a connection that comes from this machine. */
+export const isLoopback = (req: IncomingMessage): boolean => {
+  const ip = req.socket.remoteAddress ?? '';
+  return ip === '::1' || ip === '127.0.0.1' || ip.startsWith('127.') || ip === '::ffff:127.0.0.1';
+};
+
+function rawClientIp(req: IncomingMessage): string {
   const socketIp = req.socket.remoteAddress ?? 'unknown';
   if (config.trustProxyHops <= 0) return socketIp;
   const header = req.headers['x-forwarded-for'];

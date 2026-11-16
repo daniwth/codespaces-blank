@@ -1,3 +1,4 @@
+import { hasKey } from '../utils/dict';
 import type { CoinId, MarketCycle, MarketPhaseId, NewsId } from '../types/economy';
 
 /**
@@ -44,7 +45,7 @@ export const MARKET_PHASES: Record<MarketPhaseId, MarketPhaseDef> = {
 };
 
 export const MARKET_PHASE_IDS: MarketPhaseId[] = ['accumulation', 'bull', 'altseason', 'bear'];
-export const isMarketPhase = (v: unknown): v is MarketPhaseId => typeof v === 'string' && v in MARKET_PHASES;
+export const isMarketPhase = (v: unknown): v is MarketPhaseId => hasKey(MARKET_PHASES, v);
 
 /** A headline on the terminal's ticker: a short burst of volatility (and a pull) on $CC and/or $MEME. */
 export interface NewsDef {
@@ -67,7 +68,7 @@ export const NEWS: Record<NewsId, NewsDef> = {
 };
 
 export const NEWS_IDS: NewsId[] = ['etf_rumor', 'exchange_hack', 'influencer_shill', 'rug_pull', 'regulation', 'whale_wallet'];
-export const isNewsId = (v: unknown): v is NewsId => typeof v === 'string' && v in NEWS;
+export const isNewsId = (v: unknown): v is NewsId => hasKey(NEWS, v);
 
 /** Seconds between two headlines (uniform), counted from the end of the previous one. */
 export const NEWS_INTERVAL: [number, number] = [70, 150];

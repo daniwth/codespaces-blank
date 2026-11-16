@@ -33,8 +33,10 @@ export const config = {
  * True when this server is not a local development box: NODE_ENV=production, or a public APP_URL
  * (anything but localhost / 127.0.0.1 / ::1). A deployed server that forgot NODE_ENV is still "public".
  */
-export function isPublicDeployment(nodeEnv: string | undefined = env.NODE_ENV, appUrl: string = config.appUrl): boolean {
+export function isPublicDeployment(nodeEnv: string | undefined = env.NODE_ENV, appUrl: string = config.appUrl, stripeKey: string = config.stripe.secretKey): boolean {
   if (nodeEnv === 'production') return true;
+  // A live Stripe key means real customers, whatever the other variables say.
+  if (stripeKey.startsWith('sk_live_') || stripeKey.startsWith('rk_live_')) return true;
   try {
     const host = new URL(appUrl).hostname.replace(/^\[|\]$/g, '');
     return !(host === 'localhost' || host === '127.0.0.1' || host === '::1' || host.endsWith('.localhost'));
@@ -45,6 +47,13 @@ export function isPublicDeployment(nodeEnv: string | undefined = env.NODE_ENV, a
 }
 
 const publicDeployment = isPublicDeployment();
+
+/**
+ * Interface the server listens on. A development server only answers on loopback, so its dev links,
+ * demo billing and test account are never reachable from the network; a public deployment (or an
+ * explicit HOST) listens on every interface.
+ */
+export const listenHost: string | undefined = env.HOST || (publicDeployment ? undefined : '127.0.0.1');
 
 /**
  * Billing mode. `stripe` when a secret key is present; otherwise `demo` (free

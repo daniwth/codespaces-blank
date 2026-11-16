@@ -1,3 +1,4 @@
+import { dict } from '../utils/dict';
 import type { CoolerModel, GpuModel, PsuModel, RackModel, SiliconQuality } from '../types/hardware';
 
 /**
@@ -84,7 +85,7 @@ export const RACK_CATALOG: RackModel[] = [
 ];
 
 const byId = <T extends { id: string }>(list: T[]): Record<string, T> =>
-  Object.fromEntries(list.map((item) => [item.id, item]));
+  dict(Object.fromEntries(list.map((item) => [item.id, item])));
 
 export const GPU_BY_ID = byId(GPU_CATALOG);
 export const PSU_BY_ID = byId(PSU_CATALOG);
