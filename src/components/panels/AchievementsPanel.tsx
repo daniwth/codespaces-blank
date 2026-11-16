@@ -8,6 +8,7 @@ import { useGameShallow, useGameStore } from '../../store/useGameStore';
 import { cn } from '../../utils/cn';
 import { formatCash, formatDuration, formatHashrate } from '../../utils/formatters';
 import { GoalReward, goalValueText } from '../ui/GoalBar';
+import { DailyLedger } from './DailyLedger';
 import { PixelButton } from '../ui/PixelButton';
 
 /** How many finished / upcoming goals the roadmap list shows around the current one. */
@@ -125,6 +126,8 @@ export function AchievementsPanel() {
           </div>
         )}
       </section>
+
+      <DailyLedger />
 
       <div className="grid grid-cols-2 gap-x-2 gap-y-1 bg-panel-2 p-2 text-[16px] leading-tight">
         <span className="text-dim">{t('Play time')}</span>

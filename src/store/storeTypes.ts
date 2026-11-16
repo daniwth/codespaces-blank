@@ -3,7 +3,7 @@ import type { AutopilotPlanId } from '../config/autopilot';
 import type { CoinId, MineableCoin, OrderKind, PoolMode, TradeResult, TradingBot } from '../types/economy';
 import type { ComponentKind, GpuInstance, OverclockSettings, SiliconQuality } from '../types/hardware';
 import type { BiosProfileId, BmcConfig, ChallengeId, GameData, GameSettings, ResearchId, RoomId, RoomUpgrades, TalentId } from '../types/player';
-import type { LiveMetrics, MessageTone, SimOutput } from './gamePhysics';
+import type { LiveMetrics, MessageTone, OfflineDigest, SimOutput } from './gamePhysics';
 import type { LogParams } from './logLine';
 
 export interface LogEntry {
@@ -49,6 +49,8 @@ export interface OfflineReport {
   earnedCash: number;
   ccDelta: number;
   cashDelta: number;
+  /** What happened and what to fix first. */
+  digest: OfflineDigest;
 }
 
 export interface LotteryReveal {
@@ -84,6 +86,8 @@ export interface UiState {
   sideTab: SideTab;
   lottery: LotteryReveal | null;
   contractToast: ContractToast | null;
+  /** Contextual hint on screen (id from `HINTS`). */
+  activeHint: string | null;
   /** Title menu or game. Not persisted: every launch starts on the menu. */
   screen: AppScreen;
   /** "How to play" wiki overlay (reachable from the menu and in game). */
@@ -250,6 +254,9 @@ export interface CoreActions {
   selectRack: (uid: string | null) => void;
   openBios: (uid: string | null) => void;
   dismissLottery: () => void;
+  /** Show the first contextual hint whose moment has come (at most one at a time, each once per save). */
+  checkHints: (now?: number) => void;
+  dismissHint: () => void;
   updateSettings: (patch: Partial<GameSettings>) => void;
   exportSave: () => Promise<string>;
   importSave: (text: string) => Promise<TradeResult>;

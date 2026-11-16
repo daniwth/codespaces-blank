@@ -272,7 +272,7 @@ describe('ambience synth mapping', () => {
 
 describe('save v9', () => {
   it('bumps the version on both sides', () => {
-    expect(SAVE_VERSION).toBe(9);
+    expect(SAVE_VERSION).toBeGreaterThanOrEqual(9);
     expect(MAX_SAVE_VERSION).toBe(SAVE_VERSION);
   });
 
@@ -284,7 +284,7 @@ describe('save v9', () => {
     const m = migrateSave(v8, 8);
     expect(m.saveVersion).toBe(SAVE_VERSION);
     expect(m.buffs).toEqual(emptyBuffs());
-    expect(m.settings).toEqual({ muted: true, volume: 0.25, ambientHum: false, ambientVolume: 0.25, particles: false, offlineProgress: true });
+    expect(m.settings).toMatchObject({ muted: true, volume: 0.25, ambientHum: false, ambientVolume: 0.25, particles: false, offlineProgress: true });
   });
 
   it('round-trips a v9 save and clamps tampered boosts and volumes', () => {
@@ -305,7 +305,7 @@ describe('save v9', () => {
     expect(clean.buffs.nitroUntil).toBe(0);
     expect(clean.buffs.blockMulUntil).toBeLessThanOrEqual(Date.now() + BUFFS.vip.durationSec * 1000);
     expect(clean.buffs.auditClaims).toBe(BUFFS.audit.maxClaims);
-    expect(clean.settings).toEqual({ muted: false, volume: 1, ambientHum: true, ambientVolume: 0, particles: true, offlineProgress: true });
+    expect(clean.settings).toMatchObject({ muted: false, volume: 1, ambientHum: true, ambientVolume: 0, particles: true, offlineProgress: true });
     expect(migrateSave({ ...bad, buffs: 'x' }, SAVE_VERSION).buffs).toEqual(emptyBuffs());
   });
 });

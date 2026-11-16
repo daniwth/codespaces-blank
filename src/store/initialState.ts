@@ -89,7 +89,7 @@ export const createMarket = (now: number): MarketState => ({
   NOVA: createCoin('NOVA', now),
 });
 
-export const DEFAULT_SETTINGS: GameSettings = { muted: false, volume: 0.6, ambientHum: true, ambientVolume: 0.6, particles: true, offlineProgress: true };
+export const DEFAULT_SETTINGS: GameSettings = { muted: false, volume: 0.6, ambientHum: true, ambientVolume: 0.6, particles: true, offlineProgress: true, thermalPalette: 'infrared', hints: true };
 
 export const DEFAULT_VIP: VipState = { goldRacksBought: 0, aiDiagnostics: false, autoSellPeaks: false, autoSellEnabled: true };
 
@@ -174,6 +174,8 @@ export function createInitialData(carry?: Partial<GameData>, challenge?: Challen
     reputation: carry?.reputation ?? emptyReputation(),
     // The starter card is the first entry of the album.
     collection: collect(carry?.collection ?? {}, 'px460', 'bronze'),
+    ledger: carry?.ledger ?? [],
+    hints: carry?.hints ?? [],
   };
   // A fresh board scaled to this run (The Halving starts a new one: the old targets were sized for the old farm).
   return { ...data, contracts: carry?.contracts ?? createBoard(contractContext(data), now) };

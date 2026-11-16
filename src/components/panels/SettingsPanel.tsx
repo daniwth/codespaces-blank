@@ -88,12 +88,21 @@ export function SettingsPanel({ loopMode, inMenu = false }: { loopMode: LoopMode
           ['ambientHum', 'Fan hum ambience'],
           ['particles', 'Particles (smoke, coins)'],
           ['offlineProgress', 'Offline earnings'],
+          ['hints', 'Contextual hints'],
         ] as const).map(([key, label]) => (
           <label key={key} className="flex items-center gap-2">
             <input type="checkbox" checked={settings[key]} onChange={(e) => updateSettings({ [key]: e.target.checked })} />
             {t(label)}
           </label>
         ))}
+        <div className="flex flex-wrap items-center gap-2" role="radiogroup" aria-label={t('Thermal view palette')}>
+          <span className="w-28 text-dim">{t('Thermal view palette')}</span>
+          {([['infrared', 'Infrared'], ['safe', 'Colour-blind safe']] as const).map(([id, label]) => (
+            <PixelButton key={id} size="xs" variant={settings.thermalPalette === id ? 'primary' : 'ghost'} aria-pressed={settings.thermalPalette === id} onClick={() => updateSettings({ thermalPalette: id })} data-testid={`palette-${id}`}>
+              {t(label)}
+            </PixelButton>
+          ))}
+        </div>
       </section>
 
       <section className="flex flex-col gap-2 bg-panel-2 p-2">

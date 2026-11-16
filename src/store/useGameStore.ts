@@ -9,7 +9,9 @@ import { bnAdd, bnMax, bnToNumber } from '../utils/bignum';
 import { fxBus, sfxBus, type SfxCue, type VisualFx } from '../utils/eventBus';
 import { formatNumber } from '../utils/formatters';
 import { decodeSave, encodeSave } from '../utils/saveCodec';
-import { emptyLive, type RackFx, type SimInput, type SimOutput, type SoundCue } from './gamePhysics';
+import { localDay } from '../config/daily';
+import { nextHint } from '../config/hints';
+import { emptyLive, foldLedger, offlineDigest, type RackFx, type SimInput, type SimOutput, type SoundCue } from './gamePhysics';
 import { pruneGpuEdits, reconcileGpuUpdate } from './editLedger';
 import { createInitialData } from './initialState';
 import { fillLog } from './logLine';
@@ -32,7 +34,7 @@ const DATA_KEYS: (keyof GameData)[] = [
   'roomTemps', 'technicians', 'pool', 'market', 'bots', 'event', 'nextEventAt', 'talents', 'vip',
   'achievements', 'stats', 'settings', 'contracts', 'challenge', 'challengeRecords', 'alts', 'minedCoin',
   'research', 'boost', 'nextAirdropAt', 'roadmap', 'daily', 'autopilot', 'buffs', 'upgrades', 'bmc', 'biosProfiles',
-  'cycle', 'orders', 'poolPending', 'reputation', 'collection',
+  'cycle', 'orders', 'poolPending', 'reputation', 'collection', 'ledger', 'hints',
 ];
 
 export const extractData = (s: GameStore): GameData => {
@@ -135,6 +137,7 @@ const initialUi = (): UiState => ({
   sideTab: 'shop',
   lottery: null,
   contractToast: null,
+  activeHint: null,
   screen: 'menu',
   wikiOpen: false,
   airdrop: null,
@@ -144,6 +147,14 @@ const initialUi = (): UiState => ({
   thermalView: false,
   helpOpen: false,
 });
+
+/** Hints are looked for every couple of seconds, not every tick. */
+export const HINT_CHECK_MS = 2_000;
+let lastHintCheck = 0;
+/** Test hook: forget when hints were last looked for. */
+export const resetHintClock = (): void => {
+  lastHintCheck = 0;
+};
 
 /** Stats charts: one sample every few seconds, about half an hour of session history. */
 export const HISTORY_STEP_MS = 5_000;
@@ -212,6 +223,7 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
         cycle: out.cycle,
         orders: out.filledOrders.length ? s.orders.filter((o) => !out.filledOrders.includes(o.id)) : s.orders,
         poolPending: Math.max(0, s.poolPending + out.poolPendingDelta),
+        ledger: foldLedger(s.ledger, out, s.market[out.minedCoin].price, localDay(out.now)),
         bots: s.bots.map((b) => (fires[b.id] !== undefined ? { ...b, lastFiredAt: fires[b.id] } : b)),
         event: out.event,
         nextEventAt: out.nextEventAt,
@@ -249,10 +261,12 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
       checkChallenge();
       checkRoadmap();
       checkAchievements();
+      get().checkHints(out.now);
       get().autopilotTick(out.dt, out.now);
     },
 
     applyOffline: (out, requested) => {
+      const before = get();
       mergeTick(out);
       set({
         offlineReport: {
@@ -265,6 +279,7 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
           earnedCash: out.earnedCash,
           ccDelta: out.ccDelta,
           cashDelta: out.cashDelta,
+          digest: offlineDigest(before, get(), out),
         },
       });
       get().advanceContractBoard(out, true);
@@ -292,6 +307,15 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
     selectRack: (uid) => set({ selectedRack: uid }),
     openBios: (uid) => set({ biosGpu: uid }),
     dismissLottery: () => set({ lottery: null }),
+
+    checkHints: (now = Date.now()) => {
+      const s = get();
+      if (!s.settings.hints || s.activeHint || now - lastHintCheck < HINT_CHECK_MS) return;
+      lastHintCheck = now;
+      const hint = nextHint(s.hints, s);
+      if (hint) set({ activeHint: hint.id, hints: [...s.hints, hint.id] });
+    },
+    dismissHint: () => set({ activeHint: null }),
     updateSettings: (patch) => set((s) => ({ settings: { ...s.settings, ...patch } })),
 
     exportSave: async () => encodeSave(extractData(get())),
@@ -337,7 +361,7 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
     },
 
     returnToMenu: () => {
-      set({ thermalView: false, helpOpen: false, screen: 'menu', selectedRack: null, biosGpu: null, lottery: null, contractToast: null, offlineReport: null, wikiOpen: false, airdrop: null, dailyOpen: false });
+      set({ thermalView: false, helpOpen: false, screen: 'menu', selectedRack: null, biosGpu: null, lottery: null, contractToast: null, activeHint: null, offlineReport: null, wikiOpen: false, airdrop: null, dailyOpen: false });
       gameStorage.flush();
     },
 

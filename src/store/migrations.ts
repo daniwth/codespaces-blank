@@ -11,6 +11,7 @@ import { MAX_NEWS_SEC, MAX_PHASE_SEC, NEWS_INTERVAL, ORDERS, isMarketPhase, isNe
 import { REPUTATION, emptyReputation } from '../config/reputation';
 import { BUFFS, emptyBuffs } from '../config/buffs';
 import { localDay } from '../config/daily';
+import { HINT_IDS } from '../config/hints';
 import { RESEARCH_BY_ID, RESEARCH_IDS, isResearchId } from '../config/research';
 import { ROADMAP } from '../config/roadmap';
 import { ROOM_BY_ID } from '../config/roomsCatalog';
@@ -19,11 +20,11 @@ import type { AltWallets, Candle, CoinMarket, MarketCycle, MarketState, Mineable
 import type { ReputationState } from '../types/contracts';
 import type { CoolerInstance, GpuInstance, OverclockSettings, PsuInstance, RackInstance, SiliconQuality } from '../types/hardware';
 import type {
-  ActiveChallenge, AutopilotState, BiosProfileId, BmcConfig, ChallengeRecords, RoomUpgrades, SiliconCollection, DailyState, FarmBuffs, GameData, GameSettings, HashBoost, ResearchLevels, ResearchState, RoadmapState, RoomId, TalentId, TalentLevels,
+  ActiveChallenge, AutopilotState, BiosProfileId, BmcConfig, ChallengeRecords, DayLedger, RoomUpgrades, SiliconCollection, DailyState, FarmBuffs, GameData, GameSettings, HashBoost, ResearchLevels, ResearchState, RoadmapState, RoomId, TalentId, TalentLevels,
 } from '../types/player';
 import { clamp, unitHash } from '../utils/random';
 import { contractContext, sanitizeBoard } from './contracts';
-import { STOCK_OC } from './gamePhysics';
+import { LEDGER_DAYS, STOCK_OC } from './gamePhysics';
 import { createInitialData, DEFAULT_SETTINGS } from './initialState';
 
 type Json = Record<string, unknown>;
@@ -363,8 +364,25 @@ function sanitizeSettings(raw: unknown): GameSettings {
     ambientVolume: clamp(finite(src.ambientVolume, finite(src.volume, DEFAULT_SETTINGS.ambientVolume)), 0, 1),
     particles: flag('particles'),
     offlineProgress: flag('offlineProgress'),
+    thermalPalette: src.thermalPalette === 'safe' ? 'safe' : 'infrared',
+    hints: flag('hints'),
   };
 }
+
+function sanitizeLedger(raw: unknown, now: number): DayLedger[] {
+  if (!Array.isArray(raw)) return [];
+  const today = localDay(now);
+  const money = (v: unknown): number => clamp(finite(v, 0), 0, 1e300);
+  const days = new Map<number, DayLedger>();
+  raw.forEach((d) => {
+    if (!isObject(d) || typeof d.day !== 'number' || !Number.isInteger(d.day) || d.day > today || d.day <= today - LEDGER_DAYS) return;
+    days.set(d.day, { day: d.day, mined: money(d.mined), electricity: money(d.electricity), sold: clamp(finite(d.sold, 0), -1e300, 1e300), upkeep: money(d.upkeep) });
+  });
+  return [...days.values()].sort((a, b) => a.day - b.day).slice(-LEDGER_DAYS);
+}
+
+const sanitizeHints = (raw: unknown): string[] =>
+  Array.isArray(raw) ? HINT_IDS.filter((id) => raw.includes(id)) : [];
 
 function sanitizeTalents(raw: unknown): TalentLevels {
   if (!isObject(raw)) return {};
@@ -444,6 +462,8 @@ function sanitize(data: GameData, source: Json): GameData {
     poolPending: clamp(finite(source.poolPending, 0), 0, 1e300),
     reputation: emptyReputation(),
     collection: sanitizeCollection(source.collection, gpus),
+    ledger: sanitizeLedger(source.ledger, now),
+    hints: sanitizeHints(source.hints),
     pool: typeof source.pool === 'string' && source.pool in POOLS ? (source.pool as GameData['pool']) : 'public',
     settings: sanitizeSettings(source.settings),
     achievements: (Array.isArray(data.achievements) ? data.achievements : []).filter((a): a is string => typeof a === 'string'),
@@ -477,6 +497,7 @@ function sanitize(data: GameData, source: Json): GameData {
  *            undervolt floor of every chip (`silicon.vFloor`), room upgrades, the Smart BMC thresholds
  *            and the saved BIOS profiles; the market cycle and news, take-profit / stop-loss orders, PPLNS
  *            pending shares, contract reputation and the Silicon Collection (seeded from the GPUs owned).
+ * v9 → v10: added the daily ledger, the contextual hints already seen, and two settings (thermal palette, hints).
  */
 export function migrateSave(raw: unknown, fromVersion: number): GameData {
   const defaults = createInitialData();
@@ -518,6 +539,11 @@ export function migrateSave(raw: unknown, fromVersion: number): GameData {
     delete source.poolPending;
     delete source.reputation;
     delete source.collection;
+  }
+  // v9 → v10: no daily books and no hint memory; sanitize() starts both empty and picks the default palette.
+  if (fromVersion < 10) {
+    delete source.ledger;
+    delete source.hints;
   }
   const merged = mergeTyped(defaults, source);
   merged.saveVersion = SAVE_VERSION;

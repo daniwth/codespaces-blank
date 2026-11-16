@@ -1324,6 +1324,64 @@ try {
       await context.close();
     }
   });
+
+  // ───────────── v10: existing systems improved ─────────────
+  await check('v10: offline digest with quick fix, contextual hint, daily books and colour-blind thermal palette', async () => {
+    const { context, p } = await fresh({ viewport: { width: 1600, height: 1000 } });
+    const pageErrors = [];
+    p.on('pageerror', (e) => pageErrors.push(e.message));
+    try {
+      await p.addInitScript(() => localStorage.getItem('hh-lang') ?? localStorage.setItem('hh-lang', 'en'));
+      // Two hours away with dried paste on the only card, during a frozen Bull Run.
+      await bootPatched(p, `
+        const g = Object.values(state.gpus)[0];
+        g.paste = 0.2;
+        state.cash = '5000';
+        state.lastTick = Date.now() - 2 * 3600 * 1000;
+        state.cycle = { ...state.cycle, phase: 'bull', endsAt: Date.now() + 3600000, nextNewsAt: Date.now() + 3600000, news: null };
+        state.nextAirdropAt = Date.now() + 3600000;
+        state.hints = ['paste', 'pnl', 'hotkeys'];
+        state.ledger = [];
+      `);
+      const panel = (tab) => p.locator(`nav[aria-label="Panels"] button[title="${tab}"]`);
+      await p.getByText('Welcome back, miner').waitFor({ timeout: 8000 });
+      const todo = (await p.getByTestId('offline-todo').textContent()) ?? '';
+      assert(/dried thermal paste/.test(todo), `offline to-do: ${todo}`);
+      await p.screenshot({ path: join(ART, 'v10-offline-digest.png') });
+      await p.getByTestId('offline-repaste').click();
+      await p.getByRole('button', { name: 'Collect' }).click();
+      await p.getByText(/Re-pasted 1 GPUs/).first().waitFor({ timeout: 3000 });
+      // The Bull Run hint shows once and takes the player to the Market.
+      const hint = p.getByTestId('hint-toast');
+      await hint.waitFor({ timeout: 8000 });
+      assert((await hint.getAttribute('data-hint')) === 'bull', `hint shown: ${await hint.getAttribute('data-hint')}`);
+      await p.screenshot({ path: join(ART, 'v10-hint.png') });
+      await p.getByTestId('hint-go').click();
+      assert((await panel('Market').getAttribute('aria-current')) === 'page', 'the hint did not open the Market');
+      await hint.waitFor({ state: 'detached', timeout: 3000 });
+      // Daily books: the two hours away are on today's (or yesterday's) page.
+      await panel('Trophies').click();
+      await p.getByTestId('ledger-net').waitFor({ timeout: 5000 });
+      assert(/\$\d/.test((await p.getByTestId('ledger-net').textContent()) ?? ''), 'no net result in the daily books');
+      assert((await p.getByTestId('ledger-bar').count()) >= 1, 'no bar in the daily books');
+      await p.screenshot({ path: join(ART, 'v10-ledger.png') });
+      // Colour-blind safe palette: saved in the settings and used by the thermal view.
+      await panel('System').click();
+      await p.getByTestId('palette-safe').click();
+      assert((await p.getByTestId('palette-safe').getAttribute('aria-pressed')) === 'true', 'palette not selected');
+      await p.locator('h1').first().click();
+      await p.keyboard.press('t');
+      await p.waitForTimeout(400);
+      await p.screenshot({ path: join(ART, 'v10-thermal-safe.png') });
+      await p.waitForTimeout(2300);
+      const saved = await p.evaluate(() => JSON.parse(localStorage.getItem('hash-harvest-tycoon')).state);
+      assert(saved.settings.thermalPalette === 'safe', 'palette not persisted');
+      assert(saved.hints.includes('bull') && saved.ledger.length >= 1, 'hints or ledger not persisted');
+      assert(pageErrors.length === 0, pageErrors.join(' | '));
+    } finally {
+      await context.close();
+    }
+  });
 } catch (err) {
   results.push({ name: 'harness', ok: false, err: err.message });
   console.error(err);

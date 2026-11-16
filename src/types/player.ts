@@ -276,6 +276,25 @@ export interface GameSettings {
   ambientVolume: number;
   particles: boolean;
   offlineProgress: boolean;
+  /** Ramp of the thermal view: classic infrared or a colour-blind safe one. */
+  thermalPalette: ThermalPalette;
+  /** Show contextual hints the first time a mechanic matters. */
+  hints: boolean;
+}
+
+export type ThermalPalette = 'infrared' | 'safe';
+
+/** One local calendar day of the farm's books (dollars). */
+export interface DayLedger {
+  /** Local day number (see `localDay`). */
+  day: number;
+  /** Value of the coins mined, at the price of the moment they were mined. */
+  mined: number;
+  electricity: number;
+  /** Realized trading profit (over cost basis). */
+  sold: number;
+  /** Automatic maintenance paid by the Smart BMC. */
+  upkeep: number;
 }
 
 /** Everything that is persisted to localStorage and exported in save files. */
@@ -359,4 +378,8 @@ export interface GameData {
   reputation: ReputationState;
   /** Silicon Collection album (survives Halvings). */
   collection: SiliconCollection;
+  /** Daily books of the last two weeks (survive Halvings). */
+  ledger: DayLedger[];
+  /** Contextual hints already shown (survive Halvings). */
+  hints: string[];
 }

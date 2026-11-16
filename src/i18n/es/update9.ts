@@ -268,4 +268,60 @@ export const esUpdate9: Dict = {
   // Phase 5: impact bar
   'Impact of {name}': 'Impacto de {name}',
   'Hover or focus a part to see what buying it would change here: Δ hashrate, Δ watts, Δ °C and net ROI.': 'Pasa el cursor o enfoca una pieza para ver qué cambiaría aquí al comprarla: Δ hashrate, Δ vatios, Δ °C y ROI neto.',
+
+  // v10: offline digest
+  '{n} GPUs run on dried thermal paste: re-paste them.': '{n} GPUs funcionan con la pasta térmica seca: cámbiasela.',
+  '{n} GPUs are below {pct}% health: repair them.': '{n} GPUs están por debajo del {pct}% de salud: repáralas.',
+  '{n} thermal shutdowns while you were away.': '{n} apagados térmicos mientras no estabas.',
+  'Silicon wear: fleet health went from {from}% to {to}%.': 'Desgaste del silicio: la salud de la flota pasó del {from}% al {to}%.',
+  'Smart BMC re-pasted {pasted} and repaired {repaired} GPUs for ${spent}.': 'El BMC inteligente cambió la pasta a {pasted} GPUs y reparó {repaired} por ${spent}.',
+  '{n} sell orders were filled.': 'Se ejecutaron {n} órdenes de venta.',
+  'The market moved to {name}.': 'El mercado pasó a {name}.',
+  '${coin} price moved {pct}% while you were away.': 'El precio de ${coin} se movió un {pct}% mientras no estabas.',
+  'DO FIRST': 'HAZ PRIMERO',
+  'Nothing urgent: the farm is healthy.': 'Nada urgente: la granja está sana.',
+
+  // v10: daily books
+  'DAILY BOOKS': 'LIBRO DIARIO',
+  'No books yet: they open with the first coin mined.': 'Aún no hay libro: se abre con la primera moneda minada.',
+  'Today': 'Hoy',
+  'Yesterday': 'Ayer',
+  'Coins mined (at market price)': 'Monedas minadas (a precio de mercado)',
+  'Trading profit': 'Beneficio de trading',
+  'Automatic maintenance': 'Mantenimiento automático',
+  'Net result': 'Resultado neto',
+
+  // v10: settings
+  'Contextual hints': 'Pistas contextuales',
+  'Thermal view palette': 'Paleta de la vista térmica',
+  'Infrared': 'Infrarrojo',
+  'Colour-blind safe': 'Apta para daltonismo',
+
+  // v10: hints
+  'Show me': 'Enséñamelo',
+  'Got it': 'Entendido',
+  'No more hints': 'No más pistas',
+  'PSU tripped': 'Fuente disparada',
+  'A rack draws more watts than its PSU delivers, so it shut down. Fit a bigger PSU or take a GPU out.': 'Un rack pide más vatios de los que da su fuente y se ha apagado. Monta una fuente mayor o quita una GPU.',
+  'Thermal throttling': 'Estrangulamiento térmico',
+  'A GPU above {temp}°C hashes at half speed. Press T for the thermal view, then add cooling or re-paste it.': 'Una GPU por encima de {temp}°C mina a media velocidad. Pulsa T para la vista térmica y añade refrigeración o cámbiale la pasta.',
+  'Power line saturated': 'Línea eléctrica saturada',
+  'This room asks for more power than its line carries, so every rig in it slows down. Move racks to another room or research Line Upgrade.': 'Esta sala pide más potencia de la que lleva su línea y todos sus equipos se ralentizan. Mueve racks a otra sala o investiga Mejora de acometida.',
+  'Dried thermal paste': 'Pasta térmica seca',
+  'Thermal paste dries with heat and the GPU runs hotter. Press R to re-paste every GPU of the room.': 'La pasta térmica se seca con el calor y la GPU se calienta más. Pulsa R para cambiársela a todas las GPUs de la sala.',
+  'Four or more GPUs of the same model and grade in one rack share a power profile and draw less electricity.': 'Cuatro o más GPUs del mismo modelo y calidad en un rack comparten perfil de energía y gastan menos electricidad.',
+  'Every room has its own rules': 'Cada sala tiene sus reglas',
+  'Day and night, heat waves, condensation, hull limits: each room card in the Shop lists its traits.': 'Día y noche, olas de calor, condensación, límites del casco: la tarjeta de cada sala en la Tienda lista sus rasgos.',
+  'The market entered a Bull Run: prices climb, so it is a good moment to sell what you mined.': 'El mercado entró en fase alcista: los precios suben, buen momento para vender lo minado.',
+  'Prices sink during a Bear Market. Hold your coins if you can pay the power bill, or buy cheap.': 'Los precios se hunden en el mercado bajista. Aguanta tus monedas si puedes pagar la luz, o compra barato.',
+  'Smart BMC online': 'BMC inteligente activo',
+  'The Smart BMC re-pastes and repairs GPUs on its own. Set its thresholds and budget in the Lab.': 'El BMC inteligente cambia la pasta y repara GPUs solo. Ajusta sus umbrales y presupuesto en el Laboratorio.',
+  'Order Desk open': 'Mesa de órdenes abierta',
+  'You can now leave take-profit and stop-loss orders in the Market: they sell for you, even while you are away.': 'Ya puedes dejar órdenes take-profit y stop-loss en el Mercado: venden por ti, incluso cuando no estás.',
+  'Live profit and loss': 'Pérdidas y ganancias en vivo',
+  'Hover the hashrate in the top bar to see what you earn per second and what is holding the farm back.': 'Pasa el ratón por el hashrate de la barra superior para ver lo que ganas por segundo y qué frena la granja.',
+  'Press ? to see every shortcut: number keys switch panels, T toggles the thermal view, R re-pastes.': 'Pulsa ? para ver todos los atajos: los números cambian de panel, T alterna la vista térmica y R cambia la pasta.',
+
+  // v10: hints 2
+  'Cluster Bonus': 'Bonus de Cluster',
 };

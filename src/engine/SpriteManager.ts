@@ -133,9 +133,20 @@ const hexRgb = (hex: string): [number, number, number] => {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 };
 
-/** Color of a temperature on the infrared ramp (linear between stops, clamped at both ends). */
-export function thermalColor(celsius: number): string {
-  const stops = THERMAL_STOPS;
+/**
+ * Colour-blind safe ramp (cividis-like): hue only runs blue → yellow and brightness climbs all the
+ * way, so it reads the same with red-green deficiencies and in greyscale.
+ */
+export const THERMAL_STOPS_SAFE: readonly (readonly [number, string])[] = [
+  [-20, '#00122e'], [10, '#00266e'], [35, '#414d6b'], [55, '#6c6e72'], [70, '#9a9076'], [82, '#cbb568'], [88, '#eed54a'], [95, '#fff07a'], [105, '#ffffff'],
+];
+
+export type ThermalRamp = 'infrared' | 'safe';
+export const thermalStops = (ramp: ThermalRamp = 'infrared'): readonly (readonly [number, string])[] => (ramp === 'safe' ? THERMAL_STOPS_SAFE : THERMAL_STOPS);
+
+/** Color of a temperature on the thermal ramp (linear between stops, clamped at both ends). */
+export function thermalColor(celsius: number, ramp: ThermalRamp = 'infrared'): string {
+  const stops = thermalStops(ramp);
   if (!(celsius > stops[0][0])) return stops[0][1];
   for (let i = 1; i < stops.length; i += 1) {
     if (celsius <= stops[i][0]) {

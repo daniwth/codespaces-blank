@@ -27,6 +27,7 @@ import { VipPanel } from './panels/VipPanel';
 import { HalvingTalentTree } from './prestige/HalvingTalentTree';
 import { HardwareShop } from './shop/HardwareShop';
 import { ContractToast } from './ui/ContractToast';
+import { HintToast } from './ui/HintToast';
 import { TitleScreen } from './menu/TitleScreen';
 import { LotteryToast } from './ui/LotteryToast';
 import { RetroHUD } from './ui/RetroHUD';
@@ -200,6 +201,7 @@ function GameScreen({ loopMode }: { loopMode: LoopMode | null }) {
       <OfflineModal />
       <LotteryToast />
       <ContractToast />
+      <HintToast />
     </div>
   );
 }

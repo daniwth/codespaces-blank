@@ -43,7 +43,7 @@ import type {
   RackStatus,
   SiliconProfile,
 } from '../types/hardware';
-import type { GameData, RoomId } from '../types/player';
+import type { DayLedger, GameData, RoomId } from '../types/player';
 import { bnToNumber } from '../utils/bignum';
 import { clamp, gaussian, pick, randRange } from '../utils/random';
 
@@ -1145,7 +1145,12 @@ export function farmPnl(live: Pick<LiveMetrics, 'coinPerSec' | 'electricityPerSe
 
 export type BottleneckId =
   | 'blackout' | 'no_psu' | 'overload' | 'shutdown' | 'brownout' | 'throttle' | 'hull' | 'preheat' | 'noise'
-  | 'psu_near' | 'line_near' | 'empty_slots' | 'empty_pads' | 'no_gpus';
+  | 'psu_near' | 'line_near' | 'paste_worn' | 'worn_gpus' | 'empty_slots' | 'empty_pads' | 'no_gpus';
+
+/** Mounted GPUs below this paste level are worth a re-paste (the mass action and the diagnosis agree on it). */
+export const PASTE_WORN_BELOW = 0.5;
+/** Mounted GPUs below this health are flagged for repair. */
+export const HEALTH_WORN_BELOW = 0.5;
 
 export interface Bottleneck {
   id: BottleneckId;
@@ -1202,6 +1207,12 @@ export function diagnoseFarm(data: Pick<GameData, 'racks' | 'gpus' | 'ownedRooms
   }).length;
   if (nearPsu) add('psu_near', 2, '{n} PSUs are above 90% load: no room for an overclock.', { n: nearPsu });
 
+  const mountedUids = placed.flatMap((r) => r.gpuSlots).filter((u): u is string => Boolean(u && data.gpus[u]));
+  const dry = mountedUids.filter((u) => data.gpus[u].paste < PASTE_WORN_BELOW).length;
+  if (dry) add('paste_worn', 2, '{n} GPUs run on dried thermal paste: re-paste them.', { n: dry });
+  const worn = mountedUids.filter((u) => gpuHealth(data.gpus[u]) < HEALTH_WORN_BELOW).length;
+  if (worn) add('worn_gpus', 2, '{n} GPUs are below {pct}% health: repair them.', { n: worn, pct: Math.round(HEALTH_WORN_BELOW * 100) });
+
   const freeSlots = placed.reduce((a, r) => a + r.gpuSlots.filter((u) => !u).length, 0);
   const mountedGpus = placed.reduce((a, r) => a + r.gpuSlots.filter(Boolean).length, 0);
   if (mountedGpus === 0) add('no_gpus', 3, 'No GPU is mounted in a placed rack.');
@@ -1211,6 +1222,81 @@ export function diagnoseFarm(data: Pick<GameData, 'racks' | 'gpus' | 'ownedRooms
   if (freePads) add('empty_pads', 1, '{n} empty rack pads.', { n: freePads });
 
   return out.sort((a, b) => b.severity - a.severity);
+}
+
+// ───────────────────────── Daily ledger ─────────────────────────
+
+/** Days of books kept in the save. */
+export const LEDGER_DAYS = 14;
+
+export const ledgerNet = (d: DayLedger): number => d.mined + d.sold - d.electricity - d.upkeep;
+
+/**
+ * Adds one tick to the books of `day` (a local calendar day number). Mined coins are valued at
+ * `price`, the price they had before the tick moved the market; a tick with nothing to book
+ * returns the same array, so idle farms do not churn the save.
+ */
+export function foldLedger(ledger: readonly DayLedger[], out: Pick<SimOutput, 'coinMined' | 'electricityPaid' | 'earnedCash' | 'bmc'>, price: number, day: number): DayLedger[] {
+  const mined = Math.max(0, out.coinMined * price);
+  const add = { mined, electricity: Math.max(0, out.electricityPaid), sold: out.earnedCash, upkeep: Math.max(0, out.bmc.spent) };
+  if (add.mined === 0 && add.electricity === 0 && add.sold === 0 && add.upkeep === 0) return ledger as DayLedger[];
+  const last = ledger[ledger.length - 1];
+  if (last && last.day === day) {
+    return [...ledger.slice(0, -1), { day, mined: last.mined + add.mined, electricity: last.electricity + add.electricity, sold: last.sold + add.sold, upkeep: last.upkeep + add.upkeep }];
+  }
+  // A clock set back never rewrites history: only later days open a new page.
+  if (last && last.day > day) return ledger as DayLedger[];
+  return [...ledger, { day, ...add }].slice(-LEDGER_DAYS);
+}
+
+// ───────────────────────── Offline digest ─────────────────────────
+
+export interface DigestEvent {
+  id: 'shutdowns' | 'health' | 'bmc' | 'orders' | 'phase' | 'price';
+  tone: MessageTone;
+  key: string;
+  params: Record<string, string | number>;
+}
+
+export interface OfflineDigest {
+  /** What happened while away, in the order it matters. */
+  events: DigestEvent[];
+  /** What to fix first on return: the live bottlenecks that cost or threaten hashrate. */
+  todo: Bottleneck[];
+}
+
+type DigestWorld = Pick<GameData, 'racks' | 'gpus' | 'ownedRooms' | 'talents' | 'challenge' | 'cycle' | 'market'>;
+
+const fleetHealth = (data: Pick<GameData, 'racks' | 'gpus'>): number => {
+  const uids = Object.values(data.racks).filter((r) => r.roomId).flatMap((r) => r.gpuSlots).filter((u): u is string => Boolean(u && data.gpus[u]));
+  return uids.length ? uids.reduce((a, u) => a + gpuHealth(data.gpus[u]), 0) / uids.length : 1;
+};
+
+/**
+ * Turns an offline catch-up into a readable report: `before` is the world when the player left,
+ * `after` the world once the tick was merged. Pure, so the modal only renders it.
+ */
+export function offlineDigest(before: DigestWorld, after: DigestWorld, out: SimOutput): OfflineDigest {
+  const events: DigestEvent[] = [];
+  const add = (id: DigestEvent['id'], tone: MessageTone, key: string, params: Record<string, string | number> = {}): void => {
+    events.push({ id, tone, key, params });
+  };
+  if (out.overheats > 0) add('shutdowns', 'bad', '{n} thermal shutdowns while you were away.', { n: out.overheats });
+  const from = Math.round(fleetHealth(before) * 100);
+  const to = Math.round(fleetHealth(after) * 100);
+  if (to < from) add('health', 'warn', 'Silicon wear: fleet health went from {from}% to {to}%.', { from, to });
+  if (out.bmc.pasted + out.bmc.repaired > 0) {
+    add('bmc', 'info', 'Smart BMC re-pasted {pasted} and repaired {repaired} GPUs for ${spent}.', { pasted: out.bmc.pasted, repaired: out.bmc.repaired, spent: out.bmc.spent.toFixed(0) });
+  }
+  if (out.filledOrders.length > 0) add('orders', 'good', '{n} sell orders were filled.', { n: out.filledOrders.length });
+  if (after.cycle.phase !== before.cycle.phase) add('phase', after.cycle.phase === 'bear' ? 'warn' : 'info', 'The market moved to {name}.', { name: MARKET_PHASES[after.cycle.phase].name });
+  const p0 = before.market[out.minedCoin].price;
+  const p1 = after.market[out.minedCoin].price;
+  const move = p0 > 0 ? (p1 - p0) / p0 : 0;
+  if (Math.abs(move) >= 0.05) {
+    add('price', move > 0 ? 'good' : 'warn', '${coin} price moved {pct}% while you were away.', { coin: out.minedCoin, pct: `${move > 0 ? '+' : ''}${Math.round(move * 100)}` });
+  }
+  return { events, todo: diagnoseFarm(after, out.live).filter((b) => b.severity >= 2).slice(0, 3) };
 }
 
 // ───────────────────────── Purchase preview (Shop) ─────────────────────────

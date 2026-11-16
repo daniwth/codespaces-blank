@@ -7,7 +7,7 @@ import type { GameData, RoomId } from '../../types/player';
 import { bnAdd, bnGte, bnSub, bnToNumber } from '../../utils/bignum';
 import { makeUid, sfxBus, fxBus } from '../../utils/eventBus';
 import { formatCash } from '../../utils/formatters';
-import { aiAutoTune, crashChance, fitOverclock, ocHashBonus, repairCost, repasteCooling, repasteCost, STOCK_OC } from '../gamePhysics';
+import { PASTE_WORN_BELOW, aiAutoTune, crashChance, fitOverclock, ocHashBonus, repairCost, repasteCooling, repasteCost, STOCK_OC } from '../gamePhysics';
 import { BIOS_PROFILE_NAMES } from '../../config/synergy';
 import { clamp, randRange } from '../../utils/random';
 import { collect } from '../../config/collection';
@@ -25,7 +25,7 @@ export const usedGpuPrice = (price: number): number => Math.max(0.01, Math.round
 /** Silicon Forge: spare GPUs of one model and grade melted into one of the next grade. */
 export const FUSE_COUNT = 3;
 /** "Re-paste all" touches every mounted GPU whose paste is below this. */
-export const REPASTE_ALL_BELOW = 0.5;
+export const REPASTE_ALL_BELOW = PASTE_WORN_BELOW;
 /** "Repair all" touches every mounted GPU with more wear than this. */
 export const REPAIR_ALL_ABOVE = 0.005;
 /** Largest batch the Shop sells in one click. */

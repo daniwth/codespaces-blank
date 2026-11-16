@@ -456,13 +456,14 @@ export function WorldCanvas() {
       ctx.drawImage(sprites.roomBackground(roomId, WORLD_W, WORLD_H, WALL_H), 0, 0);
       drawRoomLife(ctx, roomId, t, dt, s, particles.current);
       const thermal = s.thermalView;
+      const heat = (celsius: number): string => thermalColor(celsius, s.settings.thermalPalette);
       const wallNow = Date.now();
       if (thermal) {
         // Infrared scrim: the room goes dark and cold-tinted by its air temperature; only heat stands out.
         ctx.globalAlpha = 0.78;
         px(ctx, 0, 0, WORLD_W, WORLD_H, '#050816');
         ctx.globalAlpha = 0.16;
-        px(ctx, 0, 0, WORLD_W, WORLD_H, thermalColor(roomLive?.temp ?? ROOM_BY_ID[roomId].ambient));
+        px(ctx, 0, 0, WORLD_W, WORLD_H, heat(roomLive?.temp ?? ROOM_BY_ID[roomId].ambient));
         ctx.globalAlpha = 1;
       }
 
@@ -506,7 +507,7 @@ export function WorldCanvas() {
         ctx.globalAlpha = 1;
         if (thermal && live && live.maxTemp > 0) {
           // Heat halo around the rack, quantized so the glow sprites stay cached.
-          const halo = thermalColor(Math.round(live.maxTemp / 4) * 4);
+          const halo = heat(Math.round(live.maxTemp / 4) * 4);
           ctx.globalAlpha = 0.2 + Math.min(0.35, Math.max(0, live.maxTemp - 40) / 160) + (live.maxTemp >= 88 ? 0.1 * Math.sin(t * 8) : 0);
           ctx.drawImage(sprites.glow(34, halo), x + RACK_W / 2 - 34, y + RACK_H / 2 - 34);
           ctx.globalAlpha = 1;
@@ -563,7 +564,7 @@ export function WorldCanvas() {
           if (thermal) {
             // Infrared: the card is a block of its die temperature, brighter the harder it works.
             ctx.globalAlpha = gl?.running ? 0.92 : 0.6;
-            px(ctx, x + r.x, y + r.y, r.w, r.h, thermalColor(g.temp));
+            px(ctx, x + r.x, y + r.y, r.w, r.h, heat(g.temp));
             ctx.globalAlpha = 1;
             if (g.temp >= 88 && Math.floor(t * 6) % 2 === 0) px(ctx, x + r.x, y + r.y, r.w, 1, '#ffffff');
           }
@@ -636,7 +637,7 @@ export function WorldCanvas() {
           }
           if (status === 'empty' || Math.floor(t * 2) % 2 === 0) drawPixelText(ctx, lblText, icon ? left + 11 : left, y - 8, lbl.color, { shadow: '#000000' });
         }
-        if (live && live.maxTemp > 0) drawPixelText(ctx, `${Math.round(live.maxTemp)}°`, x, y + RACK_H + 1, thermal ? thermalColor(live.maxTemp) : tempColor(live.maxTemp), { shadow: '#000000' });
+        if (live && live.maxTemp > 0) drawPixelText(ctx, `${Math.round(live.maxTemp)}°`, x, y + RACK_H + 1, thermal ? heat(live.maxTemp) : tempColor(live.maxTemp), { shadow: '#000000' });
         if (live && live.hash > 0) drawPixelText(ctx, shortHash(live.hash), x + RACK_W, y + RACK_H + 1, '#a3e635', { align: 'right', shadow: '#000000' });
 
         if (hovered?.kind === 'rack' && hovered.rackUid === rack.uid) {
@@ -914,12 +915,12 @@ export function WorldCanvas() {
         const lo = THERMAL_STOPS[1][0];
         const hi = THERMAL_STOPS[THERMAL_STOPS.length - 1][0];
         px(ctx, lx - 2, ly - 9, lw + 4, 21, '#05040c');
-        for (let i = 0; i < lw; i += 1) px(ctx, lx + i, ly, 1, 4, thermalColor(lo + ((hi - lo) * i) / (lw - 1)));
+        for (let i = 0; i < lw; i += 1) px(ctx, lx + i, ly, 1, 4, heat(lo + ((hi - lo) * i) / (lw - 1)));
         [88, 95].forEach((mark) => px(ctx, lx + Math.round(((mark - lo) / (hi - lo)) * (lw - 1)), ly - 1, 1, 6, '#ffffff'));
         drawPixelText(ctx, tr('THERMAL VIEW'), lx, ly - 7, '#e0f2fe');
         drawPixelText(ctx, `${lo}C`, lx, ly + 6, '#93c5fd');
         drawPixelText(ctx, '88 95C', lx + lw, ly + 6, '#fecaca', { align: 'right' });
-        drawPixelText(ctx, tr('AIR {temp}C', { temp: Math.round(roomLive?.temp ?? ROOM_BY_ID[roomId].ambient) }), WORLD_W - 4, WORLD_H - 8, thermalColor(roomLive?.temp ?? ROOM_BY_ID[roomId].ambient), { align: 'right', shadow: '#000000' });
+        drawPixelText(ctx, tr('AIR {temp}C', { temp: Math.round(roomLive?.temp ?? ROOM_BY_ID[roomId].ambient) }), WORLD_W - 4, WORLD_H - 8, heat(roomLive?.temp ?? ROOM_BY_ID[roomId].ambient), { align: 'right', shadow: '#000000' });
       }
 
       // In-canvas counter (coins fly here)
