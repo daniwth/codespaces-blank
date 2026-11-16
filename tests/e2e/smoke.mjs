@@ -1591,6 +1591,23 @@ try {
         state.hints = ['overload', 'throttle', 'brownout', 'paste', 'cluster', 'rooms', 'bull', 'bear', 'bmc', 'orders', 'energy', 'predictive', 'pnl', 'hotkeys'];
       `);
       const racks = () => p.evaluate(() => Object.values(JSON.parse(localStorage.getItem('hash-harvest-tycoon')).state.racks).map((r) => r.roomId));
+      // Clicking an empty pad opens the picker on top of the room (it used to render below the canvas, clipped away).
+      const cv = roomCanvas(p);
+      const box = await cv.boundingBox();
+      const picker = p.getByTestId('pad-picker');
+      for (let fy = 0.3; fy < 0.95 && !(await picker.count()); fy += 0.05) {
+        for (let fx = 0.05; fx < 0.95 && !(await picker.count()); fx += 0.04) {
+          await p.mouse.click(box.x + box.width * fx, box.y + box.height * fy);
+          if (!(await picker.count())) await p.keyboard.press('Escape'); // a rack opens its modal: close it
+        }
+      }
+      await picker.waitFor({ timeout: 3000 });
+      const pb = await picker.boundingBox();
+      const wrap = await cv.locator('xpath=..').boundingBox();
+      assert(pb.y >= wrap.y && pb.y + pb.height <= wrap.y + wrap.height + 1 && pb.x >= wrap.x && pb.x + pb.width <= wrap.x + wrap.width + 1, `picker outside the room view: ${JSON.stringify(pb)} vs ${JSON.stringify(wrap)}`);
+      await p.screenshot({ path: join(ART, 'pad-picker.png') });
+      await picker.getByRole('button', { name: 'Open shop' }).click();
+      assert((await picker.count()) === 0, 'picker stays open after Open shop');
       await p.locator('nav[aria-label="Panels"] button[title="Shop"]').click();
       await p.getByRole('button', { name: 'Racks', exact: true }).click();
       const buy = p.locator('div.bg-panel-2').filter({ hasText: 'Open-Air Bench' }).first().getByRole('button').first();

@@ -1183,8 +1183,11 @@ export function WorldCanvas() {
 
         {placing && (
           <div
-            className="pixel-box pixel-box-hi pop-in absolute z-10 w-64 p-3"
-            style={{ left: Math.max(8, Math.min(placing.left - 128, (wrapRef.current?.clientWidth ?? 400) - 272)), top: Math.max(8, placing.top - 150) }}
+            className="pixel-box pixel-box-hi pop-in z-10 w-64 p-3"
+            data-testid="pad-picker"
+            // `.pixel-box` sets position: relative and wins over the `absolute` utility, which pushed
+            // this picker into the grid flow below the canvas, out of sight. Inline style always wins.
+            style={{ position: 'absolute', left: Math.max(8, Math.min(placing.left - 128, (wrapRef.current?.clientWidth ?? 400) - 272)), top: Math.max(8, Math.min(placing.top - 150, (wrapRef.current?.clientHeight ?? 400) - 230)) }}
           >
             <div className="mb-2 flex items-center justify-between">
               <span className="font-pixel text-[9px] text-neon">{t('PAD #{n}', { n: placing.pad + 1 })}</span>
