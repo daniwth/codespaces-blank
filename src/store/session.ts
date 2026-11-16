@@ -9,9 +9,9 @@ import { useAccountStore } from './useAccountStore';
 import { useGameStore } from './useGameStore';
 
 /** Fresh run from zero. The cloud save (if any) is left alone: the next sync asks which progress to keep. */
-export function startFreshRun(challenge?: ChallengeId | null): void {
+export function startFreshRun(challenge?: ChallengeId | null, sandbox = false): void {
   useAccountStore.getState().detachLocalSave();
-  useGameStore.getState().startNewGame(challenge);
+  useGameStore.getState().startNewGame(challenge, sandbox);
 }
 
 /** Factory reset: like a new game, the wiped run must not silently overwrite the cloud save. */

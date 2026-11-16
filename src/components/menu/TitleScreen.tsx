@@ -10,6 +10,7 @@ import { useT } from '../../i18n';
 import { cn } from '../../utils/cn';
 import { formatAgo, formatCash, formatDuration } from '../../utils/formatters';
 import { ChallengePicker } from '../prestige/ChallengePicker';
+import { SANDBOX } from '../../config/foundry';
 import type { ChallengeId } from '../../types/player';
 import { AccountPanel } from '../account/AccountPanel';
 import { SettingsPanel } from '../panels/SettingsPanel';
@@ -75,6 +76,7 @@ export function TitleScreen() {
   const [dialog, setDialog] = useState<Dialog>(null);
   const [cloudBusy, setCloudBusy] = useState(false);
   const [challenge, setChallenge] = useState<ChallengeId | null>(null);
+  const [sandbox, setSandbox] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -158,13 +160,20 @@ export function TitleScreen() {
                 size="lg"
                 variant={save.progress ? 'secondary' : 'primary'}
                 icon={<Sparkles size={14} />}
-                onClick={() => (save.progress ? setDialog('confirm-new') : startFreshRun(challenge))}
+                onClick={() => (save.progress ? setDialog('confirm-new') : startFreshRun(sandbox ? null : challenge, sandbox))}
                 autoFocus={!save.progress}
                 className="w-full"
               >
                 {t('New game')}
               </PixelButton>
-              <ChallengePicker value={challenge} onChange={setChallenge} id="menu-challenge" />
+              {!sandbox && <ChallengePicker value={challenge} onChange={setChallenge} id="menu-challenge" />}
+              <label className="flex items-start gap-2 bg-panel-2 p-2 text-[16px] leading-tight" data-testid="menu-sandbox">
+                <input type="checkbox" className="mt-1" checked={sandbox} onChange={(e) => setSandbox(e.target.checked)} />
+                <span>
+                  <span className="font-pixel text-[8px] text-[#5eead4]">{t('SANDBOX MODE')}</span>
+                  <span className="block text-dim">{t('A relaxed farm: hardware never wears or dries out, and no bad event, raid or power surge hits you. Starts with {cash}. No challenge runs.', { cash: formatCash(SANDBOX.startCash) })}</span>
+                </span>
+              </label>
 
               {account.cloudOffer && account.cloud && (
                 <div className="flex flex-col gap-1 bg-panel-2 p-2 shadow-[inset_0_0_0_2px_#0e7490]" data-testid="cloud-offer">
@@ -259,7 +268,7 @@ export function TitleScreen() {
                 icon={<Sparkles size={12} />}
                 onClick={() => {
                   setDialog(null);
-                  startFreshRun(challenge);
+                  startFreshRun(sandbox ? null : challenge, sandbox);
                 }}
               >
                 {t('Overwrite & start')}

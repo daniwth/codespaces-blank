@@ -33,6 +33,7 @@ export function HalvingTalentTree() {
     runStartedAt: st.runStartedAt,
     challenge: st.challenge,
     records: st.challengeRecords,
+    sandbox: st.sandbox,
     now: st.lastTick,
   }));
   const { performHalving, buyTalent, abandonChallenge } = useGameStore.getState();
@@ -100,7 +101,7 @@ export function HalvingTalentTree() {
           </div>
         )}
         <div className="mt-2 flex flex-col gap-2">
-          {confirm && <ChallengePicker value={next} onChange={setNext} records={s.records} id="halving-challenge" />}
+          {confirm && !s.sandbox && <ChallengePicker value={next} onChange={setNext} records={s.records} id="halving-challenge" />}
           <div className="flex gap-1">
             {!confirm ? (
               <PixelButton variant="gold" size="sm" disabled={reward <= 0} onClick={() => setConfirm(true)}>

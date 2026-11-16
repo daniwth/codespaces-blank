@@ -4,6 +4,7 @@
  * number comes from the balance config; tables come from `wikiTables.ts`.
  */
 import { COLLECTION } from './collection';
+import { FOUNDRY, FOUNDRY_BY_ID, SANDBOX } from './foundry';
 import { ABILITIES, RANKS } from './ranks';
 import { EVENT_EFFECTS as FORK } from './gameBalance';
 import { ENERGY, PPA_PLANS, SPOT_MAX, SPOT_MIN } from './energy';
@@ -922,6 +923,21 @@ export function sectionsEn(): WikiSection[] {
               `**Pool Partner** (Pools). An exclusivity deal with your current pool: +${pct(ABILITIES.partner.payoutMul - 1)} payout for ${Math.round(ABILITIES.partner.durationSec / 60)} minutes. Switching to another pool before it ends costs ${ABILITIES.partner.breakPoints} reputation points and a ${Math.round(ABILITIES.partner.cooldownSec / 60)} minute wait.`,
               `**Hard Fork** (network event). Rigs hash at ${pct(FORK.forkHashMul)} while it lasts; each Firmware Tuning level recovers ${pct(FORK.forkPerFirmware)}, so level 5 is immune.`,
             ),
+          ],
+        },
+        {
+          id: 'v12-foundry',
+          title: 'Chip Foundry and Sandbox mode',
+          keywords: ['foundry', 'fundicion', 'fab', 'fabrica', 'asic', 'clean room', 'sala blanca', 'tape-out', 'binning', 'capstone', 'cima', 'sandbox', 'relaxed', 'relajado', 'mode', 'modo'],
+          blocks: [
+            p('The **Chip Foundry** is at the bottom of the Lab. Its nodes are bought with cash and last for the run. After the Clean Room it splits in two branches; you can climb both, but only one of the two capstones.'),
+            list(
+              `**Clean Room** (${formatCash(FOUNDRY_BY_ID.cleanroom.price)}): Gold and God silicon ${pct(FOUNDRY.cleanroomLuck - 1)} more likely.`,
+              `**Graphics cards.** Binning Line (another ${pct(FOUNDRY.binLuck - 1)} silicon luck), Custom Shrouds (cards give off ${pct(1 - FOUNDRY.cardHeatMul)} less heat) and the capstone Reference Design (cards hash ${pct(FOUNDRY.cardHashMul - 1)} faster).`,
+              `**In-house ASICs.** Mask Set (ASIC, photonic and singularity miners give off ${pct(1 - FOUNDRY.asicHeatMul)} less heat), Advanced Packaging (they hash ${pct(FOUNDRY.asicHashMul - 1)} faster) and the capstone Tape-out (another ${pct(FOUNDRY.asicCapHashMul - 1)}).`,
+              'Graphics cards are the early tiers and purpose-built miners the late ones, so the card branch pays sooner and the ASIC branch pays more at the end of a run.',
+            ),
+            p(`**Sandbox mode** is a checkbox next to New game. Hardware never wears or dries out, and no bad network event, raid or power surge reaches the farm; heat, power and the market work as usual. It starts with ${formatCash(SANDBOX.startCash)}, has no challenge runs, and the mode stays with the save, also through The Halving.`),
           ],
         },
         {

@@ -105,7 +105,7 @@ describe('rank ladder', () => {
   });
 
   it('save v11: older saves start at the rank they hold, and the rank seen is never ahead of the level', () => {
-    expect(SAVE_VERSION).toBe(11);
+    expect(SAVE_VERSION).toBeGreaterThanOrEqual(11);
     expect(MAX_SAVE_VERSION).toBe(SAVE_VERSION);
     const raw: Record<string, unknown> = JSON.parse(JSON.stringify(createInitialData()));
     raw.lifetimeEarnings = earned(16);

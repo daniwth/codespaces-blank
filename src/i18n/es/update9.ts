@@ -418,4 +418,33 @@ export const esUpdate9: Dict = {
   // v11: hard fork
   'Hard Fork': 'Bifurcación dura',
   'The network changed its rules: rigs on old firmware hash at 70%. Each Firmware Tuning level recovers 6%.': 'La red cambió sus reglas: los equipos con firmware antiguo minan al 70%. Cada nivel de Ajuste de firmware recupera un 6%.',
+
+  // v12: chip foundry
+  'CHIP FOUNDRY': 'FUNDICIÓN DE CHIPS',
+  'GRAPHICS CARDS': 'TARJETAS GRÁFICAS',
+  'IN-HOUSE ASICS': 'ASICS PROPIOS',
+  'Bought with cash, for this run. Both branches can be climbed, but only one capstone: the fab specializes.': 'Se compra con efectivo, para esta partida. Puedes subir ambas ramas, pero sólo una cima: la fábrica se especializa.',
+  'Locked: the fab specialized in the other family.': 'Bloqueado: la fábrica se especializó en la otra familia.',
+  'Locked': 'Bloqueado',
+  'Chip Foundry: {name} is running.': 'Fundición de chips: {name} en marcha.',
+  'Clean Room': 'Sala blanca',
+  'Binning Line': 'Línea de clasificación',
+  'Custom Shrouds': 'Carcasas propias',
+  'Reference Design': 'Diseño de referencia',
+  'Mask Set': 'Juego de máscaras',
+  'Advanced Packaging': 'Encapsulado avanzado',
+  'Tape-out': 'Tape-out',
+  'Dust-free assembly: Gold and God silicon are 15% more likely on every purchase.': 'Montaje sin polvo: el silicio Oro y Dios es un 15% más probable en cada compra.',
+  'You test and sort the chips yourself: Gold and God silicon are another 35% more likely.': 'Pruebas y clasificas los chips tú mismo: el silicio Oro y Dios es otro 35% más probable.',
+  'Your own heatsink and shroud design: graphics cards give off 10% less heat.': 'Tu propio diseño de disipador y carcasa: las tarjetas gráficas desprenden un 10% menos de calor.',
+  'The vendor ships your board as its reference: graphics cards hash 10% faster. Locks the ASIC capstone.': 'El fabricante vende tu placa como referencia: las tarjetas gráficas minan un 10% más rápido. Bloquea la cima de ASIC.',
+  'Your own lithography masks: ASIC, photonic and singularity miners give off 12% less heat.': 'Tus propias máscaras de litografía: los mineros ASIC, fotónicos y de singularidad desprenden un 12% menos de calor.',
+  'Stacked dies and shorter traces: ASIC, photonic and singularity miners hash 6% faster.': 'Chips apilados y pistas más cortas: los mineros ASIC, fotónicos y de singularidad minan un 6% más rápido.',
+  'A chip of your own on the newest node: ASIC, photonic and singularity miners hash another 12% faster. Locks the graphics card capstone.': 'Un chip propio en el nodo más nuevo: los mineros ASIC, fotónicos y de singularidad minan otro 12% más rápido. Bloquea la cima de tarjetas gráficas.',
+
+  // v12: sandbox
+  'SANDBOX MODE': 'MODO SANDBOX',
+  'SANDBOX': 'SANDBOX',
+  'A relaxed farm: hardware never wears or dries out, and no bad event, raid or power surge hits you. Starts with {cash}. No challenge runs.': 'Una granja relajada: el hardware no se desgasta ni se seca, y no te afectan eventos malos, redadas ni sobretensiones. Empiezas con {cash}. Sin partidas de desafío.',
+  'Sandbox mode: hardware never degrades and no bad event, raid or surge reaches the farm.': 'Modo sandbox: el hardware no se degrada y ningún evento malo, redada o sobretensión llega a la granja.',
 };

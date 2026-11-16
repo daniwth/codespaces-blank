@@ -2,7 +2,7 @@ import type { AirdropKind } from '../config/airdrops';
 import type { AutopilotPlanId } from '../config/autopilot';
 import type { CoinId, MineableCoin, OrderKind, PoolMode, PpaPlanId, TradeResult, TradingBot } from '../types/economy';
 import type { ComponentKind, GpuInstance, OverclockSettings, SiliconQuality } from '../types/hardware';
-import type { BiosProfileId, BmcConfig, ChallengeId, GameData, GameSettings, ResearchId, RoomId, RoomUpgrades, TalentId } from '../types/player';
+import type { BiosProfileId, BmcConfig, ChallengeId, FoundryNodeId, GameData, GameSettings, ResearchId, RoomId, RoomUpgrades, TalentId } from '../types/player';
 import type { LiveMetrics, MessageTone, OfflineDigest, SimOutput } from './gamePhysics';
 import type { LogParams } from './logLine';
 
@@ -227,6 +227,8 @@ export interface ResearchSlice {
   checkResearch: (now?: number) => boolean;
   /** Change the Smart BMC thresholds and switches. */
   setBmc: (patch: Partial<BmcConfig>) => void;
+  /** Buy a Chip Foundry node (cash; its parent must be owned and the other capstone must not). */
+  buyFoundryNode: (id: FoundryNodeId) => boolean;
 }
 
 export interface ProgressSlice {
@@ -278,7 +280,7 @@ export interface CoreActions {
   /** Leave the title menu and resume the local save (the game loop credits offline time on start). */
   continueGame: () => void;
   /** Wipe the local save for a fresh run (starter bench rig, lastTick = now) and enter the game. Settings are kept. */
-  startNewGame: (challenge?: ChallengeId | null) => void;
+  startNewGame: (challenge?: ChallengeId | null, sandbox?: boolean) => void;
   /** Flush the save and go back to the title menu (the game loop stops). */
   returnToMenu: () => void;
   setWikiOpen: (open: boolean) => void;

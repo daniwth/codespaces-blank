@@ -1,3 +1,4 @@
+import { foundryModifiers } from '../../config/foundry';
 import { tr } from '../../i18n';
 import { BUFFS } from '../../config/buffs';
 import { collect } from '../../config/collection';
@@ -132,7 +133,7 @@ export function createContractsSlice(set: SetState, get: GetState): ContractsSli
       };
       const model = c.reward.gpuModelId ? GPU_BY_ID[c.reward.gpuModelId] : undefined;
       if (model) {
-        const quality = rollQuality(talentModifiers(s.talents).qualityLuck);
+        const quality = rollQuality(talentModifiers(s.talents).qualityLuck * foundryModifiers(s.foundry).luckMul);
         const gpu = createGpu(model.id, quality);
         patch.gpus = { ...s.gpus, [gpu.uid]: gpu };
         patch.lottery = { modelId: model.id, quality, t: now };

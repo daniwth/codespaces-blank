@@ -35,6 +35,7 @@ import {
 } from '../config/gameBalance';
 import type { ActiveNetworkEvent, AltCoinId, CoinId, MarketCycle, MarketState, MineableCoin, NetworkEventId, PoolMode } from '../types/economy';
 import { ENERGY, gridSpot, ppaActive } from '../config/energy';
+import { chipFamily, foundryModifiers } from '../config/foundry';
 import { ABILITIES } from '../config/ranks';
 import { MARKET_PHASES, NEWS, NEWS_IDS, NEWS_INTERVAL, cycleEffect } from '../config/marketCycle';
 import type {
@@ -57,7 +58,7 @@ export type SimInput = Pick<
   | 'gpus' | 'psus' | 'coolers' | 'racks' | 'ownedRooms' | 'roomTemps' | 'technicians'
   | 'pool' | 'market' | 'bots' | 'event' | 'nextEventAt' | 'talents' | 'vip'
   | 'cash' | 'cc' | 'ccCostBasis' | 'meme' | 'memeCostBasis' | 'alts' | 'minedCoin' | 'lastTick' | 'challenge'
-  | 'research' | 'boost' | 'buffs' | 'upgrades' | 'bmc' | 'cycle' | 'orders' | 'poolPending' | 'challengeRecords' | 'collection' | 'ppa' | 'partner' | 'lifetimeEarnings'
+  | 'research' | 'boost' | 'buffs' | 'upgrades' | 'bmc' | 'cycle' | 'orders' | 'poolPending' | 'challengeRecords' | 'collection' | 'ppa' | 'partner' | 'lifetimeEarnings' | 'foundry' | 'sandbox'
 >;
 
 export type MessageTone = 'info' | 'good' | 'warn' | 'bad';
@@ -596,7 +597,7 @@ function buyCoin(w: World, coin: CoinId, cashAmount: number): number {
   return qty;
 }
 
-function stepEvents(w: World, rooms: RoomId[], now: number, acc: StepAccumulator): void {
+function stepEvents(w: World, rooms: RoomId[], now: number, acc: StepAccumulator, sandbox: boolean): void {
   if (w.event && now >= w.event.endsAt) {
     acc.messages.push(gameMsg('info', 'Network event ended: {name}.', { name: NETWORK_EVENTS[w.event.id].name }));
     w.event = null;
@@ -604,7 +605,8 @@ function stepEvents(w: World, rooms: RoomId[], now: number, acc: StepAccumulator
   }
   if (!w.event && now >= w.nextEventAt) {
     const pool: NetworkEventId[] = ['difficulty_spike', 'heatwave', 'cold_snap', 'bull_run', 'meme_mania', 'flash_sale', ...(rooms.length ? (['blackout'] as const) : []), 'hard_fork'];
-    const id = pick(pool);
+    // Sandbox: only the good news reaches the farm.
+    const id = pick(sandbox ? pool.filter((e) => NETWORK_EVENTS[e].positive) : pool);
     const def = NETWORK_EVENTS[id];
     const duration = randRange(def.duration[0], def.duration[1]) * 1000;
     const roomId = id === 'blackout' && rooms.length ? pick(rooms) : null;
@@ -635,7 +637,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
   const lineMul = rules.powerCapMul < 1 || rules.singleRoom ? 1 : mods.lineMul;
   const pasteLife = PHYSICS.pasteLifetimeSec * mods.pasteLifeMul;
   const gpuOc = (g: GpuInstance): OverclockSettings => (rules.lockOverclock ? STOCK_OC : g.oc);
-  if (!opts.offline) stepEvents(w, rooms, now, acc);
+  if (!opts.offline) stepEvents(w, rooms, now, acc, input.sandbox);
   stepCycle(w.cycle, now, opts.offline, acc.messages, acc.sounds);
   const ev = opts.offline ? null : w.event;
   const ambientDelta = (ev?.id === 'heatwave' ? EVENT_EFFECTS.heatwaveDelta : ev?.id === 'cold_snap' ? EVENT_EFFECTS.coldSnapDelta : 0)
@@ -645,6 +647,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
   const rally = input.technicians > 0 && crewRallied(input.buffs, now);
   const crewSpeed = rally ? BUFFS.crew.speedMul : 1;
   const crewCooling = rally ? BUFFS.crew.coolingMul : 1;
+  const fab = foundryModifiers(input.foundry);
   const spiking = ev?.id === 'difficulty_spike';
   // Hard Fork: rigs on old firmware lose hashrate until the event ends.
   const forkMul = ev?.id === 'hard_fork' ? forkHashMul(input.research.levels.firmware ?? 0) : 1;
@@ -800,7 +803,8 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
         if (preheat) preheating += 1;
         // The Cluster Bonus trims the electrical draw (pass 1), not the heat of the die.
         const powerMul = ocPowerMul(gpuOc(g));
-        const heat = !running ? 0 : preheat ? preheatWatts(model.power) : model.power * powerMul * mods.heatMul * rackModel.heatMul * brownout;
+        const family = chipFamily(model.style);
+        const heat = !running ? 0 : preheat ? preheatWatts(model.power) : model.power * powerMul * mods.heatMul * rackModel.heatMul * brownout * fab.heatMul[family];
         const k = preheat
           ? PHYSICS.baseCooling * pasteFactor(g.paste) * room.coolingMul
           : (PHYSICS.baseCooling + fanK / n) * pasteFactor(g.paste) * room.coolingMul * mods.coolingMul * crewCooling;
@@ -826,12 +830,13 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
         const active = powered && !g.shutdown;
         const hashing = active && !preheat;
         const throttled = hashing && g.temp > PHYSICS.throttleTemp;
-        if (active && g.temp > PHYSICS.wearTemp) {
+        // Sandbox: hardware never degrades.
+        if (active && g.temp > PHYSICS.wearTemp && !input.sandbox) {
           if (tempBefore <= PHYSICS.wearTemp) pushRackFx(acc, opts, { kind: 'hot', rackUid: rack.uid, value: g.temp });
           g.overheatSeconds += dt;
           g.wear = Math.min(PHYSICS.maxWear, g.wear + (PHYSICS.wearPerMinute * dt) / 60);
         }
-        if (active) g.paste = Math.max(0, g.paste - dt / pasteLife);
+        if (active && !input.sandbox) g.paste = Math.max(0, g.paste - dt / pasteLife);
         if (techPaste > 0) g.paste = Math.min(1, g.paste + techPaste * dt);
         if (techRepair > 0 && g.wear > 0) g.wear = Math.max(0, g.wear - techRepair * dt);
         // Smart BMC: maintenance by threshold, at the normal price, as long as the cash is there.
@@ -859,7 +864,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
 
         const oc = rules.lockOverclock ? 0 : g.ocBonus;
         const hash = hashing
-          ? model.hashrate * (1 + (oc > 0 ? oc * ocShare : oc)) * (clustered ? 1 + SYNERGY.clusterHash : 1) * (throttled ? 0.5 : 1) * (1 - g.wear) * brownout * mods.hashMul * surge * forkMul
+          ? model.hashrate * (1 + (oc > 0 ? oc * ocShare : oc)) * (clustered ? 1 + SYNERGY.clusterHash : 1) * (throttled ? 0.5 : 1) * (1 - g.wear) * brownout * mods.hashMul * surge * forkMul * fab.hashMul[family]
           : 0;
         rackHash += hash;
         rackMax = Math.max(rackMax, g.temp);
@@ -896,7 +901,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
     });
 
     // Power surge: a thermal shutdown may trip the PSU of the racks on the pads next to it (never offline).
-    if (!opts.offline && tripped.length > 0 && !input.upgrades.surge.includes(roomId)) {
+    if (!opts.offline && !input.sandbox && tripped.length > 0 && !input.upgrades.surge.includes(roomId)) {
       const hit = new Set<RackInstance>();
       tripped.forEach((src) => {
         rackInfo.forEach((dst) => {
@@ -990,7 +995,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
     }
   } else {
     gain = baseRate * pool.payoutMul * dt;
-    if (!opts.offline && baseRate > 0 && Math.random() < dt / PHYSICS.darknetRaidMeanSec) {
+    if (!opts.offline && !input.sandbox && baseRate > 0 && Math.random() < dt / PHYSICS.darknetRaidMeanSec) {
       const fine = Math.min(Math.max(0, w.cash), Math.max(w.cash * 0.12, baseRate * w.market[coinId].price * 90));
       w.cash -= fine;
       acc.raids += 1;

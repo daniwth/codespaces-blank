@@ -1512,6 +1512,72 @@ try {
       }
     }
   });
+
+  // ───────────── v12: Chip Foundry and Sandbox mode ─────────────
+  await check('v12: sandbox game from the title screen and the Chip Foundry tree (desktop + 390 px)', async () => {
+    for (const viewport of [{ width: 1600, height: 1000 }, { width: 390, height: 844 }]) {
+      const tag = viewport.width;
+      // Sandbox: chosen on the title screen, shown in the HUD, saved with the game.
+      {
+        const { context, p } = await fresh({ viewport });
+        const pageErrors = [];
+        p.on('pageerror', (e) => pageErrors.push(e.message));
+        try {
+          await p.addInitScript(() => localStorage.getItem('hh-lang') ?? localStorage.setItem('hh-lang', 'en'));
+          await p.goto(URL);
+          await p.locator('[data-testid="menu-identity"], [data-testid="menu-main"]').first().waitFor({ timeout: 10_000 });
+          if (await p.getByTestId('menu-identity').isVisible()) await menuOf(p).locator('button:has-text("Play as guest")').click();
+          const box = p.getByTestId('menu-sandbox');
+          await box.waitFor({ timeout: 10_000 });
+          await box.locator('input').check();
+          assert((await p.locator('#menu-challenge').count()) === 0, 'the challenge picker is still offered in sandbox');
+          await p.screenshot({ path: join(ART, `v12-menu-sandbox-${tag}.png`) });
+          await p.getByRole('button', { name: 'New game', exact: true }).click();
+          await p.getByTestId('hud-sandbox').waitFor({ timeout: 10_000 });
+          await p.getByText(/Sandbox mode: hardware never degrades/).first().waitFor({ timeout: 3000 });
+          await p.waitForTimeout(2300);
+          const saved = await p.evaluate(() => JSON.parse(localStorage.getItem('hash-harvest-tycoon')).state);
+          assert(saved.sandbox === true && saved.challenge === null, 'the sandbox flag was not saved');
+          assert(Number(saved.cash) > 4000, `sandbox start cash: ${saved.cash}`);
+          assert(pageErrors.length === 0, pageErrors.join(' | '));
+        } finally {
+          await context.close();
+        }
+      }
+      // Chip Foundry: root, then a branch; the other branch's first node stays available, deeper ones locked.
+      {
+        const { context, p } = await fresh({ viewport });
+        const pageErrors = [];
+        p.on('pageerror', (e) => pageErrors.push(e.message));
+        try {
+          await p.addInitScript(() => localStorage.getItem('hh-lang') ?? localStorage.setItem('hh-lang', 'en'));
+          await bootPatched(p, `
+            state.cash = '100000';
+            state.nextAirdropAt = Date.now() + 3600000;
+            state.hints = ['overload', 'throttle', 'brownout', 'paste', 'cluster', 'rooms', 'bull', 'bear', 'bmc', 'orders', 'energy', 'predictive', 'pnl', 'hotkeys'];
+          `);
+          assert((await p.getByTestId('hud-sandbox').count()) === 0, 'a normal game shows the sandbox badge');
+          await p.locator('nav[aria-label="Panels"] button[title="Lab"]').click();
+          const state = (id) => p.getByTestId(`foundry-${id}`).getAttribute('data-state');
+          await p.getByTestId('foundry').scrollIntoViewIfNeeded();
+          assert((await state('cleanroom')) === 'available' && (await state('gpu_bin')) === 'locked', 'wrong initial tree');
+          await p.getByTestId('foundry-buy-cleanroom').click();
+          await p.waitForFunction(() => document.querySelector('[data-testid="foundry-cleanroom"]')?.getAttribute('data-state') === 'owned', null, { timeout: 3000 });
+          assert((await state('gpu_bin')) === 'available' && (await state('asic_mask')) === 'available', 'the branches did not open');
+          await p.getByTestId('foundry-buy-gpu_bin').click();
+          await p.waitForFunction(() => document.querySelector('[data-testid="foundry-gpu_bin"]')?.getAttribute('data-state') === 'owned', null, { timeout: 3000 });
+          assert((await state('gpu_shroud')) === 'available' && (await state('gpu_ref')) === 'locked' && (await state('asic_pack')) === 'locked', 'wrong tree after the first branch node');
+          await p.getByTestId('foundry').screenshot({ path: join(ART, `v12-foundry-${tag}.png`) });
+          await p.waitForTimeout(2300);
+          const saved = await p.evaluate(() => JSON.parse(localStorage.getItem('hash-harvest-tycoon')).state);
+          assert(JSON.stringify(saved.foundry) === '["cleanroom","gpu_bin"]', `foundry saved: ${JSON.stringify(saved.foundry)}`);
+          assert(pageErrors.length === 0, pageErrors.join(' | '));
+        } finally {
+          await context.close();
+        }
+      }
+    }
+  });
 } catch (err) {
   results.push({ name: 'harness', ok: false, err: err.message });
   console.error(err);

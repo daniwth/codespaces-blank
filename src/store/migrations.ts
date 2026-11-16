@@ -14,6 +14,7 @@ import { BUFFS, emptyBuffs } from '../config/buffs';
 import { localDay } from '../config/daily';
 import { PPA_PLANS, isPpaPlan, ppaRateBounds } from '../config/energy';
 import { HINT_IDS } from '../config/hints';
+import { legalFoundry } from '../config/foundry';
 import { ABILITIES, rankIndex } from '../config/ranks';
 import { RESEARCH_BY_ID, RESEARCH_IDS, isResearchId } from '../config/research';
 import { ROADMAP } from '../config/roadmap';
@@ -500,6 +501,8 @@ function sanitize(data: GameData, source: Json): GameData {
     collection: sanitizeCollection(source.collection, gpus),
     ppa: sanitizePpa(source.ppa, now),
     partner: sanitizePartner(source.partner, now),
+    foundry: legalFoundry(Array.isArray(source.foundry) ? source.foundry : []),
+    sandbox: source.sandbox === true,
     rankSeen: sanitizeRankSeen(source.rankSeen, big.lifetimeEarnings ?? defaults.lifetimeEarnings),
     ledger: sanitizeLedger(source.ledger, now),
     hints: sanitizeHints(source.hints),
@@ -539,6 +542,7 @@ function sanitize(data: GameData, source: Json): GameData {
  * v9 → v10: added the daily ledger, the contextual hints already seen, two settings (thermal palette, hints),
  *            the power contract (`ppa`) and the rooms with a surge protector (`upgrades.surge`).
  * v10 → v11: added ranks (`rankSeen`), the Pool Partner deal and the Flash Mining rental (in `buffs`).
+ * v11 → v12: added the Chip Foundry (`foundry`) and the Sandbox game mode (`sandbox`).
  */
 export function migrateSave(raw: unknown, fromVersion: number): GameData {
   const defaults = createInitialData();
@@ -591,6 +595,11 @@ export function migrateSave(raw: unknown, fromVersion: number): GameData {
   if (fromVersion < 11) {
     delete source.rankSeen;
     delete source.partner;
+  }
+  // v11 → v12: no Chip Foundry and no game mode: an older save is a normal game with an empty fab.
+  if (fromVersion < 12) {
+    delete source.foundry;
+    delete source.sandbox;
   }
   const merged = mergeTyped(defaults, source);
   merged.saveVersion = SAVE_VERSION;

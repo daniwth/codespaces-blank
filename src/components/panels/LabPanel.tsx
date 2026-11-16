@@ -1,3 +1,4 @@
+import { FoundryTree } from './FoundryTree';
 import { Bot, Target, Cpu, Droplets, Fan, FlaskConical, Gauge, Gem, Radar, PlugZap, Truck, UtilityPole, type LucideIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { RESEARCH, RESEARCH_BY_ID, researchCost, researchLevel, rushCost, type ResearchIcon } from '../../config/research';
@@ -166,6 +167,8 @@ export function LabPanel() {
           );
         })}
       </div>
+
+      <FoundryTree />
     </div>
   );
 }

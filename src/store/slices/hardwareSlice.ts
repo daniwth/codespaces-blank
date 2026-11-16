@@ -1,3 +1,4 @@
+import { foundryModifiers } from '../../config/foundry';
 import { tr } from '../../i18n';
 import { COOLER_BY_ID, GPU_BY_ID, OC_LIMITS, PSU_BY_ID, QUALITY_DEFS, QUALITY_ORDER, RACK_BY_ID } from '../../config/hardwareCatalog';
 import { talentModifiers } from '../../config/prestigeTree';
@@ -25,6 +26,10 @@ export const usedGpuPrice = (price: number): number => Math.max(0.01, Math.round
 /** Silicon Forge: spare GPUs of one model and grade melted into one of the next grade. */
 export const FUSE_COUNT = 3;
 /** "Re-paste all" touches every mounted GPU whose paste is below this. */
+/** Odds multiplier of Gold and God silicon on a purchase: the Silicon Luck talent and the Chip Foundry. */
+export const lotteryLuck = (s: Pick<GameData, 'talents' | 'foundry'>): number =>
+  talentModifiers(s.talents).qualityLuck * foundryModifiers(s.foundry).luckMul;
+
 export const REPASTE_ALL_BELOW = PASTE_WORN_BELOW;
 /** "Repair all" touches every mounted GPU with more wear than this. */
 export const REPAIR_ALL_ABOVE = 0.005;
@@ -218,7 +223,7 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
       const model = GPU_BY_ID[modelId];
       if (!model || !spend(hardwarePrice(model.price, get()), model.name)) return null;
       // Bronze Only: the silicon lottery is locked to Bronze.
-      const quality = challengeBlocks(get(), 'bronzeOnly') ? 'bronze' : rollQuality(talentModifiers(get().talents).qualityLuck);
+      const quality = challengeBlocks(get(), 'bronzeOnly') ? 'bronze' : rollQuality(lotteryLuck(get()));
       const gpu = createGpu(modelId, quality);
       set((s) => ({
         gpus: { ...s.gpus, [gpu.uid]: gpu },
@@ -238,7 +243,7 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
       const model = GPU_BY_ID[modelId];
       if (!model || !talentModifiers(s.talents).usedMarket) return null;
       if (!spend(usedGpuPrice(hardwarePrice(model.price, s)), model.name)) return null;
-      const quality = challengeBlocks(get(), 'bronzeOnly') ? 'bronze' : rollQuality(talentModifiers(s.talents).qualityLuck);
+      const quality = challengeBlocks(get(), 'bronzeOnly') ? 'bronze' : rollQuality(lotteryLuck(s));
       // Second hand: some silicon wear and paste that has seen better days.
       const gpu: GpuInstance = { ...createGpu(modelId, quality), wear: randRange(USED_GPU.wear[0], USED_GPU.wear[1]), paste: randRange(USED_GPU.paste[0], USED_GPU.paste[1]) };
       set((st) => ({
@@ -542,7 +547,7 @@ export function createHardwareSlice(set: SetState, get: GetState): HardwareSlice
       const cash = bnSub(s.cash, unit * count);
       const total = formatCash(unit * count);
       if (kind === 'gpu') {
-        const luck = talentModifiers(s.talents).qualityLuck;
+        const luck = lotteryLuck(s);
         const bronzeOnly = challengeBlocks(s, 'bronzeOnly');
         const gpus = { ...s.gpus };
         const rolled: Record<SiliconQuality, number> = { bronze: 0, silver: 0, gold: 0, god: 0 };

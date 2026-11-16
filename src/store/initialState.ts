@@ -8,6 +8,7 @@ import { COIN_MARKET, emptyAlts } from '../config/altcoins';
 import { GPU_BY_ID, QUALITY_DEFS } from '../config/hardwareCatalog';
 import { MARKET, SAVE_VERSION, STARTING_CASH, EVENT_INTERVAL, levelFromEarnings } from '../config/gameBalance';
 import { rankIndex } from '../config/ranks';
+import { SANDBOX } from '../config/foundry';
 import { talentModifiers } from '../config/prestigeTree';
 import type { CoinId, CoinMarket, MarketState } from '../types/economy';
 import type { GpuInstance, RackInstance, SiliconQuality } from '../types/hardware';
@@ -119,7 +120,7 @@ export function createInitialData(carry?: Partial<GameData>, challenge?: Challen
     saveVersion: SAVE_VERSION,
     createdAt: carry?.createdAt ?? now,
     lastTick: now,
-    cash: bn(STARTING_CASH + mods.startCash),
+    cash: bn((carry?.sandbox ? SANDBOX.startCash : STARTING_CASH) + mods.startCash),
     cc: '0',
     meme: 0,
     memeCostBasis: 0,
@@ -153,7 +154,8 @@ export function createInitialData(carry?: Partial<GameData>, challenge?: Challen
       gpusBought: 0, playTimeSec: 0, maxHashrate: 0, bestTrade: 0, contractsCompleted: 0,
       airdrops: 0, fusions: 0, researchDone: 0, bestStreak: 0,
     },
-    challenge: challenge ? { id: challenge, startedAt: now } : null,
+    // Challenge runs are not available in Sandbox.
+    challenge: challenge && !carry?.sandbox ? { id: challenge, startedAt: now } : null,
     challengeRecords: carry?.challengeRecords ?? {},
     // Lab research and the Overdrive surge belong to the run: every Halving starts them from scratch.
     research: { levels: {}, active: null },
@@ -176,6 +178,9 @@ export function createInitialData(carry?: Partial<GameData>, challenge?: Challen
     // The starter card is the first entry of the album.
     collection: collect(carry?.collection ?? {}, 'px460', 'bronze'),
     ppa: null,
+    // The fab belongs to the run; the game mode belongs to the save.
+    foundry: [],
+    sandbox: carry?.sandbox ?? false,
     partner: null,
     // A rank already reached is never celebrated (or paid) twice.
     rankSeen: carry?.rankSeen ?? rankIndex(levelFromEarnings(bnToNumber(carry?.lifetimeEarnings ?? '0'))),

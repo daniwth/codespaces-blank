@@ -41,6 +41,10 @@ Reply to the user in Spanish. Project conventions are in `CLAUDE.md`; do not rep
 - Hard Fork: network event `hard_fork`, `forkHashMul(firmwareLevel)` in `gameBalance.ts`. It was appended to the event pool, so tests that mock the RNG to pick an event keep their mapping only for the earlier ids.
 - UI: `RankLadder.tsx` (Trophies), `RankAbilities.tsx` (Pools), `RankToast.tsx`, rank name in the HUD.
 
+## v12 systems (where things live)
+- Chip Foundry: `src/config/foundry.ts` (`FOUNDRY_NODES`, `foundryState`, `foundryModifiers`, `legalFoundry`). `GameData.foundry` is run-scoped; the simulation applies hashrate and heat per chip family (`chipFamily(model.style)`), purchases use `lotteryLuck` (`hardwareSlice.ts`). UI: `FoundryTree.tsx` at the bottom of the Lab.
+- Sandbox mode: `GameData.sandbox`, set by `startNewGame(challenge, sandbox)` from the title screen and carried through The Halving. The simulation skips wear, paste drying, bad network events, raids and surges; challenge runs are refused in `createInitialData`.
+
 ## i18n
 - `src/i18n/index.ts`: English text is the key. React uses `const t = useT()`, other code `tr(en, params)`. Placeholders are `{name}`.
 - Language lives in `useLangStore` / localStorage `hh-lang`, outside the save. Dictionaries: `src/i18n/es/*.ts`, merged in `es/index.ts` (`update9.ts` holds everything added by the v9 update).
@@ -68,3 +72,4 @@ Reply to the user in Spanish. Project conventions are in `CLAUDE.md`; do not rep
 - v10, part 1 (offline digest, daily books, hints, colour-blind palette, randomized invariants; save v10): 434 unit, 38/38 server, 42/42 E2E.
 - v10, part 2 (power market and contracts, power surges and protectors, Predictive Maintenance): 455 unit, 38/38 server, 43/43 E2E.
 - v11 (ranks with gem rewards and high-rank bonuses, Flash Mining, Pool Partner, Hard Fork event; save v11): 477 unit, 38/38 server, 44/44 E2E.
+- v12 (Chip Foundry tree, Sandbox mode; save v12): 490 unit, 38/38 server, 45/45 E2E.

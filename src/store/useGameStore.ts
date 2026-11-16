@@ -36,7 +36,7 @@ const DATA_KEYS: (keyof GameData)[] = [
   'roomTemps', 'technicians', 'pool', 'market', 'bots', 'event', 'nextEventAt', 'talents', 'vip',
   'achievements', 'stats', 'settings', 'contracts', 'challenge', 'challengeRecords', 'alts', 'minedCoin',
   'research', 'boost', 'nextAirdropAt', 'roadmap', 'daily', 'autopilot', 'buffs', 'upgrades', 'bmc', 'biosProfiles',
-  'cycle', 'orders', 'poolPending', 'reputation', 'collection', 'ppa', 'partner', 'rankSeen', 'ledger', 'hints',
+  'cycle', 'orders', 'poolPending', 'reputation', 'collection', 'ppa', 'partner', 'rankSeen', 'foundry', 'sandbox', 'ledger', 'hints',
 ];
 
 export const extractData = (s: GameStore): GameData => {
@@ -54,7 +54,7 @@ export const selectSimInput = (s: GameStore): SimInput => ({
   event: s.event, nextEventAt: s.nextEventAt, talents: s.talents, vip: s.vip, cash: s.cash, cc: s.cc,
   meme: s.meme, memeCostBasis: s.memeCostBasis, ccCostBasis: s.ccCostBasis, alts: s.alts, minedCoin: s.minedCoin, lastTick: s.lastTick, challenge: s.challenge,
   research: s.research, boost: s.boost, buffs: s.buffs, upgrades: s.upgrades, bmc: s.bmc,
-  cycle: s.cycle, orders: s.orders, poolPending: s.poolPending, challengeRecords: s.challengeRecords, collection: s.collection, ppa: s.ppa, partner: s.partner, lifetimeEarnings: s.lifetimeEarnings,
+  cycle: s.cycle, orders: s.orders, poolPending: s.poolPending, challengeRecords: s.challengeRecords, collection: s.collection, ppa: s.ppa, partner: s.partner, lifetimeEarnings: s.lifetimeEarnings, foundry: s.foundry, sandbox: s.sandbox,
 });
 
 /**
@@ -371,14 +371,15 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
       sfxBus.emit('start');
     },
 
-    startNewGame: (challenge) => {
+    startNewGame: (challenge, sandbox = false) => {
       // createInitialData stamps lastTick = now, so the loop credits no offline time.
       bumpWorldEpoch();
       // The daily bonus follows the player, not the save: a new game cannot claim today's bonus twice.
-      set({ ...createInitialData({ settings: get().settings, daily: get().daily }, challenge ?? null), ...initialUi(), screen: 'game' });
+      set({ ...createInitialData({ settings: get().settings, daily: get().daily, sandbox }, challenge ?? null), ...initialUi(), screen: 'game' });
       gameStorage.flush();
       sfxBus.emit('start');
       get().pushLog(tr('New farm founded: one PX-460 on a bench in your bedroom. Happy hashing!'), 'good');
+      if (sandbox) get().logT('Sandbox mode: hardware never degrades and no bad event, raid or surge reaches the farm.', undefined, 'info');
       const active = get().challenge;
       if (active) get().pushLog(tr('Challenge started: {name}. {description}', { name: tr(CHALLENGE_BY_ID[active.id].name), description: tr(CHALLENGE_BY_ID[active.id].description) }), 'warn');
     },

@@ -7,6 +7,7 @@
  * rooms, talents, The Halving, $CC, $SC…) go through the dictionary (`tr`).
  */
 import { COLLECTION } from './collection';
+import { FOUNDRY, FOUNDRY_BY_ID, SANDBOX } from './foundry';
 import { ABILITIES, RANKS } from './ranks';
 import { EVENT_EFFECTS as FORK } from './gameBalance';
 import { ENERGY, PPA_PLANS, SPOT_MAX, SPOT_MIN } from './energy';
@@ -928,6 +929,21 @@ export function sectionsEs(): WikiSection[] {
               `**Socio del pool** (Pools). Acuerdo de exclusividad con tu pool actual: +${pct(ABILITIES.partner.payoutMul - 1)} de pago durante ${Math.round(ABILITIES.partner.durationSec / 60)} minutos. Cambiar de pool antes de que termine cuesta ${ABILITIES.partner.breakPoints} puntos de reputación y ${Math.round(ABILITIES.partner.cooldownSec / 60)} minutos de espera.`,
               `**Bifurcación dura** (evento de red). Los equipos minan al ${pct(FORK.forkHashMul)} mientras dura; cada nivel de Ajuste de firmware recupera un ${pct(FORK.forkPerFirmware)}, así que el nivel 5 es inmune.`,
             ),
+          ],
+        },
+        {
+          id: 'v12-foundry',
+          title: 'Fundición de chips y modo sandbox',
+          keywords: ['foundry', 'fundicion', 'fab', 'fabrica', 'asic', 'clean room', 'sala blanca', 'tape-out', 'binning', 'capstone', 'cima', 'sandbox', 'relaxed', 'relajado', 'mode', 'modo'],
+          blocks: [
+            p('La **Fundición de chips** está al final del Laboratorio. Sus nodos se compran con efectivo y duran la partida. Tras la Sala blanca se divide en dos ramas; puedes subir ambas, pero sólo una de las dos cimas.'),
+            list(
+              `**Sala blanca** (${formatCash(FOUNDRY_BY_ID.cleanroom.price)}): silicio Oro y Dios un ${pct(FOUNDRY.cleanroomLuck - 1)} más probable.`,
+              `**Tarjetas gráficas.** Línea de clasificación (otro ${pct(FOUNDRY.binLuck - 1)} de suerte de silicio), Carcasas propias (las tarjetas desprenden un ${pct(1 - FOUNDRY.cardHeatMul)} menos de calor) y la cima Diseño de referencia (las tarjetas minan un ${pct(FOUNDRY.cardHashMul - 1)} más rápido).`,
+              `**ASICs propios.** Juego de máscaras (los mineros ASIC, fotónicos y de singularidad desprenden un ${pct(1 - FOUNDRY.asicHeatMul)} menos de calor), Encapsulado avanzado (minan un ${pct(FOUNDRY.asicHashMul - 1)} más rápido) y la cima Tape-out (otro ${pct(FOUNDRY.asicCapHashMul - 1)}).`,
+              'Las tarjetas gráficas son los niveles iniciales y los mineros dedicados los finales, así que la rama de tarjetas rinde antes y la de ASIC rinde más al final de la partida.',
+            ),
+            p(`El **modo sandbox** es una casilla junto a Nueva partida. El hardware no se desgasta ni se seca, y no llegan eventos de red malos, redadas ni sobretensiones; el calor, la energía y el mercado funcionan igual. Empieza con ${formatCash(SANDBOX.startCash)}, no tiene partidas de desafío, y el modo se queda con el guardado, también tras el Halving.`),
           ],
         },
         {

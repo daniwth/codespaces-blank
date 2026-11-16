@@ -62,6 +62,7 @@ export function createEconomySlice(set: SetState, get: GetState): EconomySlice {
       const keepRooms = talentLevel(s.talents, 'room_keeper') > 0;
       const fresh = createInitialData({
         createdAt: s.createdAt,
+        sandbox: s.sandbox,
         gems: s.gems + 5,
         sc: s.sc + reward,
         scLifetime: s.scLifetime + reward,

@@ -297,6 +297,8 @@ export interface GameSettings {
   hints: boolean;
 }
 
+export type FoundryNodeId = 'cleanroom' | 'gpu_bin' | 'gpu_shroud' | 'gpu_ref' | 'asic_mask' | 'asic_pack' | 'asic_tape';
+
 export type ThermalPalette = 'infrared' | 'safe';
 
 /** One local calendar day of the farm's books (dollars). */
@@ -393,6 +395,10 @@ export interface GameData {
   reputation: ReputationState;
   /** Silicon Collection album (survives Halvings). */
   collection: SiliconCollection;
+  /** Chip Foundry nodes bought this run. */
+  foundry: FoundryNodeId[];
+  /** Sandbox mode: chosen when the game starts and kept for the whole save. */
+  sandbox: boolean;
   /** Pool Partner deal in force (belongs to the run). */
   partner: PoolPartner | null;
   /** Highest rank already celebrated (index in `RANKS`): its gems are paid once. */

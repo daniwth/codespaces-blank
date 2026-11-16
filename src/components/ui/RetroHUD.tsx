@@ -97,6 +97,7 @@ export function RetroHUD() {
 
   const lifetime = bnToNumber(s.lifetime);
   const level = levelFromEarnings(lifetime);
+  const sandbox = useGameStore((st) => st.sandbox);
   const lvlFrom = earningsForLevel(level);
   const lvlTo = earningsForLevel(level + 1);
   const lvlProgress = Math.max(0, Math.min(1, (Math.log10(Math.max(1, lifetime)) - Math.log10(lvlFrom)) / (Math.log10(lvlTo) - Math.log10(lvlFrom))));
@@ -128,6 +129,7 @@ export function RetroHUD() {
             <div className="mt-1 flex items-center gap-1.5">
               <span className="font-silk text-[10px] text-amber">LV {level}</span>
               <span className="hidden font-silk text-[10px] sm:inline" style={{ color: rankOf(level).color }} title={t('Rank')} data-testid="hud-rank">{t(rankOf(level).name)}</span>
+              {sandbox && <span className="bg-[#134e4a] px-1 font-pixel text-[7px] text-[#5eead4]" title={t('Sandbox mode: hardware never degrades and no bad event, raid or surge reaches the farm.')} data-testid="hud-sandbox">{t('SANDBOX')}</span>}
               <div className="h-1.5 w-16 bg-[#1b1838]">
                 <div className="h-full bg-amber" style={{ width: `${lvlProgress * 100}%` }} />
               </div>

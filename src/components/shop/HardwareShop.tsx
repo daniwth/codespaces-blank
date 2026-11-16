@@ -3,6 +3,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { COOLER_CATALOG, GPU_CATALOG, MAX_TECHNICIANS, PSU_CATALOG, RACK_CATALOG } from '../../config/hardwareCatalog';
 import { ROOM_BY_ID, ROOM_CATALOG, ROOM_MECHANICS, ROOM_ORDER, surgeProtectorPrice } from '../../config/roomsCatalog';
 import { SURGE } from '../../config/synergy';
+import { chipFamily, foundryModifiers } from '../../config/foundry';
 import type { RoomId } from '../../types/player';
 import { talentModifiers } from '../../config/prestigeTree';
 import type { ComponentKind } from '../../store/slices/hardwareSlice';
@@ -119,6 +120,7 @@ export function HardwareShop() {
     challengeRecords: st.challengeRecords,
     lifetimeEarnings: st.lifetimeEarnings,
     collection: st.collection,
+    foundry: st.foundry,
     usedMarket: talentModifiers(st.talents).usedMarket,
   }));
   const actions = useGameStore.getState();
@@ -159,7 +161,7 @@ export function HardwareShop() {
   const economics = (g: (typeof GPU_CATALOG)[number]) =>
     gpuEconomics(g, hardwarePrice(g.price, s), {
       roomId: s.activeRoom,
-      hashMul: run.hashMul,
+      hashMul: run.hashMul * foundryModifiers(s.foundry).hashMul[chipFamily(g.style)],
       electricityMul: run.electricityMul,
       psuEfficiency: roomPsuEfficiency(s, s.activeRoom, g.power),
       coin: s.minedCoin,

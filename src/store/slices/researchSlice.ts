@@ -1,5 +1,6 @@
 import { talentModifiers } from '../../config/prestigeTree';
 import { BMC_LIMITS } from '../../config/synergy';
+import { FOUNDRY_BY_ID, foundryState } from '../../config/foundry';
 import { clamp } from '../../utils/random';
 import { RESEARCH_BY_ID, researchCost, researchLevel, researchTime, rushCost } from '../../config/research';
 import type { ResearchId, ResearchLevels, TalentLevels } from '../../types/player';
@@ -78,6 +79,24 @@ export function createResearchSlice(set: SetState, get: GetState): ResearchSlice
       s.logT('RESEARCH COMPLETE: {name} Lv.{level} ({effect}).', { name: def.name, level, effect: def.effectOf(level) }, 'good');
       sfxBus.emit('unlock');
       fxBus.emit({ kind: 'confetti', intensity: 0.3 });
+      return true;
+    },
+
+    buyFoundryNode: (id) => {
+      const s = get();
+      const node = FOUNDRY_BY_ID[id];
+      if (!node || foundryState(s.foundry, id) !== 'available') {
+        sfxBus.emit('error');
+        return false;
+      }
+      if (!bnGte(s.cash, node.price)) {
+        s.logT('Not enough cash for {label} ({price}).', { label: node.name, price: formatCash(node.price) }, 'warn');
+        sfxBus.emit('error');
+        return false;
+      }
+      set({ cash: bnSub(s.cash, node.price), foundry: [...s.foundry, id] });
+      s.logT('Chip Foundry: {name} is running.', { name: node.name }, 'good');
+      sfxBus.emit('unlock');
       return true;
     },
 
