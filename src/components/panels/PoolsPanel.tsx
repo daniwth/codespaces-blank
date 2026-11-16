@@ -10,6 +10,7 @@ import { bnToNumber } from '../../utils/bignum';
 import { cn } from '../../utils/cn';
 import { formatCash, formatDuration, formatHashrate, formatNumber, formatPrice } from '../../utils/formatters';
 import { SpriteImg } from '../ui/SpriteImg';
+import { RankAbilities } from './RankAbilities';
 
 const SCHEME_LABEL: Record<PoolScheme, string> = { pps: 'PPS', pplns: 'PPLNS', solo: 'SOLO' };
 const SCHEME_HELP: Record<PoolScheme, string> = {
@@ -86,6 +87,8 @@ export function PoolsPanel() {
           </button>
         );
       })}
+
+      <RankAbilities now={now} />
 
       <h3 className="mt-1 font-pixel text-[9px] text-neon">{t('MINED COIN')}</h3>
       <p className="text-[16px] leading-tight text-dim">{t('Your farm mines one coin at a time and every pool pays it. Each coin has its own price, wallet and market.')}</p>

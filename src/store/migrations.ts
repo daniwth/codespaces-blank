@@ -1,4 +1,5 @@
-import { SAVE_VERSION } from '../config/gameBalance';
+import { SAVE_VERSION, levelFromEarnings } from '../config/gameBalance';
+import { bnToNumber } from '../utils/bignum';
 import { COOLER_BY_ID, GPU_BY_ID, OC_LIMITS, PSU_BY_ID, QUALITY_DEFS, QUALITY_ORDER, RACK_BY_ID } from '../config/hardwareCatalog';
 import { BIOS_PROFILE_IDS, BMC_LIMITS, DEFAULT_BIOS_PROFILES, DEFAULT_BMC, defaultBiosProfiles } from '../config/synergy';
 import { AIRDROP } from '../config/airdrops';
@@ -13,6 +14,7 @@ import { BUFFS, emptyBuffs } from '../config/buffs';
 import { localDay } from '../config/daily';
 import { PPA_PLANS, isPpaPlan, ppaRateBounds } from '../config/energy';
 import { HINT_IDS } from '../config/hints';
+import { ABILITIES, rankIndex } from '../config/ranks';
 import { RESEARCH_BY_ID, RESEARCH_IDS, isResearchId } from '../config/research';
 import { ROADMAP } from '../config/roadmap';
 import { ROOM_BY_ID } from '../config/roomsCatalog';
@@ -21,7 +23,7 @@ import type { AltWallets, Candle, CoinMarket, MarketCycle, MarketState, Mineable
 import type { ReputationState } from '../types/contracts';
 import type { CoolerInstance, GpuInstance, OverclockSettings, PsuInstance, RackInstance, SiliconQuality } from '../types/hardware';
 import type {
-  ActiveChallenge, AutopilotState, BiosProfileId, BmcConfig, ChallengeRecords, DayLedger, RoomUpgrades, SiliconCollection, DailyState, FarmBuffs, GameData, GameSettings, HashBoost, ResearchLevels, ResearchState, RoadmapState, RoomId, TalentId, TalentLevels,
+  ActiveChallenge, AutopilotState, BiosProfileId, BmcConfig, ChallengeRecords, DayLedger, PoolPartner, RoomUpgrades, SiliconCollection, DailyState, FarmBuffs, GameData, GameSettings, HashBoost, ResearchLevels, ResearchState, RoadmapState, RoomId, TalentId, TalentLevels,
 } from '../types/player';
 import { clamp, unitHash } from '../utils/random';
 import { contractContext, sanitizeBoard } from './contracts';
@@ -352,6 +354,10 @@ function sanitizeBuffs(raw: unknown, now: number): FarmBuffs {
     nitroUntil: until(raw.nitroUntil, BUFFS.nitro.durationSec),
     blockMulUntil: until(raw.blockMulUntil, BUFFS.vip.durationSec),
     auditClaims: clamp(Math.floor(finite(raw.auditClaims, 0)), 0, BUFFS.audit.maxClaims),
+    rentHash: clamp(finite(raw.rentHash, 0), 0, 1e300),
+    rentUntil: until(raw.rentUntil, ABILITIES.flash.durationSec),
+    rentCooldownUntil: until(raw.rentCooldownUntil, ABILITIES.flash.cooldownSec),
+    partnerCooldownUntil: until(raw.partnerCooldownUntil, ABILITIES.partner.cooldownSec),
   };
 }
 
@@ -371,6 +377,12 @@ function sanitizeSettings(raw: unknown): GameSettings {
   };
 }
 
+function sanitizePartner(raw: unknown, now: number): PoolPartner | null {
+  if (!isObject(raw) || typeof raw.pool !== 'string' || !(raw.pool in POOLS)) return null;
+  const until = Math.min(finite(raw.until, 0), now + ABILITIES.partner.durationSec * 1000);
+  return until > now ? { pool: raw.pool as PoolPartner['pool'], until } : null;
+}
+
 /** A contract must be one a supplier could have quoted, and it never outlives its plan. */
 function sanitizePpa(raw: unknown, now: number): PowerContract | null {
   if (!isObject(raw) || !isPpaPlan(raw.plan)) return null;
@@ -385,6 +397,12 @@ function sanitizePpa(raw: unknown, now: number): PowerContract | null {
     endsAt,
     saved: clamp(finite(raw.saved, 0), -1e300, 1e300),
   };
+}
+
+/** Missing or out of range: the rank the save already holds. It can never be ahead of the level. */
+function sanitizeRankSeen(raw: unknown, lifetime: string): number {
+  const held = rankIndex(levelFromEarnings(bnToNumber(lifetime)));
+  return typeof raw === 'number' && Number.isInteger(raw) ? clamp(raw, 0, held) : held;
 }
 
 function sanitizeLedger(raw: unknown, now: number): DayLedger[] {
@@ -481,6 +499,8 @@ function sanitize(data: GameData, source: Json): GameData {
     reputation: emptyReputation(),
     collection: sanitizeCollection(source.collection, gpus),
     ppa: sanitizePpa(source.ppa, now),
+    partner: sanitizePartner(source.partner, now),
+    rankSeen: sanitizeRankSeen(source.rankSeen, big.lifetimeEarnings ?? defaults.lifetimeEarnings),
     ledger: sanitizeLedger(source.ledger, now),
     hints: sanitizeHints(source.hints),
     pool: typeof source.pool === 'string' && source.pool in POOLS ? (source.pool as GameData['pool']) : 'public',
@@ -518,6 +538,7 @@ function sanitize(data: GameData, source: Json): GameData {
  *            pending shares, contract reputation and the Silicon Collection (seeded from the GPUs owned).
  * v9 → v10: added the daily ledger, the contextual hints already seen, two settings (thermal palette, hints),
  *            the power contract (`ppa`) and the rooms with a surge protector (`upgrades.surge`).
+ * v10 → v11: added ranks (`rankSeen`), the Pool Partner deal and the Flash Mining rental (in `buffs`).
  */
 export function migrateSave(raw: unknown, fromVersion: number): GameData {
   const defaults = createInitialData();
@@ -565,6 +586,11 @@ export function migrateSave(raw: unknown, fromVersion: number): GameData {
     delete source.ledger;
     delete source.hints;
     delete source.ppa;
+  }
+  // v10 → v11: no rank had been celebrated; a save starts at the rank it already holds (no retroactive gems).
+  if (fromVersion < 11) {
+    delete source.rankSeen;
+    delete source.partner;
   }
   const merged = mergeTyped(defaults, source);
   merged.saveVersion = SAVE_VERSION;

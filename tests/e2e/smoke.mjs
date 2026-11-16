@@ -1450,6 +1450,68 @@ try {
       }
     }
   });
+
+  // ───────────── v11: ranks and rank abilities ─────────────
+  await check('v11: rank up banner and gems, rank ladder, Flash Mining and Pool Partner (desktop + 390 px)', async () => {
+    for (const viewport of [{ width: 1600, height: 1000 }, { width: 390, height: 844 }]) {
+      const { context, p } = await fresh({ viewport });
+      const pageErrors = [];
+      p.on('pageerror', (e) => pageErrors.push(e.message));
+      try {
+        await p.addInitScript(() => localStorage.getItem('hh-lang') ?? localStorage.setItem('hh-lang', 'en'));
+        // Level 13 earnings with no rank celebrated yet: four ranks are paid at once.
+        await bootPatched(p, `
+          state.lifetimeEarnings = '200000000';
+          state.rankSeen = 0;
+          state.gems = 0;
+          state.cash = '50000';
+          state.nextAirdropAt = Date.now() + 3600000;
+          state.hints = ['overload', 'throttle', 'brownout', 'paste', 'cluster', 'rooms', 'bull', 'bear', 'bmc', 'orders', 'energy', 'predictive', 'pnl', 'hotkeys'];
+        `);
+        const panel = (tab) => p.locator(`nav[aria-label="Panels"] button[title="${tab}"]`);
+        const tag = viewport.width;
+        const toast = p.getByTestId('rank-toast');
+        await toast.waitFor({ timeout: 8000 });
+        assert(/HASH BARON/.test((await toast.textContent()) ?? ''), `rank banner: ${await toast.textContent()}`);
+        await p.screenshot({ path: join(ART, `v11-rank-up-${tag}.png`) });
+        await toast.locator('button').click();
+        assert((await panel('Trophies').getAttribute('aria-current')) === 'page', 'the banner did not open the ladder');
+        const current = p.getByTestId('rank-current');
+        await current.scrollIntoViewIfNeeded();
+        assert((await current.getAttribute('data-rank')) === 'baron', `current rank: ${await current.getAttribute('data-rank')}`);
+        assert(/\+3% hashrate/.test((await current.textContent()) ?? ''), 'the rank does not list its bonus');
+        await p.getByTestId('rank-ladder').screenshot({ path: join(ART, `v11-ladder-${tag}.png`) });
+        // Abilities in the Pools tab.
+        await panel('Pools').click();
+        const flash = p.getByTestId('flash-rent');
+        await flash.scrollIntoViewIfNeeded();
+        await p.waitForFunction(() => /Rent \(\$/.test(document.querySelector('[data-testid="flash-rent"]')?.textContent ?? ''), null, { timeout: 5000 });
+        await flash.click();
+        await p.getByTestId('flash-active').waitFor({ timeout: 3000 });
+        await p.getByTestId('partner-sign').click();
+        await p.getByTestId('partner-active').waitFor({ timeout: 3000 });
+        await p.getByTestId('ability-flash').scrollIntoViewIfNeeded();
+        await p.screenshot({ path: join(ART, `v11-abilities-${tag}.png`) });
+        await p.waitForTimeout(2300);
+        const saved = await p.evaluate(() => JSON.parse(localStorage.getItem('hash-harvest-tycoon')).state);
+        // 11 gems for the four ranks (achievements for the same earnings pay some more).
+        assert(saved.rankSeen === 4 && saved.gems >= 11, `rank not paid: rankSeen ${saved.rankSeen}, gems ${saved.gems}`);
+        assert(saved.buffs.rentHash > 0 && saved.buffs.rentUntil > Date.now(), 'the rental was not saved');
+        assert(saved.partner && saved.partner.pool === 'public', 'the partner deal was not saved');
+        if (viewport.width > 1000) assert(/Hash Baron/.test((await p.getByTestId('hud-rank').textContent()) ?? ''), 'the HUD does not show the rank');
+        // Reloading never pays a rank twice.
+        await p.reload();
+        await enterGame(p, 'continue');
+        await p.waitForTimeout(3500);
+        const again = await p.evaluate(() => JSON.parse(localStorage.getItem('hash-harvest-tycoon')).state);
+        assert(again.gems === saved.gems && again.rankSeen === 4, `rank paid twice: ${saved.gems} -> ${again.gems}`);
+        assert(!(await p.getByTestId('rank-toast').isVisible()), 'the rank banner showed again after a reload');
+        assert(pageErrors.length === 0, pageErrors.join(' | '));
+      } finally {
+        await context.close();
+      }
+    }
+  });
 } catch (err) {
   results.push({ name: 'harness', ok: false, err: err.message });
   console.error(err);

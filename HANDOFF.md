@@ -34,6 +34,13 @@ Reply to the user in Spanish. Project conventions are in `CLAUDE.md`; do not rep
 - Predictive Maintenance (`predictive` research): pure `maintenanceForecast` in `gamePhysics.ts`, shares `crewRates` with the simulation; shown by the HUD diagnosis and `RackDetailModal`.
 - Randomized invariants: `tests/unit/update10Existing.test.ts` simulates 40 seeded farms. Mocking `Math.random` to exactly 0 hangs the market's gaussian draw: use a small non-zero value.
 
+## v11 systems (where things live)
+- Ranks: `src/config/ranks.ts` (`RANKS`, `rankIndex`, `ABILITIES`). The level comes from `lifetimeEarnings`, so ranks survive Halvings; their bonuses enter `runModifiers` through `perks.lifetimeEarnings` (pass it wherever `runModifiers` gets perks). `GameData.rankSeen` makes the gems of a rank pay once (`checkRank`, run every tick); older saves start at the rank they hold.
+- Flash Mining: `buffs.rentHash` / `rentUntil` / `rentCooldownUntil`; pure `rentRate` and `flashQuote` in `gamePhysics.ts`; action `rentHashrate`.
+- Pool Partner: `GameData.partner` (run-scoped), bonus applied in the mining yield; `setPool` breaks the deal (reputation penalty, `buffs.partnerCooldownUntil`); action `signPartner`.
+- Hard Fork: network event `hard_fork`, `forkHashMul(firmwareLevel)` in `gameBalance.ts`. It was appended to the event pool, so tests that mock the RNG to pick an event keep their mapping only for the earlier ids.
+- UI: `RankLadder.tsx` (Trophies), `RankAbilities.tsx` (Pools), `RankToast.tsx`, rank name in the HUD.
+
 ## i18n
 - `src/i18n/index.ts`: English text is the key. React uses `const t = useT()`, other code `tr(en, params)`. Placeholders are `{name}`.
 - Language lives in `useLangStore` / localStorage `hh-lang`, outside the save. Dictionaries: `src/i18n/es/*.ts`, merged in `es/index.ts` (`update9.ts` holds everything added by the v9 update).
@@ -60,3 +67,4 @@ Reply to the user in Spanish. Project conventions are in `CLAUDE.md`; do not rep
 - Phase 5 (HUD P&L and diagnosis, shop impact preview, mass room actions, hotkeys and help modal, wiki entry for the v9 systems): 373 unit, 38/38 server, 41/41 E2E.
 - v10, part 1 (offline digest, daily books, hints, colour-blind palette, randomized invariants; save v10): 434 unit, 38/38 server, 42/42 E2E.
 - v10, part 2 (power market and contracts, power surges and protectors, Predictive Maintenance): 455 unit, 38/38 server, 43/43 E2E.
+- v11 (ranks with gem rewards and high-rank bonuses, Flash Mining, Pool Partner, Hard Fork event; save v11): 477 unit, 38/38 server, 44/44 E2E.

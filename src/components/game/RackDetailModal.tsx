@@ -63,6 +63,7 @@ export function RackDetailModal({ rackUid }: { rackUid: string }) {
     talents: st.talents,
     research: st.research.levels,
     challengeRecords: st.challengeRecords,
+    lifetimeEarnings: st.lifetimeEarnings,
     collection: st.collection,
   }));
   const mods = runModifiers(s.talents, s.research, s);

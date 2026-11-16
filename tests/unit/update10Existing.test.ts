@@ -142,8 +142,8 @@ describe('save v10', () => {
     delete settings.thermalPalette;
     delete settings.hints;
     const data = migrateSave(v9, 9);
-    expect(SAVE_VERSION).toBe(10);
-    expect(data.saveVersion).toBe(10);
+    expect(SAVE_VERSION).toBeGreaterThanOrEqual(10);
+    expect(data.saveVersion).toBe(SAVE_VERSION);
     expect(data.ledger).toEqual([]);
     expect(data.hints).toEqual([]);
     expect(data.settings.thermalPalette).toBe('infrared');

@@ -4,6 +4,8 @@
  * number comes from the balance config; tables come from `wikiTables.ts`.
  */
 import { COLLECTION } from './collection';
+import { ABILITIES, RANKS } from './ranks';
+import { EVENT_EFFECTS as FORK } from './gameBalance';
 import { ENERGY, PPA_PLANS, SPOT_MAX, SPOT_MIN } from './energy';
 import { FORECAST_HORIZON_SEC, SURGE } from './synergy';
 import { LEDGER_DAYS } from '../store/gamePhysics';
@@ -905,6 +907,20 @@ export function sectionsEn(): WikiSection[] {
               '**Welcome back report.** It lists what happened while you were away and what to fix first, with one-click re-paste and repair.',
               `**Daily books** (Trophies). Mined value, trading profit, electricity and automatic maintenance per day, for the last ${LEDGER_DAYS} days.`,
               '**Hints and palette** (System). One-time hints appear the first time a mechanic matters, and the thermal view has a colour-blind safe palette.',
+            ),
+          ],
+        },
+        {
+          id: 'v11-ranks',
+          title: 'Ranks and rank abilities',
+          keywords: ['rank', 'rango', 'level', 'nivel', 'flash mining', 'mineria relampago', 'rent', 'alquilar', 'pool partner', 'socio', 'hard fork', 'bifurcacion', 'baron', 'legend'],
+          blocks: [
+            p('Your level comes from your lifetime earnings, so it survives The Halving. Every few levels you reach a new rank: it pays gems once, and the high ranks add permanent bonuses.'),
+            list(...RANKS.slice(1).map((r) => `**${r.name}** (level ${r.level}): ${[`${r.gems} gems`, ...(r.unlock ? [`unlocks ${r.unlock === 'flash' ? 'Flash Mining' : 'Pool Partner'}`] : []), ...(r.hashMul > 1 ? [`+${pct(r.hashMul - 1)} hashrate`] : []), ...(r.electricityMul < 1 ? [`-${pct(1 - r.electricityMul)} electricity`] : [])].join(', ')}.`)),
+            list(
+              `**Flash Mining** (Pools). Rents remote hashrate equal to your own for ${Math.round(ABILITIES.flash.durationSec / 60)} minutes, with no heat and no power bill. You pay ${pct(ABILITIES.flash.feeShare)} of what it is expected to mine at the current price, up front: it pays off when the price holds or climbs, or when a PPLNS or Solo pool gets lucky. It can be used again after ${Math.round(ABILITIES.flash.cooldownSec / 60)} minutes.`,
+              `**Pool Partner** (Pools). An exclusivity deal with your current pool: +${pct(ABILITIES.partner.payoutMul - 1)} payout for ${Math.round(ABILITIES.partner.durationSec / 60)} minutes. Switching to another pool before it ends costs ${ABILITIES.partner.breakPoints} reputation points and a ${Math.round(ABILITIES.partner.cooldownSec / 60)} minute wait.`,
+              `**Hard Fork** (network event). Rigs hash at ${pct(FORK.forkHashMul)} while it lasts; each Firmware Tuning level recovers ${pct(FORK.forkPerFirmware)}, so level 5 is immune.`,
             ),
           ],
         },

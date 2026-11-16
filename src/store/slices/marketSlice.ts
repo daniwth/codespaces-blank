@@ -5,11 +5,12 @@ import { talentModifiers } from '../../config/prestigeTree';
 import type { TradeOrder, TradingBot } from '../../types/economy';
 import { PPA_PLANS, ppaActive, ppaCancelFee, ppaQuote } from '../../config/energy';
 import { ORDERS } from '../../config/marketCycle';
+import { ABILITIES, RANKS, abilityUnlocked } from '../../config/ranks';
 import { researchModifiers } from '../../config/research';
 import { bnAdd, bnGte, bnSub, bnToNumber } from '../../utils/bignum';
 import { fxBus, makeUid, sfxBus } from '../../utils/eventBus';
-import { formatCash, formatDuration, formatNumber, formatPrice } from '../../utils/formatters';
-import { buyPrice, realizedEarnings, sellPrice } from '../gamePhysics';
+import { formatCash, formatDuration, formatHashrate, formatNumber, formatPrice } from '../../utils/formatters';
+import { buyPrice, flashQuote, realizedEarnings, sellPrice } from '../gamePhysics';
 import { costBasisOf, holdingOf, walletPatch } from '../wallets';
 import type { GetState, MarketSlice, SetState } from '../storeTypes';
 
@@ -83,6 +84,17 @@ export function createMarketSlice(set: SetState, get: GetState): MarketSlice {
         s.pushLog(tr('{name} unlocks at level {level}.', { name: tr(def.name), level: def.unlockLevel }), 'warn');
         return false;
       }
+      // Leaving a partner pool early breaks the deal: it costs reputation and the pool will not sign again for a while.
+      const now = Date.now();
+      const broken = s.partner !== null && now < s.partner.until && s.partner.pool !== pool && s.pool === s.partner.pool;
+      if (broken) {
+        set({
+          partner: null,
+          reputation: { ...s.reputation, points: Math.max(0, s.reputation.points - ABILITIES.partner.breakPoints) },
+          buffs: { ...s.buffs, partnerCooldownUntil: now + ABILITIES.partner.cooldownSec * 1000 },
+        });
+        s.logT('You broke your Pool Partner deal: -{points} reputation.', { points: ABILITIES.partner.breakPoints }, 'bad');
+      }
       // Shares waiting for a PPLNS block are settled at par before leaving the pool.
       set({ pool, poolPending: 0, ...(s.poolPending > 0 ? walletPatch(s, s.minedCoin, s.poolPending, 0) : {}) });
       s.pushLog(tr('Switched to {name}.', { name: tr(def.name) }), 'info');
@@ -104,6 +116,54 @@ export function createMarketSlice(set: SetState, get: GetState): MarketSlice {
       const order: TradeOrder = { id: makeUid('ord'), coin, kind, price, amountPct: Math.min(ORDERS.maxPct, Math.max(ORDERS.minPct, Math.round(amountPct))), createdAt: Date.now() };
       set({ orders: [...s.orders, order] });
       s.logT(kind === 'tp' ? 'Take-profit placed: sell {pct}% of ${coin} at {price} or more.' : 'Stop-loss placed: sell {pct}% of ${coin} at {price} or less.', { pct: order.amountPct, coin, price: formatPrice(price) }, 'info');
+      sfxBus.emit('install');
+      return true;
+    },
+
+    rentHashrate: (now = Date.now()) => {
+      const s = get();
+      if (!abilityUnlocked('flash', levelFromEarnings(bnToNumber(s.lifetimeEarnings)))) {
+        s.logT('{ability} unlocks at the rank {rank}.', { ability: 'Flash Mining', rank: RANKS.find((r) => r.unlock === 'flash')?.name ?? '' }, 'warn');
+        sfxBus.emit('error');
+        return false;
+      }
+      if (now < s.buffs.rentCooldownUntil) {
+        sfxBus.emit('error');
+        return false;
+      }
+      const quote = flashQuote(s.live, s.pool, s.minedCoin, s.market[s.minedCoin].price);
+      if (!(quote.hash > 0)) {
+        s.logT('Flash Mining needs a farm that is hashing.', undefined, 'warn');
+        sfxBus.emit('error');
+        return false;
+      }
+      if (!bnGte(s.cash, quote.fee)) {
+        s.logT('Not enough cash for {label} ({price}).', { label: 'Flash Mining', price: formatCash(quote.fee) }, 'warn');
+        sfxBus.emit('error');
+        return false;
+      }
+      set({
+        cash: bnSub(s.cash, quote.fee),
+        buffs: { ...s.buffs, rentHash: quote.hash, rentUntil: now + ABILITIES.flash.durationSec * 1000, rentCooldownUntil: now + ABILITIES.flash.cooldownSec * 1000 },
+      });
+      s.logT('FLASH MINING: rented {hash} for {time}. Fee {fee}.', { hash: formatHashrate(quote.hash), time: formatDuration(ABILITIES.flash.durationSec), fee: formatCash(quote.fee) }, 'good');
+      sfxBus.emit('install');
+      return true;
+    },
+
+    signPartner: (now = Date.now()) => {
+      const s = get();
+      if (!abilityUnlocked('partner', levelFromEarnings(bnToNumber(s.lifetimeEarnings)))) {
+        s.logT('{ability} unlocks at the rank {rank}.', { ability: 'Pool Partner', rank: RANKS.find((r) => r.unlock === 'partner')?.name ?? '' }, 'warn');
+        sfxBus.emit('error');
+        return false;
+      }
+      if ((s.partner && now < s.partner.until) || now < s.buffs.partnerCooldownUntil) {
+        sfxBus.emit('error');
+        return false;
+      }
+      set({ partner: { pool: s.pool, until: now + ABILITIES.partner.durationSec * 1000 } });
+      s.logT('Pool Partner deal signed with {pool}: +{pct}% payout for {time}. Leaving early costs reputation.', { pool: POOLS[s.pool].name, pct: Math.round((ABILITIES.partner.payoutMul - 1) * 100), time: formatDuration(ABILITIES.partner.durationSec) }, 'good');
       sfxBus.emit('install');
       return true;
     },

@@ -240,6 +240,18 @@ export interface FarmBuffs {
   blockMulUntil: number;
   /** Audit drone: contract claims that still pay the audit bonus. */
   auditClaims: number;
+  /** Flash Mining: remote hashrate (H/s) rented until `rentUntil`; it can be rented again at `rentCooldownUntil`. */
+  rentHash: number;
+  rentUntil: number;
+  rentCooldownUntil: number;
+  /** A new Pool Partner deal can be signed from this time on. */
+  partnerCooldownUntil: number;
+}
+
+/** Pool Partner: exclusivity deal with one pool until `until`. */
+export interface PoolPartner {
+  pool: PoolMode;
+  until: number;
 }
 
 /** One-off room upgrades bought with cash (run-scoped, like the rooms themselves). */
@@ -381,6 +393,10 @@ export interface GameData {
   reputation: ReputationState;
   /** Silicon Collection album (survives Halvings). */
   collection: SiliconCollection;
+  /** Pool Partner deal in force (belongs to the run). */
+  partner: PoolPartner | null;
+  /** Highest rank already celebrated (index in `RANKS`): its gems are paid once. */
+  rankSeen: number;
   /** Power purchase agreement in force (Energy Desk research; belongs to the run). */
   ppa: PowerContract | null;
   /** Daily books of the last two weeks (survive Halvings). */

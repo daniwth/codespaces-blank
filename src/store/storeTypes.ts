@@ -86,6 +86,8 @@ export interface UiState {
   sideTab: SideTab;
   lottery: LotteryReveal | null;
   contractToast: ContractToast | null;
+  /** Rank just reached (index in `RANKS`), shown as a banner until dismissed. */
+  rankToast: number | null;
   /** Contextual hint on screen (id from `HINTS`). */
   activeHint: string | null;
   /** Title menu or game. Not persisted: every launch starts on the menu. */
@@ -170,6 +172,10 @@ export interface MarketSlice {
   /** Place a one-shot take-profit / stop-loss sell order (needs the Order Desk research). */
   addOrder: (coin: CoinId, kind: OrderKind, price: number, amountPct: number) => boolean;
   removeOrder: (id: string) => void;
+  /** Flash Mining (rank ability): rent remote hashrate for a few minutes, paying the fee up front. */
+  rentHashrate: (now?: number) => boolean;
+  /** Pool Partner (rank ability): exclusivity deal with the current pool. */
+  signPartner: (now?: number) => boolean;
   /** Lock the rate quoted right now for the plan's duration (Energy Desk research). */
   signPpa: (plan: PpaPlanId, now?: number) => boolean;
   /** Break the contract in force, paying the early termination fee. */
@@ -259,6 +265,9 @@ export interface CoreActions {
   selectRack: (uid: string | null) => void;
   openBios: (uid: string | null) => void;
   dismissLottery: () => void;
+  /** Celebrate (and pay the gems of) every rank reached since the last check. */
+  checkRank: () => void;
+  dismissRankToast: () => void;
   /** Show the first contextual hint whose moment has come (at most one at a time, each once per save). */
   checkHints: (now?: number) => void;
   dismissHint: () => void;

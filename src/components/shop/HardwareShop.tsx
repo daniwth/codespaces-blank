@@ -117,6 +117,7 @@ export function HardwareShop() {
     battery: st.upgrades.battery,
     surge: st.upgrades.surge,
     challengeRecords: st.challengeRecords,
+    lifetimeEarnings: st.lifetimeEarnings,
     collection: st.collection,
     usedMarket: talentModifiers(st.talents).usedMarket,
   }));

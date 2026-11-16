@@ -6,12 +6,13 @@ import { emptyReputation } from '../config/reputation';
 import { DEFAULT_BMC, DEFAULT_UPGRADES, defaultBiosProfiles } from '../config/synergy';
 import { COIN_MARKET, emptyAlts } from '../config/altcoins';
 import { GPU_BY_ID, QUALITY_DEFS } from '../config/hardwareCatalog';
-import { MARKET, SAVE_VERSION, STARTING_CASH, EVENT_INTERVAL } from '../config/gameBalance';
+import { MARKET, SAVE_VERSION, STARTING_CASH, EVENT_INTERVAL, levelFromEarnings } from '../config/gameBalance';
+import { rankIndex } from '../config/ranks';
 import { talentModifiers } from '../config/prestigeTree';
 import type { CoinId, CoinMarket, MarketState } from '../types/economy';
 import type { GpuInstance, RackInstance, SiliconQuality } from '../types/hardware';
 import type { ChallengeId, GameData, GameSettings, RoomId, TalentLevels, VipState } from '../types/player';
-import { bn } from '../utils/bignum';
+import { bn, bnToNumber } from '../utils/bignum';
 import { makeUid } from '../utils/eventBus';
 import { randRange, weightedPick } from '../utils/random';
 import { contractContext, createBoard } from './contracts';
@@ -175,6 +176,9 @@ export function createInitialData(carry?: Partial<GameData>, challenge?: Challen
     // The starter card is the first entry of the album.
     collection: collect(carry?.collection ?? {}, 'px460', 'bronze'),
     ppa: null,
+    partner: null,
+    // A rank already reached is never celebrated (or paid) twice.
+    rankSeen: carry?.rankSeen ?? rankIndex(levelFromEarnings(bnToNumber(carry?.lifetimeEarnings ?? '0'))),
     ledger: carry?.ledger ?? [],
     hints: carry?.hints ?? [],
   };

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ALT_COIN_IDS, COIN_INFO } from '../../config/altcoins';
 import { sprites } from '../../engine/SpriteManager';
 import { NETWORK_EVENTS, POOLS, earningsForLevel, levelFromEarnings } from '../../config/gameBalance';
+import { rankOf } from '../../config/ranks';
 import { talentModifiers } from '../../config/prestigeTree';
 import { ROOM_BY_ID } from '../../config/roomsCatalog';
 import { useShallow } from 'zustand/react/shallow';
@@ -126,6 +127,7 @@ export function RetroHUD() {
             </h1>
             <div className="mt-1 flex items-center gap-1.5">
               <span className="font-silk text-[10px] text-amber">LV {level}</span>
+              <span className="hidden font-silk text-[10px] sm:inline" style={{ color: rankOf(level).color }} title={t('Rank')} data-testid="hud-rank">{t(rankOf(level).name)}</span>
               <div className="h-1.5 w-16 bg-[#1b1838]">
                 <div className="h-full bg-amber" style={{ width: `${lvlProgress * 100}%` }} />
               </div>

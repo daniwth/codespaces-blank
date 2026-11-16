@@ -17,7 +17,7 @@ import {
   hashDifficulty,
   spikeDifficulty,
 } from '../config/altcoins';
-import { BUFFS, blockMulOf, crewRallied, nitroActive } from '../config/buffs';
+import { BUFFS, blockMulOf, crewRallied, nitroActive, rentedHash } from '../config/buffs';
 import { challengeRules } from '../config/challenges';
 import { MAX_PADS, ROOM_BY_ID, ROOM_MECHANICS, garageWave, isNight, padsAdjacent } from '../config/roomsCatalog';
 import { FORECAST_HORIZON_SEC, SURGE, SYNERGY } from '../config/synergy';
@@ -25,6 +25,7 @@ import { runModifiers, type RunModifiers } from '../config/modifiers';
 import { talentModifiers, type TalentModifiers } from '../config/prestigeTree';
 import {
   EVENT_EFFECTS,
+  forkHashMul,
   EVENT_INTERVAL,
   GRID,
   MARKET,
@@ -34,6 +35,7 @@ import {
 } from '../config/gameBalance';
 import type { ActiveNetworkEvent, AltCoinId, CoinId, MarketCycle, MarketState, MineableCoin, NetworkEventId, PoolMode } from '../types/economy';
 import { ENERGY, gridSpot, ppaActive } from '../config/energy';
+import { ABILITIES } from '../config/ranks';
 import { MARKET_PHASES, NEWS, NEWS_IDS, NEWS_INTERVAL, cycleEffect } from '../config/marketCycle';
 import type {
   GpuInstance,
@@ -55,7 +57,7 @@ export type SimInput = Pick<
   | 'gpus' | 'psus' | 'coolers' | 'racks' | 'ownedRooms' | 'roomTemps' | 'technicians'
   | 'pool' | 'market' | 'bots' | 'event' | 'nextEventAt' | 'talents' | 'vip'
   | 'cash' | 'cc' | 'ccCostBasis' | 'meme' | 'memeCostBasis' | 'alts' | 'minedCoin' | 'lastTick' | 'challenge'
-  | 'research' | 'boost' | 'buffs' | 'upgrades' | 'bmc' | 'cycle' | 'orders' | 'poolPending' | 'challengeRecords' | 'collection' | 'ppa'
+  | 'research' | 'boost' | 'buffs' | 'upgrades' | 'bmc' | 'cycle' | 'orders' | 'poolPending' | 'challengeRecords' | 'collection' | 'ppa' | 'partner' | 'lifetimeEarnings'
 >;
 
 export type MessageTone = 'info' | 'good' | 'warn' | 'bad';
@@ -124,6 +126,9 @@ export interface LiveMetrics {
   avgTemp: number;
   /** Night half of the shared day/night clock. */
   night: boolean;
+  /** Remote hashrate rented right now (H/s) and the Pool Partner payout multiplier (1 = none). */
+  rentedHash: number;
+  partnerMul: number;
   /** Wholesale spot index right now (1 without the Energy Desk). */
   gridSpot: number;
   /** Multiplier actually billed on the retail tariff: the contract rate, or the spot index. */
@@ -529,7 +534,7 @@ const emptyYields = (): Record<MineableCoin, CoinYield> => ({
 });
 
 function emptyLive(): LiveMetrics {
-  return { totalHash: 0, ccPerSec: 0, minedCoin: 'CC', coinPerSec: 0, yields: emptyYields(), electricityPerSec: 0, gridDemand: 1, difficulty: 1, hottest: 0, avgTemp: 0, night: false, gridSpot: 1, energyMul: 1, surge: 1, rooms: {}, racks: {}, gpus: {} };
+  return { totalHash: 0, ccPerSec: 0, minedCoin: 'CC', coinPerSec: 0, yields: emptyYields(), electricityPerSec: 0, gridDemand: 1, difficulty: 1, hottest: 0, avgTemp: 0, night: false, rentedHash: 0, partnerMul: 1, gridSpot: 1, energyMul: 1, surge: 1, rooms: {}, racks: {}, gpus: {} };
 }
 
 interface StepAccumulator {
@@ -598,7 +603,7 @@ function stepEvents(w: World, rooms: RoomId[], now: number, acc: StepAccumulator
     w.nextEventAt = now + randRange(EVENT_INTERVAL[0], EVENT_INTERVAL[1]) * 1000;
   }
   if (!w.event && now >= w.nextEventAt) {
-    const pool: NetworkEventId[] = ['difficulty_spike', 'heatwave', 'cold_snap', 'bull_run', 'meme_mania', 'flash_sale', ...(rooms.length ? (['blackout'] as const) : [])];
+    const pool: NetworkEventId[] = ['difficulty_spike', 'heatwave', 'cold_snap', 'bull_run', 'meme_mania', 'flash_sale', ...(rooms.length ? (['blackout'] as const) : []), 'hard_fork'];
     const id = pick(pool);
     const def = NETWORK_EVENTS[id];
     const duration = randRange(def.duration[0], def.duration[1]) * 1000;
@@ -641,6 +646,8 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
   const crewSpeed = rally ? BUFFS.crew.speedMul : 1;
   const crewCooling = rally ? BUFFS.crew.coolingMul : 1;
   const spiking = ev?.id === 'difficulty_spike';
+  // Hard Fork: rigs on old firmware lose hashrate until the event ends.
+  const forkMul = ev?.id === 'hard_fork' ? forkHashMul(input.research.levels.firmware ?? 0) : 1;
   const coinId = input.minedCoin;
   const eventDifficulty = (coin: MineableCoin): number => (spiking ? spikeDifficulty(coin) : 1);
 
@@ -852,7 +859,7 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
 
         const oc = rules.lockOverclock ? 0 : g.ocBonus;
         const hash = hashing
-          ? model.hashrate * (1 + (oc > 0 ? oc * ocShare : oc)) * (clustered ? 1 + SYNERGY.clusterHash : 1) * (throttled ? 0.5 : 1) * (1 - g.wear) * brownout * mods.hashMul * surge
+          ? model.hashrate * (1 + (oc > 0 ? oc * ocShare : oc)) * (clustered ? 1 + SYNERGY.clusterHash : 1) * (throttled ? 0.5 : 1) * (1 - g.wear) * brownout * mods.hashMul * surge * forkMul
           : 0;
         rackHash += hash;
         rackMax = Math.max(rackMax, g.temp);
@@ -937,7 +944,13 @@ function step(w: World, input: SimInput, dt: number, now: number, mods: RunModif
   const poolMul = poolYieldMul(input.pool);
   const diffOf = (coin: MineableCoin): number => eventDifficulty(coin) * hashDifficulty(coin, totalHash);
   const rateOf = (coin: MineableCoin): number => ((totalHash / 1e6) * coinPerMHs(coin)) / diffOf(coin);
-  const baseRate = rateOf(coinId);
+  // Flash Mining: rented remote hashrate mints the mined coin too (no heat, no bill: the fee was paid up front).
+  const rented = rentedHash(input.buffs, now);
+  // Pool Partner: a better payout while the farm stays in the partner pool.
+  const partnerMul = input.partner && now < input.partner.until && input.partner.pool === input.pool ? ABILITIES.partner.payoutMul : 1;
+  const baseRate = (rateOf(coinId) + rentRate(coinId, totalHash, rented, eventDifficulty(coinId))) * partnerMul;
+  live.rentedHash = rented;
+  live.partnerMul = partnerMul;
   let gain = 0;
   if (input.pool === 'public') {
     gain = baseRate * (1 - pool.fee) * dt;
@@ -1275,6 +1288,34 @@ export function diagnoseFarm(data: Pick<GameData, 'racks' | 'gpus' | 'ownedRooms
   if (freePads) add('empty_pads', 1, '{n} empty rack pads.', { n: freePads });
 
   return out.sort((a, b) => b.severity - a.severity);
+}
+
+// ───────────────────────── Flash Mining ─────────────────────────
+
+/**
+ * Coins per second that `rented` H/s add on top of a farm hashing `ownHash` (before pool fees). The
+ * network difficulty grows with the total, so rented hashrate yields a little less than the farm's own.
+ */
+export function rentRate(coin: MineableCoin, ownHash: number, rented: number, eventDifficulty = 1): number {
+  if (!(rented > 0)) return 0;
+  const rate = (hash: number): number => ((hash / 1e6) * coinPerMHs(coin)) / (eventDifficulty * hashDifficulty(coin, hash));
+  return Math.max(0, rate(ownHash + rented) - rate(ownHash));
+}
+
+export interface FlashQuote {
+  /** Remote hashrate offered (H/s). */
+  hash: number;
+  /** Coins it is expected to mine over the rental with the current pool. */
+  coins: number;
+  /** Cash paid up front. */
+  fee: number;
+}
+
+/** What Flash Mining offers right now: a share of the farm's own hashrate, priced at the current market. */
+export function flashQuote(live: Pick<LiveMetrics, 'totalHash'>, pool: PoolMode, coin: MineableCoin, price: number): FlashQuote {
+  const hash = live.totalHash * ABILITIES.flash.hashShare;
+  const coins = rentRate(coin, live.totalHash, hash) * poolYieldMul(pool) * ABILITIES.flash.durationSec;
+  return { hash, coins, fee: Math.round(coins * price * ABILITIES.flash.feeShare * 100) / 100 };
 }
 
 // ───────────────────────── Predictive maintenance ─────────────────────────

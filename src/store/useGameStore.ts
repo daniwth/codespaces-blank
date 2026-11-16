@@ -11,6 +11,8 @@ import { formatCash, formatNumber } from '../utils/formatters';
 import { decodeSave, encodeSave } from '../utils/saveCodec';
 import { localDay } from '../config/daily';
 import { nextHint } from '../config/hints';
+import { levelFromEarnings } from '../config/gameBalance';
+import { RANKS, rankIndex } from '../config/ranks';
 import { emptyLive, foldLedger, offlineDigest, type RackFx, type SimInput, type SimOutput, type SoundCue } from './gamePhysics';
 import { pruneGpuEdits, reconcileGpuUpdate } from './editLedger';
 import { createInitialData } from './initialState';
@@ -34,7 +36,7 @@ const DATA_KEYS: (keyof GameData)[] = [
   'roomTemps', 'technicians', 'pool', 'market', 'bots', 'event', 'nextEventAt', 'talents', 'vip',
   'achievements', 'stats', 'settings', 'contracts', 'challenge', 'challengeRecords', 'alts', 'minedCoin',
   'research', 'boost', 'nextAirdropAt', 'roadmap', 'daily', 'autopilot', 'buffs', 'upgrades', 'bmc', 'biosProfiles',
-  'cycle', 'orders', 'poolPending', 'reputation', 'collection', 'ppa', 'ledger', 'hints',
+  'cycle', 'orders', 'poolPending', 'reputation', 'collection', 'ppa', 'partner', 'rankSeen', 'ledger', 'hints',
 ];
 
 export const extractData = (s: GameStore): GameData => {
@@ -52,7 +54,7 @@ export const selectSimInput = (s: GameStore): SimInput => ({
   event: s.event, nextEventAt: s.nextEventAt, talents: s.talents, vip: s.vip, cash: s.cash, cc: s.cc,
   meme: s.meme, memeCostBasis: s.memeCostBasis, ccCostBasis: s.ccCostBasis, alts: s.alts, minedCoin: s.minedCoin, lastTick: s.lastTick, challenge: s.challenge,
   research: s.research, boost: s.boost, buffs: s.buffs, upgrades: s.upgrades, bmc: s.bmc,
-  cycle: s.cycle, orders: s.orders, poolPending: s.poolPending, challengeRecords: s.challengeRecords, collection: s.collection, ppa: s.ppa,
+  cycle: s.cycle, orders: s.orders, poolPending: s.poolPending, challengeRecords: s.challengeRecords, collection: s.collection, ppa: s.ppa, partner: s.partner, lifetimeEarnings: s.lifetimeEarnings,
 });
 
 /**
@@ -139,6 +141,7 @@ const initialUi = (): UiState => ({
   lottery: null,
   contractToast: null,
   activeHint: null,
+  rankToast: null,
   screen: 'menu',
   wikiOpen: false,
   airdrop: null,
@@ -224,6 +227,8 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
         cycle: out.cycle,
         orders: out.filledOrders.length ? s.orders.filter((o) => !out.filledOrders.includes(o.id)) : s.orders,
         poolPending: Math.max(0, s.poolPending + out.poolPendingDelta),
+        // A partner deal that ran its course ends on good terms.
+        partner: s.partner && s.partner.until <= out.now ? null : s.partner,
         // A contract that ran out is dropped; one in force keeps count of what it saved.
         ppa: s.ppa && s.ppa.endsAt <= out.now ? null : s.ppa && out.ppaSaved !== 0 ? { ...s.ppa, saved: s.ppa.saved + out.ppaSaved } : s.ppa,
         ledger: foldLedger(s.ledger, out, s.market[out.minedCoin].price, localDay(out.now)),
@@ -266,6 +271,7 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
       checkChallenge();
       checkRoadmap();
       checkAchievements();
+      get().checkRank();
       get().checkHints(out.now);
       get().autopilotTick(out.dt, out.now);
     },
@@ -312,6 +318,18 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
     selectRack: (uid) => set({ selectedRack: uid }),
     openBios: (uid) => set({ biosGpu: uid }),
     dismissLottery: () => set({ lottery: null }),
+
+    checkRank: () => {
+      const s = get();
+      const held = rankIndex(levelFromEarnings(bnToNumber(s.lifetimeEarnings)));
+      if (held <= s.rankSeen) return;
+      const gems = RANKS.slice(s.rankSeen + 1, held + 1).reduce((a, r) => a + r.gems, 0);
+      const rank = RANKS[held];
+      set({ rankSeen: held, gems: s.gems + gems, rankToast: held });
+      s.logT('RANK UP: you are now {rank}. +{gems} gems.', { rank: rank.name, gems }, 'good');
+      sfxBus.emit('unlock');
+    },
+    dismissRankToast: () => set({ rankToast: null }),
 
     checkHints: (now = Date.now()) => {
       const s = get();
@@ -366,7 +384,7 @@ function createCoreActions(set: SetState, get: GetState): CoreActions {
     },
 
     returnToMenu: () => {
-      set({ thermalView: false, helpOpen: false, screen: 'menu', selectedRack: null, biosGpu: null, lottery: null, contractToast: null, activeHint: null, offlineReport: null, wikiOpen: false, airdrop: null, dailyOpen: false });
+      set({ thermalView: false, helpOpen: false, screen: 'menu', selectedRack: null, biosGpu: null, lottery: null, contractToast: null, activeHint: null, rankToast: null, offlineReport: null, wikiOpen: false, airdrop: null, dailyOpen: false });
       gameStorage.flush();
     },
 

@@ -9,6 +9,7 @@ import { cn } from '../../utils/cn';
 import { formatCash, formatDuration, formatHashrate } from '../../utils/formatters';
 import { GoalReward, goalValueText } from '../ui/GoalBar';
 import { DailyLedger } from './DailyLedger';
+import { RankLadder } from './RankLadder';
 import { PixelButton } from '../ui/PixelButton';
 
 /** How many finished / upcoming goals the roadmap list shows around the current one. */
@@ -126,6 +127,8 @@ export function AchievementsPanel() {
           </div>
         )}
       </section>
+
+      <RankLadder />
 
       <DailyLedger />
 

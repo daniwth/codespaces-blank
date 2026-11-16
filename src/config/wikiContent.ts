@@ -7,6 +7,8 @@
  * rooms, talents, The Halving, $CC, $SC…) go through the dictionary (`tr`).
  */
 import { COLLECTION } from './collection';
+import { ABILITIES, RANKS } from './ranks';
+import { EVENT_EFFECTS as FORK } from './gameBalance';
 import { ENERGY, PPA_PLANS, SPOT_MAX, SPOT_MIN } from './energy';
 import { FORECAST_HORIZON_SEC, SURGE } from './synergy';
 import { LEDGER_DAYS } from '../store/gamePhysics';
@@ -911,6 +913,20 @@ export function sectionsEs(): WikiSection[] {
               '**Informe de regreso.** Lista lo que pasó mientras no estabas y qué arreglar primero, con cambio de pasta y reparación en un clic.',
               `**Libro diario** (Trofeos). Valor minado, beneficio de trading, electricidad y mantenimiento automático por día, de los últimos ${LEDGER_DAYS} días.`,
               '**Pistas y paleta** (Sistema). Las pistas aparecen una sola vez cuando una mecánica importa por primera vez, y la vista térmica tiene una paleta apta para daltonismo.',
+            ),
+          ],
+        },
+        {
+          id: 'v11-ranks',
+          title: 'Rangos y habilidades de rango',
+          keywords: ['rank', 'rango', 'level', 'nivel', 'flash mining', 'mineria relampago', 'rent', 'alquilar', 'pool partner', 'socio', 'hard fork', 'bifurcacion', 'baron', 'legend'],
+          blocks: [
+            p('Tu nivel sale de tus ganancias totales, así que sobrevive al Halving. Cada pocos niveles alcanzas un rango nuevo: paga gemas una vez, y los rangos altos añaden bonificaciones permanentes.'),
+            list(...RANKS.slice(1).map((r) => `**${n(r.name)}** (nivel ${r.level}): ${[`${r.gems} gemas`, ...(r.unlock ? [`desbloquea ${r.unlock === 'flash' ? 'Minería relámpago' : 'Socio del pool'}`] : []), ...(r.hashMul > 1 ? [`+${pct(r.hashMul - 1)} de hashrate`] : []), ...(r.electricityMul < 1 ? [`-${pct(1 - r.electricityMul)} de electricidad`] : [])].join(', ')}.`)),
+            list(
+              `**Minería relámpago** (Pools). Alquila hashrate remoto igual al tuyo durante ${Math.round(ABILITIES.flash.durationSec / 60)} minutos, sin calor ni factura de luz. Pagas por adelantado el ${pct(ABILITIES.flash.feeShare)} de lo que se espera que mine al precio actual: compensa si el precio aguanta o sube, o si un pool PPLNS o Solo tiene suerte. Se puede volver a usar tras ${Math.round(ABILITIES.flash.cooldownSec / 60)} minutos.`,
+              `**Socio del pool** (Pools). Acuerdo de exclusividad con tu pool actual: +${pct(ABILITIES.partner.payoutMul - 1)} de pago durante ${Math.round(ABILITIES.partner.durationSec / 60)} minutos. Cambiar de pool antes de que termine cuesta ${ABILITIES.partner.breakPoints} puntos de reputación y ${Math.round(ABILITIES.partner.cooldownSec / 60)} minutos de espera.`,
+              `**Bifurcación dura** (evento de red). Los equipos minan al ${pct(FORK.forkHashMul)} mientras dura; cada nivel de Ajuste de firmware recupera un ${pct(FORK.forkPerFirmware)}, así que el nivel 5 es inmune.`,
             ),
           ],
         },

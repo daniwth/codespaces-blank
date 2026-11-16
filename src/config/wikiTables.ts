@@ -604,6 +604,10 @@ const EVENT_EFFECT: Record<NetworkEventId, readonly [string, string]> = {
     `The average $CC and $NOVA price drifts toward x${EVENT_EFFECTS.bullMeanMul} ($BYT only toward x${EVENT_EFFECTS.bytBullMeanMul}).`,
   ],
   meme_mania: [`La volatilidad de $MEME se multiplica por ${EVENT_EFFECTS.memeVolMul}.`, `$MEME volatility is multiplied by ${EVENT_EFFECTS.memeVolMul}.`],
+  hard_fork: [
+    `El hashrate baja a x${EVENT_EFFECTS.forkHashMul}; cada nivel de Ajuste de firmware recupera un ${pct(EVENT_EFFECTS.forkPerFirmware)}.`,
+    `Hashrate drops to x${EVENT_EFFECTS.forkHashMul}; each Firmware Tuning level recovers ${pct(EVENT_EFFECTS.forkPerFirmware)}.`,
+  ],
   flash_sale: [
     `GPUs, fuentes, refrigeradores y racks cuestan un ${pct(1 - EVENT_EFFECTS.flashSaleMul)} menos en la tienda.`,
     `GPUs, PSUs, coolers and racks cost ${pct(1 - EVENT_EFFECTS.flashSaleMul)} less in the Shop.`,

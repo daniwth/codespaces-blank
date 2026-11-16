@@ -124,7 +124,8 @@ export type NetworkEventId =
   | 'cold_snap'
   | 'bull_run'
   | 'meme_mania'
-  | 'flash_sale';
+  | 'flash_sale'
+  | 'hard_fork';
 
 export interface NetworkEventDef {
   id: NetworkEventId;

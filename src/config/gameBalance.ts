@@ -1,7 +1,7 @@
 import type { NetworkEventDef, NetworkEventId, PoolDefinition, PoolMode } from '../types/economy';
 import type { AchievementDef } from '../types/player';
 
-export const SAVE_VERSION = 10;
+export const SAVE_VERSION = 11;
 export const SAVE_KEY = 'hash-harvest-tycoon';
 export const SAVE_SALT = 'HHT::pixel-rigs::v1';
 
@@ -103,6 +103,10 @@ export const NETWORK_EVENTS: Record<NetworkEventId, NetworkEventDef> = {
     id: 'meme_mania', name: 'Meme Mania', positive: true, color: '#e879f9',
     description: '$MEME volatility goes parabolic.', duration: [45, 90],
   },
+  hard_fork: {
+    id: 'hard_fork', name: 'Hard Fork', positive: false, color: '#a78bfa',
+    description: 'The network changed its rules: rigs on old firmware hash at 70%. Each Firmware Tuning level recovers 6%.', duration: [50, 90],
+  },
   flash_sale: {
     id: 'flash_sale', name: 'Flash Sale', positive: true, color: '#facc15',
     description: 'Suppliers dump stock: GPUs, PSUs, coolers and racks are 20% off.', duration: [45, 75],
@@ -122,7 +126,14 @@ export const EVENT_EFFECTS = {
   memeVolMul: 2.6,
   /** Flash Sale: multiplier on hardware prices in the Shop. */
   flashSaleMul: 0.8,
+  /** Hard Fork: hashrate share kept with stock firmware, and what each Firmware Tuning level recovers. */
+  forkHashMul: 0.7,
+  forkPerFirmware: 0.06,
 };
+
+/** Hashrate multiplier of a Hard Fork for a farm with this many Firmware Tuning levels. */
+export const forkHashMul = (firmwareLevel: number): number =>
+  Math.min(1, EVENT_EFFECTS.forkHashMul + EVENT_EFFECTS.forkPerFirmware * Math.max(0, firmwareLevel));
 
 export const MARKET = {
   candleMs: 5_000,

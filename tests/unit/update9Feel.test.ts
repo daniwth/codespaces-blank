@@ -290,7 +290,7 @@ describe('save v9', () => {
   it('round-trips a v9 save and clamps tampered boosts and volumes', () => {
     const data = createInitialData();
     const now = Date.now();
-    data.buffs = { techUntil: now + 10_000, techCooldownUntil: now + 100_000, nitroUntil: now + 30_000, blockMulUntil: now + 200_000, auditClaims: 2 };
+    data.buffs = { ...emptyBuffs(), techUntil: now + 10_000, techCooldownUntil: now + 100_000, nitroUntil: now + 30_000, blockMulUntil: now + 200_000, auditClaims: 2 };
     data.settings = { ...data.settings, ambientVolume: 0.35 };
     const back = migrateSave(JSON.parse(JSON.stringify(data)), SAVE_VERSION);
     expect(back.buffs).toEqual(data.buffs);

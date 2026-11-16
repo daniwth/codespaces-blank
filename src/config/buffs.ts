@@ -15,9 +15,11 @@ export const BUFFS = {
   audit: { cashMul: 1.5, claims: 1, maxClaims: 3 },
 } as const;
 
-export const emptyBuffs = (): FarmBuffs => ({ techUntil: 0, techCooldownUntil: 0, nitroUntil: 0, blockMulUntil: 0, auditClaims: 0 });
+export const emptyBuffs = (): FarmBuffs => ({ techUntil: 0, techCooldownUntil: 0, nitroUntil: 0, blockMulUntil: 0, auditClaims: 0, rentHash: 0, rentUntil: 0, rentCooldownUntil: 0, partnerCooldownUntil: 0 });
 
 export const crewRallied = (b: Pick<FarmBuffs, 'techUntil'>, now: number): boolean => now < b.techUntil;
 export const crewReady = (b: Pick<FarmBuffs, 'techCooldownUntil'>, now: number): boolean => now >= b.techCooldownUntil;
 export const nitroActive = (b: Pick<FarmBuffs, 'nitroUntil'>, now: number): boolean => now < b.nitroUntil;
+/** Remote hashrate rented right now (H/s). */
+export const rentedHash = (b: Pick<FarmBuffs, 'rentHash' | 'rentUntil'>, now: number): number => (now < b.rentUntil ? Math.max(0, b.rentHash) : 0);
 export const blockMulOf = (b: Pick<FarmBuffs, 'blockMulUntil'>, now: number): number => (now < b.blockMulUntil ? BUFFS.vip.blockMul : 1);

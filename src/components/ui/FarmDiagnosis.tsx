@@ -13,7 +13,7 @@ function DiagnosisPanel() {
   const s = useGameShallow((st) => ({
     live: st.live, pool: st.pool, price: st.market[st.minedCoin].price, coin: st.minedCoin,
     racks: st.racks, gpus: st.gpus, ownedRooms: st.ownedRooms, talents: st.talents, challenge: st.challenge,
-    technicians: st.technicians, buffs: st.buffs, research: st.research.levels, challengeRecords: st.challengeRecords, collection: st.collection,
+    technicians: st.technicians, buffs: st.buffs, research: st.research.levels, challengeRecords: st.challengeRecords, collection: st.collection, lifetimeEarnings: st.lifetimeEarnings,
   }));
   const mods = runModifiers(s.talents, s.research, s);
   const pnl = farmPnl(s.live, s.pool, s.price);
